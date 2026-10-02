@@ -8,14 +8,14 @@ name: Laissez jobs
 on:
   schedule:
     - cron: '20 5 * * *'    # sanctions lists, then monitoring in every workspace
-    - cron: '40 6 * * *'    # nightly monitoring sweep
+    - cron: '40 6 * * *'    # nightly: fund NAV and accruals, monitoring sweep, reconciliation, audit anchoring
     - cron: '15 */6 * * *'  # regulator feeds
   workflow_dispatch:
     inputs:
       job:
         description: Job to run
         type: choice
-        options: [sanctions, sweep, feeds, all]
+        options: [sanctions, sweep, feeds, fundops, chain, all]
         default: all
 
 permissions:
@@ -33,6 +33,10 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       FEEDS_CONTACT: ${{ vars.FEEDS_CONTACT }}
+      CHAIN_OPERATOR_KEY: ${{ secrets.CHAIN_OPERATOR_KEY }}
+      CHAIN_CLAIM_KEY: ${{ secrets.CHAIN_CLAIM_KEY }}
+      CHAIN_CUSTODY_SEED: ${{ secrets.CHAIN_CUSTODY_SEED }}
+      CHAIN_RPC_URL: https://sepolia.base.org
       JOB: >-
         ${{ github.event_name == 'workflow_dispatch' && inputs.job
         || github.event.schedule == '20 5 * * *' && 'sanctions'
@@ -85,9 +89,20 @@ jobs:
         if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.tests.outcome == 'success' && (env.JOB == 'sanctions' || env.JOB == 'all') }}
         run: npx --prefix jobs tsx jobs/sanctions-ingest.ts
 
+      - name: Fund NAV, accruals and distributions
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && (env.JOB == 'sweep' || env.JOB == 'fundops' || env.JOB == 'all') }}
+        run: npx --prefix jobs tsx jobs/fundops.ts
+
       - name: Monitoring sweep
         if: ${{ !cancelled() && steps.deps.outcome == 'success' && (env.JOB == 'sweep' || env.JOB == 'all') }}
         run: npx --prefix jobs tsx jobs/sweep.ts
+
+      - name: On-chain jobs, reconciliation and audit anchoring
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && env.CHAIN_OPERATOR_KEY != '' && (env.JOB == 'sweep' || env.JOB == 'chain' || env.JOB == 'all') }}
+        run: |
+          npx --prefix jobs tsx jobs/chain.ts process
+          npx --prefix jobs tsx jobs/chain.ts recon
+          npx --prefix jobs tsx jobs/chain.ts anchor
 
       - name: Regulator feeds
         if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.tests.outcome == 'success' && (env.JOB == 'feeds' || env.JOB == 'all') }}
