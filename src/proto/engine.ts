@@ -9,6 +9,14 @@ import {
 } from './data';
 
 export type ClassMeta = { label: string; stamp: string; jur: Jur; rule: string; source: string; threshold: string };
+/** A potential watchlist match. score is a 0 to 1 name similarity; source is the list (OFAC-SDN, UN, EU, UK). */
+export type ScreenHit = { entry: string; program: string; score?: number; source?: string };
+/** A fund document an investor must acknowledge before receiving units. */
+export type DocReq = {
+  id: string; ticker: string; title: string; docType: string; version: number; sha256: string;
+  jurisdiction: string | null; audience: 'all' | 'retail' | 'professional'; required: boolean;
+};
+export type Notice = { units: number; dealingDate: string };
 /** Everything the resolver reads. The demo uses the static defaults; the API loads it from the database. */
 export type Ctx = {
   investors: Record<string, Investor>;
@@ -19,7 +27,21 @@ export type Ctx = {
   sanctioned: Record<string, string>;
   today: string;
   /** Name screening against a watchlist. Returns the matching entry, or null. */
-  screen?: (name: string) => { entry: string; program: string } | null;
+  screen?: (name: string) => ScreenHit | null;
+  /** Rule-pack versions in force, keyed by pack id ('SG/eligibility', 'global/sanctions', 'global/travel-rule'). */
+  rulePacks?: Record<string, string>;
+  /** Current instant (ISO 8601). Enables the dealing cut-off check. */
+  now?: string;
+  /** Required documents keyed by fund ticker. When undefined, the Documents layer is skipped. */
+  documents?: Record<string, DocReq[]>;
+  /** Acknowledgments: investor id to { document id: sha256 acknowledged }. */
+  acks?: Record<string, Record<string, string>>;
+  /** Fund assets under management in fund currency, keyed by ticker. Enables the redemption gate. */
+  aum?: Record<string, number>;
+  /** Value already redeeming in the current dealing period, keyed by ticker. */
+  redeemedInPeriod?: Record<string, number>;
+  /** Pending redemption notices keyed `${investorId}:${ticker}`. */
+  notices?: Record<string, Notice[]>;
 };
 export const defaultCtx: Ctx = {
   investors: INVESTORS, funds: FUNDS, classInfo, bookingCenters, jurName, sanctioned: sanctionedJurisdictions as Record<string, string>, today: SIM_DATE,
@@ -48,7 +70,9 @@ export type Order = {
   counterpartyId?: string;
 };
 
-export type Layer = 'Credential' | 'Fund policy' | 'Residence law' | 'Booking-center licence' | 'Counterparty' | 'Transfer controls' | 'Global screens';
+export type Layer = 'Credential' | 'Fund policy' | 'Residence law' | 'Booking-center licence' | 'Documents' | 'Fund terms' | 'Counterparty' | 'Transfer controls' | 'Global screens';
+/** Display order for grouping checks by layer. */
+export const LAYERS: Layer[] = ['Credential', 'Fund policy', 'Residence law', 'Booking-center licence', 'Documents', 'Fund terms', 'Transfer controls', 'Counterparty', 'Global screens'];
 export type Result = 'pass' | 'fail' | 'na' | 'info';
 
 export type Check = {
@@ -82,6 +106,8 @@ export type Decision = {
   fund: Fund;
   counterparty?: Investor;
   appliedWhatIfs: WhatIf[];
+  /** Dealing date for subscriptions and redemptions, when the fund has a cut-off and the context has a clock. */
+  dealingDate?: string;
 };
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -188,7 +214,7 @@ function eligibilityChecks(inv: Investor, fund: Fund, layerPrefix: '' | 'Counter
 
   // Booking-center licence
   const bc = C.bookingCenters[inv.booking];
-  if (bc.requires) {
+  if (bc?.requires) {
     const cl = validClass(inv, bc.requires);
     const optIn = bc.requires === 'SG_AI';
     const pass = !!cl && (!optIn || !!cl.optIn);
@@ -233,13 +259,156 @@ function resolve(reqs: Requirement[], checks: Check[]) {
   return resolved;
 }
 
+// ---------- Screening text ----------
+function hitText(h: ScreenHit): string {
+  const prog = h.source && !h.program.startsWith(h.source) ? `${h.source}${h.program ? `: ${h.program}` : ''}` : h.program;
+  return `Potential match with “${h.entry}” (${prog})${typeof h.score === 'number' ? `, similarity ${h.score.toFixed(2)}` : ''}`;
+}
+const issuerNameOf = (inv: Investor) => (inv.issuer ?? 'Aster & Vale').replace(/\s*\(relied on under share [^)]*\)\s*$/, '');
+
+// ---------- Documents layer ----------
+/** Documents the receiving party must acknowledge, each at its current hash. */
+function documentChecks(p: Investor, fund: Fund): Check[] {
+  const docs = C.documents?.[fund.ticker] ?? [];
+  const who = p.short;
+  const dist = fund.distribution[p.residence];
+  const proForFund = (dist?.accepts ?? []).some((c) => c !== 'EU_RETAIL' && !!validClass(p, c));
+  const retailOnly = !!dist?.accepts.includes('EU_RETAIL') && !proForFund;
+  const professional = !retailOnly && p.classifications.some((c) => c.code !== 'EU_RETAIL' && c.expires >= C.today);
+  const applies = docs.filter((d) => d.required
+    && (d.jurisdiction == null || d.jurisdiction === p.residence)
+    && (d.audience === 'all' || (d.audience === 'retail' && retailOnly) || (d.audience === 'professional' && professional)));
+  if (!applies.length) {
+    return [{ id: 'docs', layer: 'Documents', subject: who, label: 'Fund documents acknowledged', result: 'pass',
+      detail: `No ${fund.short} document needs an acknowledgment from ${who} in ${C.jurName[p.residence] ?? p.residence}.` }];
+  }
+  return applies.map((d): Check => {
+    const ack = C.acks?.[p.id]?.[d.id];
+    const ok = ack === d.sha256;
+    return {
+      id: `doc:${d.id}`, layer: 'Documents', subject: who, label: `${d.title} v${d.version} acknowledged`, result: ok ? 'pass' : 'fail',
+      detail: ok
+        ? `${who} acknowledged version ${d.version} (SHA-256 ${d.sha256.slice(0, 12)}…).`
+        : ack
+          ? `${who} acknowledged a different version of ${d.title}. Version ${d.version} needs its own acknowledgment before ${who} receives units.`
+          : `${who} has not acknowledged ${d.title} v${d.version}. It must be acknowledged before ${who} receives units.`,
+      remedy: ok ? undefined : `Send ${d.title} v${d.version} to the investor in the portal, or record an attested acknowledgment.`,
+    };
+  });
+}
+
+// ---------- Fund terms: dealing calendar (business days are Monday to Friday) ----------
+export type DealingFrequency = 'daily' | 'monthly' | 'quarterly';
+function addDaysISO(d: string, n: number): string {
+  const x = new Date(d + 'T00:00:00Z');
+  x.setUTCDate(x.getUTCDate() + n);
+  return x.toISOString().slice(0, 10);
+}
+const isBusinessDay = (d: string) => { const w = new Date(d + 'T00:00:00Z').getUTCDay(); return w > 0 && w < 6; };
+function nextBusinessDay(d: string): string {
+  let x = addDaysISO(d, 1);
+  while (!isBusinessDay(x)) x = addDaysISO(x, 1);
+  return x;
+}
+/** Last business day of month m (1-12, may run past 12 into later years). */
+function lastBusinessDay(y: number, m: number): string {
+  const yy = y + Math.floor((m - 1) / 12);
+  const mm = (((m - 1) % 12) + 12) % 12 + 1;
+  let x = new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10);
+  while (!isBusinessDay(x)) x = addDaysISO(x, -1);
+  return x;
+}
+/**
+ * The dealing date an order received on `date` gets. `open` is true when the order arrived before the
+ * cut-off, so `date` itself still counts if it is a dealing day.
+ */
+export function dealingDateFor(freq: DealingFrequency, date: string, open: boolean): string {
+  if (freq === 'daily') return isBusinessDay(date) && open ? date : nextBusinessDay(date);
+  const y = Number(date.slice(0, 4)); const m = Number(date.slice(5, 7));
+  const endM = freq === 'monthly' ? m : Math.ceil(m / 3) * 3;
+  const cur = lastBusinessDay(y, endM);
+  return date < cur || (date === cur && open) ? cur : lastBusinessDay(y, endM + (freq === 'monthly' ? 1 : 3));
+}
+/** Wall-clock date and time at the fund's cut-off time zone. Falls back to UTC for an unknown zone. */
+export function fundClock(iso: string, tz: string): { date: string; hhmm: string; minutes: number; tz: string } | null {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return null;
+  const opts: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+  let zone = tz || 'UTC';
+  let parts: Intl.DateTimeFormatPart[];
+  try { parts = new Intl.DateTimeFormat('en-US', { ...opts, timeZone: zone }).formatToParts(t); }
+  catch { zone = 'UTC'; parts = new Intl.DateTimeFormat('en-US', { ...opts, timeZone: 'UTC' }).formatToParts(t); }
+  const g = (k: string) => parts.find((p) => p.type === k)?.value ?? '00';
+  const h = Number(g('hour')) % 24; const mi = Number(g('minute'));
+  return { date: `${g('year')}-${g('month')}-${g('day')}`, hhmm: `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`, minutes: h * 60 + mi, tz: zone };
+}
+const parseHHMM = (s?: string): number | null => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s ?? '');
+  return m && Number(m[1]) < 24 && Number(m[2]) < 60 ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+const FREQ_TEXT: Record<DealingFrequency, string> = {
+  daily: 'The fund deals every business day.',
+  monthly: 'The fund deals on the last business day of each month.',
+  quarterly: 'The fund deals on the last business day of each quarter.',
+};
+const LIQUIDITY_NOTE = 'This is a liquidity term of the fund, separate from eligibility: redemption stays open on eligibility grounds.';
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Dealing cut-off, notice period and redemption gate. These are the fund's liquidity terms, not eligibility. */
+function fundTermChecks(inv: Investor, fund: Fund, o: Order, units: number): { checks: Check[]; dealingDate?: string } {
+  const checks: Check[] = [];
+  const freq: DealingFrequency = fund.dealingFrequency === 'monthly' || fund.dealingFrequency === 'quarterly' ? fund.dealingFrequency : 'daily';
+  const cut = parseHHMM(fund.cutoffTime);
+  const clock = C.now && cut !== null ? fundClock(C.now, fund.cutoffTz ?? 'UTC') : null;
+  const localDate = clock?.date ?? C.today;
+  const beforeCutoff = clock ? clock.minutes < cut! : true;
+  const dd = dealingDateFor(freq, localDate, beforeCutoff);
+  let dealingDate: string | undefined;
+  if (clock) {
+    dealingDate = dd;
+    checks.push({ id: 'dealing', layer: 'Fund terms', label: `Dealing cut-off ${fund.cutoffTime} (${clock.tz})`, result: 'info',
+      detail: `${FREQ_TEXT[freq]} Received ${clock.date} at ${clock.hhmm} fund time, ${beforeCutoff ? 'before' : 'after'} the cut-off, so the order deals on ${dd} at that day's NAV.` });
+  }
+  if (o.action !== 'redeem') return { checks, dealingDate };
+
+  const n = fund.noticeDays ?? 0;
+  if (n > 0) {
+    const fromToday = dealingDateFor(freq, addDaysISO(localDate, n), true);
+    const earliest = fromToday > dd ? fromToday : dd;
+    const covering = (C.notices?.[`${inv.id}:${fund.ticker}`] ?? []).filter((x) => x.dealingDate <= dd);
+    const covered = r2(covering.reduce((s, x) => s + Number(x.units), 0));
+    const pass = covered >= units;
+    checks.push({ id: 'notice', layer: 'Fund terms', subject: inv.short, label: `${n}-day redemption notice`, result: pass ? 'pass' : 'fail',
+      detail: pass
+        ? `Notice on file for ${fmt(covered)} units dealing on or before ${dd}. It covers this redemption of ${fmt(units)} units.`
+        : `Redemptions need ${n} days' notice. A notice filed today makes the earliest dealing date ${earliest}.${covered > 0 ? ` Notices on file cover ${fmt(covered)} of ${fmt(units)} units for ${dd}.` : ''} ${LIQUIDITY_NOTE}`,
+      remedy: pass ? undefined : 'File a redemption notice.' });
+  }
+
+  const aum = C.aum?.[fund.ticker];
+  if (fund.gatePct && aum != null && aum > 0) {
+    const limit = r2((fund.gatePct / 100) * aum);
+    const used = r2(C.redeemedInPeriod?.[fund.ticker] ?? 0);
+    const headroom = Math.max(0, r2(limit - used));
+    const pass = r2(used + o.amount) <= limit;
+    const nextPeriod = dealingDateFor(freq, dd, false);
+    const m = (x: number) => money(x, fund.currency);
+    checks.push({ id: 'gate', layer: 'Fund terms', label: `Redemption gate: ${fund.gatePct}% of assets per dealing period`, result: pass ? 'pass' : 'fail',
+      detail: pass
+        ? `${m(r2(used + o.amount))} of the ${m(limit)} limit is used for the period dealing ${dd}, including this order. Assets are ${m(aum)}.`
+        : `The fund caps redemptions at ${fund.gatePct}% of assets per dealing period: ${m(limit)} of ${m(aum)}. ${m(used)} is already redeeming for ${dd}, so ${m(headroom)} remains and this order is ${m(o.amount)}. ${LIQUIDITY_NOTE}`,
+      remedy: pass ? undefined : headroom > 0 ? `Reduce the redemption to ${m(headroom)} or less, or place it in the next dealing period (${nextPeriod}).` : `Place the redemption in the next dealing period (${nextPeriod}).` });
+  }
+  return { checks, dealingDate };
+}
+
 export function evaluate(order: Order, whatIfs: WhatIf[] = [], ctx: Ctx = defaultCtx): Decision {
   C = ctx;
   const { investor: inv, fund, order: o, applied } = applyWhatIfs(order, whatIfs);
   const checks: Check[] = [];
   let reqs: Requirement[] = [];
+  let dealingDate: string | undefined;
   const counterparty = o.counterpartyId ? clone(C.investors[o.counterpartyId]) : undefined;
-  if (counterparty && applied.includes('dropUAE')) { /* fund already modified */ }
 
   const units = Math.round((o.amount / fund.nav) * 100) / 100;
   const holding = inv.holdings[fund.id];
@@ -248,14 +417,27 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = [], ctx: Ctx = defaul
   const hasCred = !!inv.credentialId;
   const credValid = hasCred && inv.expires >= C.today;
   const needsValid = o.action !== 'redeem';
-  checks.push({ id: 'cred', layer: 'Credential', subject: inv.short, label: 'Laissez credential on file',
-    result: credValid ? 'pass' : needsValid ? 'fail' : 'info',
-    detail: credValid ? `${inv.credentialId}, issued by ${inv.issuer ?? 'Aster & Vale'} on ${inv.issued}, valid to ${inv.expires}.` : !hasCred ? `No Laissez credential has been issued to ${inv.short}.${needsValid ? '' : ' Not required to redeem.'}` : `${inv.credentialId} lapsed on ${inv.expires}. Credentials are valid for 12 months (Laissez policy).${needsValid ? '' : ' Not required to redeem.'}`,
-    remedy: credValid || !needsValid ? undefined : !hasCred ? 'Issue a credential: record the client’s classification in each relevant jurisdiction.' : 'Renew the credential: the distributor re-attests KYC and refreshes each classification.' });
+  const issuerName = issuerNameOf(inv);
+  const shareGone = !!inv.reliedShare && (inv.shareStatus === 'revoked' || inv.shareStatus === 'declined' || inv.shareStatus === 'credential_revoked');
+  const sharePending = !!inv.reliedShare && inv.shareStatus === 'pending';
+  if (shareGone || sharePending) {
+    const why = inv.shareStatus === 'credential_revoked' ? `${issuerName} revoked it` : inv.shareStatus === 'declined' ? 'the client declined the share' : inv.shareStatus === 'pending' ? 'the client has not yet consented to the share' : 'the client withdrew the share';
+    checks.push({ id: 'cred', layer: 'Credential', subject: inv.short, label: 'Laissez credential on file', result: needsValid ? 'fail' : 'info',
+      detail: sharePending
+        ? `The credential${inv.lzid ? ` ${inv.lzid}` : ''} from ${issuerName} cannot be relied on yet: ${why}.${needsValid ? '' : ' Not required to redeem.'}`
+        : `The relied-on credential${inv.lzid ? ` ${inv.lzid}` : ''} from ${issuerName} is no longer valid: ${why}.${needsValid ? '' : ' Not required to redeem.'}`,
+      remedy: needsValid ? (sharePending ? 'Ask the client to approve the share, or issue your own credential.' : 'Ask the client to share again, or issue your own credential.') : undefined });
+  } else {
+    const relied = inv.reliedShare ? ` Relied on under share ${inv.reliedShare}: ${issuerName} issued it and keeps the underlying KYC current.` : '';
+    checks.push({ id: 'cred', layer: 'Credential', subject: inv.short, label: 'Laissez credential on file',
+      result: credValid ? 'pass' : needsValid ? 'fail' : 'info',
+      detail: credValid ? `${inv.credentialId}, issued by ${issuerName} on ${inv.issued}, valid to ${inv.expires}.${relied}` : !hasCred ? `No Laissez credential has been issued to ${inv.short}.${needsValid ? '' : ' Not required to redeem.'}` : `${inv.credentialId} lapsed on ${inv.expires}. Credentials are valid for 12 months (Laissez policy).${needsValid ? '' : ' Not required to redeem.'}`,
+      remedy: credValid || !needsValid ? undefined : !hasCred ? 'Issue a credential: record the client’s classification in each relevant jurisdiction.' : 'Renew the credential: the distributor re-attests KYC and refreshes each classification.' });
+  }
 
   const hit = C.screen?.(inv.name) ?? null;
   checks.push({ id: 'screen', layer: 'Credential', subject: inv.short, label: 'Sanctions name screening', result: hit ? 'fail' : 'pass',
-    detail: hit ? `Potential match with “${hit.entry}” (${hit.program}). Screened at order time.` : 'No match against the screening list. Screened at order time.', ruleRef: 'OFAC', source: 'ofac',
+    detail: hit ? `${hitText(hit)}. Screened at order time.` : 'No match against the screening list. Screened at order time.', ruleRef: 'OFAC', source: 'ofac',
     remedy: hit ? 'Units are frozen pending review. Compliance confirms or clears the match before anything settles.' : undefined });
   if (hit) return finish('FREEZE');
 
@@ -272,10 +454,19 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = [], ctx: Ctx = defaul
     checks.push(...r.checks); reqs = r.reqs;
     checks.push({ id: 'min', layer: 'Fund policy', subject: inv.short, label: `Minimum subscription ${money(fund.minSubscription, fund.currency)}`, result: o.amount >= fund.minSubscription ? 'pass' : 'fail',
       detail: `Order is ${money(o.amount, fund.currency)}.`, remedy: o.amount >= fund.minSubscription ? undefined : `Increase the order to at least ${money(fund.minSubscription, fund.currency)}.` });
+    if (C.documents) checks.push(...documentChecks(inv, fund));
   }
 
   if (o.action === 'transfer') {
     const cp = counterparty!;
+    // The receiving party is screened first: a match freezes the transfer before anything else is tested.
+    const cpHit = C.screen?.(cp.name) ?? null;
+    if (cpHit) {
+      checks.push({ id: 'cpScreen', layer: 'Global screens', subject: cp.short, label: 'Counterparty sanctions screening', result: 'fail',
+        detail: `${hitText(cpHit)}. Screened at order time.`, ruleRef: 'OFAC', source: 'ofac',
+        remedy: 'Units are frozen pending review. Compliance confirms or clears the match before anything settles.' });
+      return finish('FREEZE');
+    }
     // Sender side
     checks.push({ id: 'holding', layer: 'Transfer controls', subject: inv.short, label: 'Sender holds enough units', result: holding && holding.units >= units ? 'pass' : 'fail',
       detail: holding ? `${fmt(holding.units)} units held since ${holding.since}; transferring ${fmt(units)}.` : `${inv.short} holds no ${fund.ticker}.`,
@@ -292,9 +483,10 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = [], ctx: Ctx = defaul
     // Receiver side
     const r = eligibilityChecks(cp, fund, 'Counterparty', !!cp.holdings[fund.id]);
     checks.push(...r.checks); reqs = r.reqs;
+    if (C.documents) checks.push(...documentChecks(cp, fund));
     if (o.amount >= 1000) {
       checks.push({ id: 'travel', layer: 'Global screens', label: 'Travel Rule data exchanged', result: 'pass',
-        detail: `Originator (${inv.short}, booked ${C.bookingCenters[inv.booking].name}) and beneficiary (${cp.short}, booked ${C.bookingCenters[cp.booking].name}) details sent in IVMS101 format before settlement.`,
+        detail: `Originator (${inv.short}, booked ${C.bookingCenters[inv.booking]?.name ?? inv.booking}) and beneficiary (${cp.short}, booked ${C.bookingCenters[cp.booking]?.name ?? cp.booking}) details sent in IVMS101 format before settlement.`,
         ruleRef: 'FATF R.16', source: 'fatf-r16' });
     }
     checks.push({ id: 'cpScreen', layer: 'Global screens', subject: cp.short, label: 'Counterparty sanctions screening', result: 'pass', detail: 'No match against OFAC SDN, UN and EU consolidated lists.', ruleRef: 'OFAC', source: 'ofac' });
@@ -313,6 +505,12 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = [], ctx: Ctx = defaul
     const eligibleNow = !inv.usPerson || !!fund.usAccepts ? fund.distribution[inv.residence]?.accepts.some((c) => c === 'EU_RETAIL' || validClass(inv, c)) : false;
     checks.push({ id: 'redeemPolicy', layer: 'Fund policy', subject: inv.short, label: 'Redemption stays open', result: 'pass',
       detail: eligibleNow ? `${inv.short} is an eligible holder.` : `${inv.short} no longer meets the fund’s eligibility rules. Laissez keeps redemption open: holders whose status lapses can always exit, they just cannot add.` });
+  }
+
+  // ---------- Fund terms (subscriptions and redemptions) ----------
+  if (o.action !== 'transfer') {
+    const t = fundTermChecks(inv, fund, o, units);
+    checks.push(...t.checks); dealingDate = t.dealingDate;
   }
 
   // ---------- Settlement asset (all actions) ----------
@@ -339,19 +537,113 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = [], ctx: Ctx = defaul
         ? `${verb} blocked and units frozen. ${firstFail?.detail ?? ''}`
         : `${verb} denied. ${firstFail?.detail ?? ''}${nFail > 1 ? ` ${nFail - 1} more check${nFail > 2 ? 's' : ''} failed.` : ''}`;
     const rulePacks = buildRulePacks(fund, inv, counterparty);
-    return { outcome, headline, checks, resolved, remedies, rulePacks, redemptionOnly, units, notional: o.amount, order: o, investor: inv, fund, counterparty, appliedWhatIfs: applied };
+    const d: Decision = { outcome, headline, checks, resolved, remedies, rulePacks, redemptionOnly, units, notional: o.amount, order: o, investor: inv, fund, counterparty, appliedWhatIfs: applied };
+    if (dealingDate) d.dealingDate = dealingDate;
+    return d;
   }
 }
 
+const LAUNCH_PACKS: Record<string, string> = { SG: '2026.09.0', HK: '2026.04.2' };
 function buildRulePacks(fund: Fund, inv: Investor, cp?: Investor): string[] {
   const packs = new Set<string>();
+  // Only a pack-id map counts; a raw list of rule-pack rows (or nothing) falls back to the launch versions.
+  const rp = C.rulePacks && typeof C.rulePacks === 'object' && !Array.isArray(C.rulePacks) ? C.rulePacks : undefined;
+  const jurs: Jur[] = [inv.residence, C.bookingCenters[inv.booking]?.jur, ...(cp ? [cp.residence, C.bookingCenters[cp.booking]?.jur] : [])].filter((j): j is Jur => !!j);
+  if (rp) {
+    packs.add(`fund/${fund.ticker}@v${fund.policyVersion ?? 1}`);
+    for (const j of jurs) { const v = rp[`${j}/eligibility`]; if (v) packs.add(`${j}/eligibility@${v}`); }
+    if (rp['global/sanctions']) packs.add(`global/sanctions@${rp['global/sanctions']}`);
+    if (rp['global/travel-rule']) packs.add(`global/travel-rule@${rp['global/travel-rule']}`);
+    return [...packs];
+  }
   packs.add(`fund/${fund.ticker}@2026.09.1`);
-  const add = (j: Jur) => { if (j === 'IR') return; packs.add(`${j}/eligibility@${j === 'SG' ? '2026.09.0' : j === 'HK' ? '2026.04.2' : '2026.07.0'}`); };
-  add(inv.residence); add(C.bookingCenters[inv.booking].jur);
-  if (cp) { add(cp.residence); add(C.bookingCenters[cp.booking].jur); }
+  for (const j of jurs) if (j !== 'IR') packs.add(`${j}/eligibility@${LAUNCH_PACKS[j] ?? '2026.07.0'}`);
   packs.add('global/sanctions@2026-10-01');
   packs.add('global/travel-rule@2026.07');
   return [...packs];
+}
+
+// ---------- Point-in-time snapshots ----------
+/** Exactly the inputs evaluate() reads for one order, in JSON-safe form. Stored with each decision so it can be replayed. */
+export type Snapshot = {
+  v: 1;
+  order: Order;
+  whatIfs: WhatIf[];
+  investors: Record<string, Investor>;
+  funds: Record<string, Fund>;
+  classInfo: Record<string, ClassMeta>;
+  bookingCenters: Record<string, BookingCenter>;
+  jurName: Record<string, string>;
+  sanctioned: Record<string, string>;
+  today: string;
+  now: string | null;
+  rulePacks: Record<string, string> | null;
+  documents: Record<string, DocReq[]> | null;
+  acks: Record<string, Record<string, string>> | null;
+  aum: Record<string, number> | null;
+  redeemedInPeriod: Record<string, number> | null;
+  notices: Record<string, Notice[]> | null;
+  /** Screening result for each involved name, as it was at decision time. */
+  screen: Record<string, ScreenHit | null>;
+};
+
+const pick = <T,>(src: Record<string, T> | undefined, keys: Iterable<string>): Record<string, T> => {
+  const out: Record<string, T> = {};
+  if (!src) return out;
+  for (const k of keys) if (k in src && src[k] !== undefined) out[k] = src[k];
+  return out;
+};
+
+export function snapshotFor(order: Order, ctx: Ctx, whatIfs: WhatIf[] = []): Snapshot {
+  const ids = [order.investorId, ...(order.counterpartyId ? [order.counterpartyId] : [])];
+  const invs = ids.map((i) => ctx.investors[i]).filter(Boolean) as Investor[];
+  const fund = ctx.funds[order.fundId];
+  const ticker = fund?.ticker ?? order.fundId;
+  const bookings = new Set(invs.map((i) => i.booking));
+  // What-ifs can move residence to US or IR, so their names and sanctions entries travel with the snapshot.
+  const jurs = new Set<string>(['US', 'IR', ...invs.map((i) => i.residence), ...Object.keys(fund?.distribution ?? {})]);
+  for (const b of bookings) if (ctx.bookingCenters[b]) jurs.add(ctx.bookingCenters[b].jur);
+  const classes = new Set<string>([...(fund?.usAccepts ?? []), ...invs.flatMap((i) => i.classifications.map((c) => c.code))]);
+  for (const d of Object.values(fund?.distribution ?? {})) { d?.accepts.forEach((c) => classes.add(c)); if (d?.lawRequires) classes.add(d.lawRequires); }
+  for (const b of bookings) { const r = ctx.bookingCenters[b]?.requires; if (r) classes.add(r); }
+  const noticeKeys = invs.map((i) => `${i.id}:${ticker}`);
+  const snap: Snapshot = {
+    v: 1,
+    order,
+    whatIfs: [...whatIfs],
+    investors: pick(ctx.investors, ids),
+    funds: pick(ctx.funds, [order.fundId]),
+    classInfo: pick(ctx.classInfo, classes),
+    bookingCenters: pick(ctx.bookingCenters, bookings),
+    jurName: pick(ctx.jurName, jurs),
+    sanctioned: pick(ctx.sanctioned, jurs),
+    today: ctx.today,
+    now: ctx.now ?? null,
+    rulePacks: ctx.rulePacks ? { ...ctx.rulePacks } : null,
+    documents: ctx.documents ? pick(ctx.documents, [ticker]) : null,
+    acks: ctx.acks ? pick(ctx.acks, ids) : null,
+    aum: ctx.aum ? pick(ctx.aum, [ticker]) : null,
+    redeemedInPeriod: ctx.redeemedInPeriod ? pick(ctx.redeemedInPeriod, [ticker]) : null,
+    notices: ctx.notices ? pick(ctx.notices, noticeKeys) : null,
+    screen: Object.fromEntries(invs.map((i) => [i.name, ctx.screen?.(i.name) ?? null])),
+  };
+  return JSON.parse(JSON.stringify(snap));
+}
+
+export function ctxFromSnapshot(snap: Snapshot): Ctx {
+  const screens = snap.screen ?? {};
+  return {
+    investors: snap.investors, funds: snap.funds, classInfo: snap.classInfo, bookingCenters: snap.bookingCenters,
+    jurName: snap.jurName, sanctioned: snap.sanctioned, today: snap.today,
+    now: snap.now ?? undefined, rulePacks: snap.rulePacks ?? undefined, documents: snap.documents ?? undefined, acks: snap.acks ?? undefined,
+    aum: snap.aum ?? undefined, redeemedInPeriod: snap.redeemedInPeriod ?? undefined, notices: snap.notices ?? undefined,
+    screen: (name: string) => screens[name] ?? null,
+  };
+}
+
+/** Re-runs a stored decision from its snapshot. Same snapshot, same checks and inputs hash. */
+export function replaySnapshot(snap: Snapshot): Decision {
+  return evaluate(snap.order, snap.whatIfs ?? [], ctxFromSnapshot(snap));
 }
 
 // ---------- Issuer view: simulated register and credential network ----------
@@ -396,7 +688,9 @@ export function issuerImpact(offered: Jur[], register = simulatedRegister()) {
 }
 
 export async function inputsHash(d: Decision): Promise<string> {
-  const payload = JSON.stringify({ o: d.order, w: d.appliedWhatIfs, c: d.checks.map((c) => [c.id, c.result]), p: d.rulePacks });
+  // Fixed field order, so the hash survives a round trip through storage that reorders object keys.
+  const o = d.order;
+  const payload = JSON.stringify({ o: [o.action, o.investorId, o.fundId, o.amount, o.asset, o.counterpartyId ?? null], w: d.appliedWhatIfs, c: d.checks.map((c) => [c.id, c.result]), p: d.rulePacks });
   try {
     const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
     return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');

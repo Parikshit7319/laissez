@@ -9,5 +9,6 @@
     "types": ["@cloudflare/workers-types"],
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "../src/proto/engine.ts", "../src/proto/data.ts"]
+  "include": ["src/**/*.ts", "../src/proto/engine.ts", "../src/proto/data.ts"],
+  "exclude": ["src/index.old.ts"]
 }

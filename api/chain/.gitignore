@@ -1,0 +1,5 @@
+.e2e/
+.hardhat-cache/
+.hardhat-artifacts/
+no-sources/
+deployment.local.json

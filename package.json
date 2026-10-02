@@ -8,7 +8,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "test": "esbuild scripts/test-engine.ts --bundle --platform=node --format=esm --outfile=.astro/test-engine.mjs --log-level=warning && node .astro/test-engine.mjs",
-    "test:api": "node api/test/smoke.mjs"
+    "test:api": "node api/test/smoke.mjs",
+    "test:rules": "esbuild scripts/test-rulepacks.ts --bundle --platform=node --format=esm --outfile=.astro/test-rules.mjs --log-level=warning && node .astro/test-rules.mjs"
   },
   "dependencies": {
     "@astrojs/preact": "^4.1.3",

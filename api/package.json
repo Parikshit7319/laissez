@@ -10,6 +10,7 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",
     "hono": "^4.13.0",
+    "viem": "^2.57.2",
     "zod": "^4.6.0"
   },
   "devDependencies": {

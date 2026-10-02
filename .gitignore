@@ -7,3 +7,7 @@ dist-preview/
 .DS_Store
 _to_delete/
 PLAN.md
+api/chain/.e2e/
+api/chain/.hardhat-cache/
+api/chain/.hardhat-artifacts/
+api/chain/deployment.local.json

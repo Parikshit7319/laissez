@@ -1,13 +1,28 @@
 name = "laissez-api"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
 
-# Sandboxes expire after 7 days; this job removes them daily.
+# Every 10 minutes: uptime checks and queued chain jobs.
+# Daily at 06:17 UTC: remove expired sandboxes and stale rate-limit, challenge, idempotency, session and uptime rows.
 [triggers]
-crons = ["17 6 * * *"]
+crons = ["*/10 * * * *", "17 6 * * *"]
 
 [vars]
 ALLOWED_ORIGINS = "https://parikshit7319.github.io,http://localhost:4321"
 MAX_ACTIVE_SANDBOXES = "500"
+APP_URL = "https://parikshit7319.github.io/laissez/app/"
+API_URL = "https://laissez-api.laissez.workers.dev"
+CHAIN_RPC_URL = "https://sepolia.base.org"
 
-# Secret, set with: wrangler secret put DATABASE_URL
+# Secrets. Set each with: wrangler secret put NAME
+#   DATABASE_URL          Neon owner connection (bypasses row-level security; auth, sandboxes, jobs)
+#   DATABASE_URL_TENANT   Neon connection as role laissez_rt (row-level security, one organization per query)
+#   SIGNING_KEY_JWK       Ed25519 private JWK for decision receipts
+#   SSO_ENC_KEY           32-byte base64url AES-GCM key for SSO client secrets at rest
+#   DEMO_IDP_JWK          P-256 private JWK for the demo identity provider
+#   INTERNAL_TOKEN        Shared token for internal job endpoints
+#   CHAIN_OPERATOR_KEY    Private key of the settlement operator on Base Sepolia
+#   CHAIN_CLAIM_KEY       Private key that signs identity claims
+#   CHAIN_CUSTODY_SEED    Seed for deriving custodial investor wallets
+#   ANTHROPIC_API_KEY     Optional. Enables the rule-drafting agent

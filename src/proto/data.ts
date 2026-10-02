@@ -4,7 +4,8 @@
 export const SIM_DATE = '2026-10-01';
 export const SIM_TIME = '2026-10-01T14:22:07+08:00';
 
-export type Jur = 'SG' | 'HK' | 'CH' | 'DE' | 'AE-DIFC' | 'US' | 'IR';
+/** Jurisdiction code, e.g. 'SG', 'HK', 'AE-DIFC'. Rule packs add more at runtime. */
+export type Jur = string;
 export const jurName: Record<Jur, string> = {
   SG: 'Singapore',
   HK: 'Hong Kong',
@@ -14,9 +15,10 @@ export const jurName: Record<Jur, string> = {
   US: 'United States',
   IR: 'Iran',
 };
-export const jurShort: Record<Jur, string> = { SG: 'SG', HK: 'HK', CH: 'CH', DE: 'DE', 'AE-DIFC': 'AE', US: 'US', IR: 'IR' };
+export const jurShort: Record<Jur, string> = { SG: 'SG', HK: 'HK', CH: 'CH', DE: 'DE', 'AE-DIFC': 'AE', US: 'US', IR: 'IR', GB: 'GB', JP: 'JP', 'AE-ADGM': 'AE', LU: 'LU', IE: 'IE' };
 
-export type ClassCode = 'SG_AI' | 'HK_PI' | 'EU_PRO' | 'EU_RETAIL' | 'CH_PRO' | 'DIFC_PRO' | 'US_AI';
+/** Investor class code, e.g. 'SG_AI', 'HK_PI'. */
+export type ClassCode = string;
 
 export const classInfo: Record<ClassCode, { label: string; stamp: string; jur: Jur; rule: string; source: string; threshold: string }> = {
   SG_AI: {
@@ -49,7 +51,7 @@ export const classInfo: Record<ClassCode, { label: string; stamp: string; jur: J
   },
 };
 
-export type BookingId = 'HK' | 'SG' | 'ZRH' | 'DIFC' | 'NY';
+export type BookingId = string;
 export type BookingCenter = {
   id: BookingId; name: string; jur: Jur; licence: string;
   requires: ClassCode | null; ruleText: string; ruleRef: string; source: string;
@@ -69,6 +71,9 @@ export type Fund = {
   distribution: Partial<Record<string, { accepts: ClassCode[]; basis: string; lawRequires: ClassCode | null; lawText: string; lawRef: string; lawSource: string }>>;
   minSubscription: number; holderCap: number | null; holders: number; lockupMonths: number | null;
   assets: string[]; chains: string[]; issuer: string;
+  // Lifecycle terms (optional; the API fills them from the fund record)
+  policyVersion?: number; shareClassType?: 'distributing' | 'accumulating'; cutoffTime?: string; cutoffTz?: string;
+  dealingFrequency?: 'daily' | 'monthly' | 'quarterly'; noticeDays?: number; gatePct?: number | null; yieldBps?: number | null; chainToken?: string | null;
 };
 
 export const funds: Record<FundId, Fund> = {
@@ -123,6 +128,11 @@ export type Investor = {
   usPerson: boolean; wallet: string; credentialId: string; issued: string; expires: string;
   classifications: Classification[]; holdings: Partial<Record<string, { units: number; since: string }>>;
   issuer?: string;
+  /** Network passport number for credential sharing. */
+  lzid?: string;
+  /** Set when this distributor relies on a credential issued by another organization. */
+  reliedShare?: string;
+  shareStatus?: 'active' | 'revoked' | 'declined' | 'pending' | 'credential_revoked';
 };
 
 export const investors: Record<InvestorId, Investor> = {

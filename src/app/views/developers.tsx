@@ -1,7 +1,8 @@
 /** @jsxImportSource preact */
 import { useState } from 'preact/hooks';
-import { api, API_BASE, getKey, when } from '../api';
-import { useApi, Head, Btn, Chip, ErrorBox, Loading, Empty, Field, Card, Json, Copy } from '../ui';
+import { api, API_BASE, API_VERSION, getKey, getSession, keyWorkspace, uuid, track, when } from '../api';
+import { useApi, Head, Btn, Chip, ErrorBox, Empty, Field, Card, Json, Copy, Reveal, ConfirmBtn } from '../ui';
+import { useMe, PermBtn, PermNote } from '../auth';
 
 const EVENTS = ['decision.created', 'settlement.completed', 'settlement.reverted', 'credential.issued', 'holder.status_changed', 'policy.published', 'ping', '*'];
 const PRESETS: { label: string; method: string; path: string; body?: unknown }[] = [
@@ -15,35 +16,83 @@ const PRESETS: { label: string; method: string; path: string; body?: unknown }[]
 ];
 
 export function Explorer() {
+  const { me } = useMe();
+  const key = getKey();
+  const keyFits = !!key && (!keyWorkspace() || keyWorkspace() === me?.workspace.id);
   const [p, setP] = useState(0);
   const [method, setMethod] = useState(PRESETS[0].method);
   const [path, setPath] = useState(PRESETS[0].path);
   const [bodyText, setBody] = useState(JSON.stringify(PRESETS[0].body, null, 2));
+  const [version, setVersion] = useState(API_VERSION);
+  const [idem, setIdem] = useState(uuid());
+  const [as, setAs] = useState<'key' | 'session'>(keyFits ? 'key' : 'session');
   const [res, setRes] = useState<any>(null);
   const [ms, setMs] = useState<number | null>(null);
-  const pick = (i: number) => { const x = PRESETS[i]; setP(i); setMethod(x.method); setPath(x.path); setBody(x.body ? JSON.stringify(x.body, null, 2) : ''); setRes(null); };
+  const [busy, setBusy] = useState(false);
+  const mutating = method !== 'GET';
+  const pick = (i: number) => { const x = PRESETS[i]; setP(i); setMethod(x.method); setPath(x.path); setBody(x.body ? JSON.stringify(x.body, null, 2) : ''); setRes(null); setIdem(uuid()); };
+  const token = as === 'key' && keyFits ? key : getSession();
   const send = async () => {
+    setBusy(true);
     const t = performance.now();
     try {
-      const r = await fetch(API_BASE + path, { method, headers: { authorization: `Bearer ${getKey()}`, ...(method !== 'GET' ? { 'content-type': 'application/json' } : {}) }, body: method !== 'GET' ? bodyText || '{}' : undefined });
-      setRes({ status: r.status, body: await r.json().catch(() => null) });
-    } catch { setRes({ status: 0, body: { error: 'Network error' } }); }
+      const headers: Record<string, string> = { authorization: `Bearer ${token ?? ''}` };
+      if (version.trim()) headers['Laissez-Version'] = version.trim();
+      if (mutating) { headers['content-type'] = 'application/json'; if (idem.trim()) headers['Idempotency-Key'] = idem.trim(); }
+      const r = await fetch(API_BASE + path, { method, headers, body: mutating ? bodyText || '{}' : undefined });
+      const text = await r.text();
+      let body: unknown = text;
+      try { body = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+      const pickH = (h: string) => r.headers.get(h);
+      setRes({ status: r.status, body, headers: { 'Idempotent-Replayed': pickH('Idempotent-Replayed'), 'Laissez-Version': pickH('Laissez-Version'), 'Request-Id': pickH('Request-Id') ?? pickH('X-Request-Id'), 'RateLimit-Remaining': pickH('RateLimit-Remaining') ?? pickH('X-RateLimit-Remaining') } });
+      track('api_request_sent', { method, path: path.replace(/\/(dec|stl|pc|inv|wh)_[A-Za-z0-9]+/g, '/:id'), status: r.status, auth: as });
+    } catch { setRes({ status: 0, body: { error: { message: 'Could not reach the Laissez API. Check your connection and try again.' } }, headers: {} }); }
     setMs(Math.round(performance.now() - t));
+    setBusy(false);
   };
-  const curl = `curl -X ${method} ${API_BASE}${path} \\\n  -H "Authorization: Bearer $LAISSEZ_KEY"${method !== 'GET' ? ` \\\n  -H "Content-Type: application/json" \\\n  -d '${(bodyText || '{}').replace(/\s+/g, ' ')}'` : ''}`;
+  const tokenVar = as === 'key' ? '$LAISSEZ_KEY' : '$LAISSEZ_SESSION';
+  const curl = [`curl -X ${method} ${API_BASE}${path}`, `  -H "Authorization: Bearer ${tokenVar}"`, version.trim() ? `  -H "Laissez-Version: ${version.trim()}"` : null,
+    mutating && idem.trim() ? `  -H "Idempotency-Key: ${idem.trim()}"` : null, mutating ? '  -H "Content-Type: application/json"' : null, mutating ? `  -d '${(bodyText || '{}').replace(/\s+/g, ' ')}'` : null].filter(Boolean).join(' \\\n');
+  const replayed = res?.headers?.['Idempotent-Replayed'];
   return (
     <>
-      <Head title="API explorer" sub="Send real requests to the Laissez API with this sandbox's key." />
-      <div class="tabs">{PRESETS.map((x, i) => <button class={p === i ? 'on' : ''} onClick={() => pick(i)}>{x.label}</button>)}</div>
+      <Head title="API explorer" sub={keyFits ? "Send real requests to the Laissez API with this sandbox's key or your session." : 'Send real requests to the Laissez API with your session.'} />
+      <div class="tabs">{PRESETS.map((x, i) => <button class={p === i ? 'on' : ''} aria-pressed={p === i} onClick={() => pick(i)}>{x.label}</button>)}</div>
       <div class="grid2">
         <Card title="Request">
-          <div class="row-inline"><select value={method} onChange={(e) => setMethod((e.target as HTMLSelectElement).value)} aria-label="Method"><option>GET</option><option>POST</option><option>DELETE</option></select><input class="grow mono" value={path} onInput={(e) => setPath((e.target as HTMLInputElement).value)} aria-label="Path" /><Btn kind="primary" onClick={send}>Send</Btn></div>
-          {method !== 'GET' ? <textarea class="mono" rows={12} value={bodyText} onInput={(e) => setBody((e.target as HTMLTextAreaElement).value)} aria-label="Request body" /> : null}
-          <div class="card-h"><h2>curl</h2><Copy text={curl} /></div>
+          <div class="row-inline xp-line">
+            <select value={method} onChange={(e) => { setMethod((e.target as HTMLSelectElement).value); setIdem(uuid()); }} aria-label="Method">{['GET', 'POST', 'PATCH', 'PUT', 'DELETE'].map((m) => <option>{m}</option>)}</select>
+            <input class="grow mono" value={path} onInput={(e) => setPath((e.target as HTMLInputElement).value)} aria-label="Path" />
+            <Btn kind="primary" busy={busy} onClick={send}>Send request</Btn>
+          </div>
+          <div class="form-grid xp-h">
+            <Field label="Authenticate with">
+              <select value={as} onChange={(e) => setAs((e.target as HTMLSelectElement).value as 'key' | 'session')}>
+                {keyFits ? <option value="key">Sandbox key ({key!.slice(0, 12)}…)</option> : null}
+                <option value="session">Your session</option>
+              </select>
+            </Field>
+            <Field label="Laissez-Version" hint="Pins response shapes. Leave empty for the latest."><input class="mono" value={version} onInput={(e) => setVersion((e.target as HTMLInputElement).value)} /></Field>
+            {mutating ? (
+              <div class="span2"><Field label="Idempotency-Key" hint="Send twice with the same key and Laissez returns the first response instead of acting again.">
+                <div class="reveal-row"><input class="mono" value={idem} onInput={(e) => setIdem((e.target as HTMLInputElement).value)} /><Btn kind="ghost" onClick={() => setIdem(uuid())}>New key</Btn></div>
+              </Field></div>
+            ) : null}
+          </div>
+          {mutating ? <textarea class="mono" rows={10} value={bodyText} onInput={(e) => setBody((e.target as HTMLTextAreaElement).value)} aria-label="Request body" /> : null}
+          <div class="card-h xp-curl"><h2>curl</h2><Copy text={curl} /></div>
           <pre class="json"><code>{curl}</code></pre>
         </Card>
-        <Card title="Response" actions={res ? <span class="row-inline tight"><Chip tone={res.status < 300 ? 'ok' : 'no'}>{res.status}</Chip>{ms !== null ? <span class="muted small">{ms} ms</span> : null}</span> : null}>
-          {res ? <Json value={res.body} /> : <Empty title="No request sent yet">Pick a preset and press Send.</Empty>}
+        <Card title="Response" actions={res ? <span class="row-inline tight"><Chip tone={res.status && res.status < 300 ? 'ok' : 'no'}>{res.status || 'No response'}</Chip>{ms !== null ? <span class="muted small">{ms} ms</span> : null}</span> : null}>
+          {res ? (
+            <>
+              <dl class="kv wide xp-hdrs">
+                {mutating ? <div><dt>Idempotent-Replayed</dt><dd>{replayed === 'true' ? <Chip tone="info">true: Laissez returned the stored first response</Chip> : replayed === 'false' ? <Chip>false: first time this key was used</Chip> : <span class="muted">Not returned</span>}</dd></div> : null}
+                {Object.entries(res.headers).filter(([k, v]) => k !== 'Idempotent-Replayed' && v).map(([k, v]) => <div><dt>{k}</dt><dd><code>{String(v)}</code></dd></div>)}
+              </dl>
+              <Json value={res.body} />
+            </>
+          ) : <Empty title="No request sent yet">Pick a preset and press Send request. For a POST, send it twice without changing the Idempotency-Key to see a replay.</Empty>}
         </Card>
       </div>
     </>
@@ -51,6 +100,7 @@ export function Explorer() {
 }
 
 export function Webhooks() {
+  const { can } = useMe();
   const hooks = useApi('/v1/webhooks');
   const del = useApi('/v1/webhook-deliveries');
   const [url, setUrl] = useState('');
@@ -58,8 +108,8 @@ export function Webhooks() {
   const [created, setCreated] = useState<any>(null);
   const [err, setErr] = useState<any>(null);
   const add = async (e: Event) => { e.preventDefault(); setErr(null); try { setCreated(await api('/v1/webhooks', { body: { url, events } })); setUrl(''); hooks.reload(); } catch (x) { setErr(x); } };
-  const remove = async (id: string) => { await api(`/v1/webhooks/${id}`, { method: 'DELETE' }).catch(setErr); hooks.reload(); };
-  const test = async (id: string) => { await api(`/v1/webhooks/${id}/test`, { body: {} }).catch(setErr); setTimeout(del.reload, 2500); };
+  const remove = async (id: string) => { setErr(null); await api(`/v1/webhooks/${id}`, { method: 'DELETE' }).catch(setErr); hooks.reload(); };
+  const test = async (id: string) => { setErr(null); await api(`/v1/webhooks/${id}/test`, { body: {} }).catch(setErr); setTimeout(del.reload, 2500); };
   return (
     <>
       <Head title="Webhooks" sub="Signed event notifications. Each request carries a Laissez-Signature header: an HMAC-SHA256 of the timestamp and body." />
@@ -67,36 +117,17 @@ export function Webhooks() {
         <form class="form-grid" onSubmit={add}>
           <div class="span2"><Field label="HTTPS URL" hint="Try a request-bin service to watch events arrive."><input type="url" required value={url} onInput={(e) => setUrl((e.target as HTMLInputElement).value)} placeholder="https://example.com/laissez/webhooks" /></Field></div>
           <div class="span2"><span class="f-l">Events</span><div class="pick">{EVENTS.map((ev) => <label class={`pick-i ${events.includes(ev) ? 'on' : ''}`}><input type="checkbox" checked={events.includes(ev)} onChange={() => setEvents(events.includes(ev) ? events.filter((x) => x !== ev) : [...events, ev])} /><span><code>{ev}</code></span></label>)}</div></div>
-          <div class="form-actions"><Btn type="submit" kind="primary" disabled={!events.length}>Add endpoint</Btn></div>
+          <div class="form-actions"><PermBtn perm="developer" type="submit" kind="primary" disabled={!events.length}>Add endpoint</PermBtn></div>
         </form>
-        {created ? <div class="note">Signing secret for {created.url}: <code>{created.secret}</code> <Copy text={created.secret} /> It is shown once.</div> : null}
+        <PermNote perm="developer" />
+        {created ? <Reveal label={`Signing secret for ${created.url}`} value={created.secret} note="Store it now. It is shown once. Use it to check the Laissez-Signature header on each delivery." /> : null}
         <ErrorBox error={err} />
       </Card>
       <Card title="Endpoints" pad={false}>
-        {hooks.data?.data?.length ? <div class="tw"><table class="t"><thead><tr><th>URL</th><th>Events</th><th /></tr></thead><tbody>{hooks.data.data.map((h: any) => <tr><td class="mono small">{h.url}</td><td class="small">{h.events.join(', ')}</td><td><div class="row-inline tight"><Btn kind="ghost" onClick={() => test(h.id)}>Send test</Btn><Btn kind="danger" onClick={() => remove(h.id)}>Delete</Btn></div></td></tr>)}</tbody></table></div> : <Empty title="No endpoints yet" />}
+        {hooks.data?.data?.length ? <div class="tw"><table class="t"><thead><tr><th>URL</th><th>Events</th><th /></tr></thead><tbody>{hooks.data.data.map((h: any) => <tr><td class="mono small">{h.url}</td><td class="small">{h.events.join(', ')}</td><td><div class="row-inline tight acts"><PermBtn perm="developer" kind="ghost" onClick={() => test(h.id)}>Send test event</PermBtn>{can('developer') ? <ConfirmBtn confirm="Delete endpoint" onConfirm={() => remove(h.id)}>Delete</ConfirmBtn> : null}</div></td></tr>)}</tbody></table></div> : <Empty title="No endpoints yet" />}
       </Card>
       <Card title="Recent deliveries" actions={<Btn kind="ghost" onClick={del.reload}>Refresh</Btn>} pad={false}>
         {del.data?.data?.length ? <div class="tw"><table class="t"><thead><tr><th>When</th><th>Event</th><th>Status</th><th>Attempts</th><th>Time</th></tr></thead><tbody>{del.data.data.map((d: any) => <tr><td class="muted">{when(d.created_at)}</td><td><code>{d.event}</code></td><td>{d.status >= 200 && d.status < 300 ? <Chip tone="ok">{d.status}</Chip> : <Chip tone="no">{d.status || 'No response'}</Chip>}</td><td>{d.attempts}</td><td>{d.response_ms} ms</td></tr>)}</tbody></table></div> : <Empty title="No deliveries yet" />}
-      </Card>
-    </>
-  );
-}
-
-export function Keys() {
-  const r = useApi('/v1/api-keys');
-  const w = useApi('/v1/workspace');
-  const [fresh, setFresh] = useState<any>(null);
-  const [err, setErr] = useState<any>(null);
-  const create = async () => { try { setFresh(await api('/v1/api-keys', { body: {} })); r.reload(); } catch (e) { setErr(e); } };
-  const revoke = async (id: string) => { try { await api(`/v1/api-keys/${id}`, { method: 'DELETE' }); r.reload(); } catch (e) { setErr(e); } };
-  return (
-    <>
-      <Head title="Sandbox and keys" sub="Test keys start with lz_test_. Laissez stores only a hash; a key is shown once." actions={<Btn kind="primary" onClick={create}>Create key</Btn>} />
-      {w.data ? <Card title={w.data.name}><dl class="kv"><div><dt>Sandbox id</dt><dd><code>{w.data.id}</code></dd></div><div><dt>Expires</dt><dd>{when(w.data.expires_at)}</dd></div><div><dt>Contents</dt><dd>{w.data.counts.investors} clients, {w.data.counts.funds} funds, {w.data.counts.decisions} decisions, {w.data.counts.settlements} settlements</dd></div></dl></Card> : null}
-      {fresh ? <div class="note">New key: <code>{fresh.api_key}</code> <Copy text={fresh.api_key} /> Store it now.</div> : null}
-      <ErrorBox error={err} />
-      <Card title="Keys" pad={false}>
-        {r.loading && !r.data ? <Loading /> : <div class="tw"><table class="t"><thead><tr><th>Prefix</th><th>Created</th><th>Last used</th><th /></tr></thead><tbody>{(r.data?.data ?? []).map((k: any) => <tr><td><code>{k.prefix}…</code></td><td class="muted">{when(k.created_at)}</td><td class="muted">{k.last_used_at ? when(k.last_used_at) : 'Never'}</td><td><Btn kind="ghost" onClick={() => revoke(k.id)}>Revoke</Btn></td></tr>)}</tbody></table></div>}
       </Card>
     </>
   );

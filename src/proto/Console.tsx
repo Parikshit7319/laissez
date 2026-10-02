@@ -22,6 +22,8 @@ const LAYER_NOTE: Record<Layer, string> = {
   'Transfer controls': 'Balances, lock-ups and who may send units out.',
   Counterparty: 'The receiving investor must pass the same eligibility tests as a new subscriber.',
   'Global screens': 'Sanctions programs and Travel Rule data that apply everywhere.',
+  Documents: 'The offering documents the investor must have acknowledged, at their current version.',
+  'Fund terms': 'Dealing cut-offs, notice periods and redemption gates set by the fund.',
 };
 
 const defaultAmount = (fundId: FundId, action: Action) =>

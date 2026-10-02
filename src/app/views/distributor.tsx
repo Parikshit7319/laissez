@@ -1,10 +1,12 @@
 /** @jsxImportSource preact */
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { api, money, compact, when, JUR, CLASS_LABEL, BOOKING } from '../api';
-import { useApi, Head, Btn, Chip, outcomeChip, statusChip, ErrorBox, Loading, Empty, Field, Card, Json, go, Copy } from '../ui';
+import { api, money, compact, when, JUR, CLASS_LABEL, BOOKING, track, trackOnce } from '../api';
+import { useApi, Head, Btn, Chip, outcomeChip, statusChip, ErrorBox, Loading, Empty, Field, Card, Json, go, Hash, TxLink } from '../ui';
+import { PermBtn, PermNote, useMe } from '../auth';
 import { Credential } from '../../proto/Credential';
 import { TESTS, findTest, subjectOf } from '../../proto/thresholds';
 import { WHAT_IFS } from '../../proto/engine';
+import { PortalInvite } from './portalAdmin';
 
 // ---------- Overview ----------
 export function Overview() {
@@ -20,7 +22,7 @@ export function Overview() {
   const settledEur = (d.settled_value as any[]).find((x) => x.currency === 'EUR');
   return (
     <>
-      <Head title="Overview" sub="Live numbers from this sandbox. Every order you place below shows up here." actions={<><Btn kind="primary" onClick={() => go('/orders/new')}>New order</Btn><Btn onClick={() => go('/clients')}>Clients</Btn></>} />
+      <Head title="Overview" sub="Live numbers from this workspace. Every order you place shows up here." actions={<><PermBtn perm="orders:write" kind="primary" onClick={() => go('/orders/new')}>New order</PermBtn><Btn onClick={() => go('/clients')}>Clients</Btn></>} />
       <div class="kpis">
         <div class="kpi"><span>Decisions</span><b>{d.totals.decisions}</b><em>{d.totals.allowed} allowed, {d.totals.denied} denied, {d.totals.frozen} frozen</em></div>
         <div class="kpi"><span>Allow rate</span><b>{d.totals.allow_rate === null ? 'None yet' : `${Math.round(d.totals.allow_rate * 100)}%`}</b><em>share of pre-trade checks that passed</em></div>
@@ -65,7 +67,7 @@ export function Clients() {
   const rows = (r.data?.data ?? []).filter((i: any) => !q || `${i.name} ${i.residence_name} ${i.kind}`.toLowerCase().includes(q.toLowerCase()));
   return (
     <>
-      <Head title="Clients" sub="Investors you have onboarded. Each holds at most one active Laissez-passer." actions={<Btn kind="primary" onClick={() => setAdding(true)}>Add client</Btn>} />
+      <Head title="Clients" sub="Investors you have onboarded. Each holds at most one active Laissez-passer." actions={<PermBtn perm="clients:write" kind="primary" onClick={() => setAdding(true)}>Add client</PermBtn>} />
       {adding ? <AddClient onDone={(id) => { setAdding(false); if (id) go(`/clients/${id}`); else r.reload(); }} /> : null}
       <div class="toolbar"><input class="search" placeholder="Search by name, country or type" value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} aria-label="Search clients" /></div>
       {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : (
@@ -98,11 +100,11 @@ function AddClient({ onDone }: { onDone: (id?: string) => void }) {
       <form class="form-grid" onSubmit={submit}>
         <Field label="Legal name"><input required value={f.name} onInput={(e) => set('name', (e.target as HTMLInputElement).value)} placeholder="Harbourline Capital Pte. Ltd." /></Field>
         <Field label="Type"><select value={f.kind} onChange={(e) => set('kind', (e.target as HTMLSelectElement).value)}>{['Corporate', 'Family office', 'Pension fund', 'Holding company', 'Individual'].map((k) => <option>{k}</option>)}</select></Field>
-        <Field label="Residence"><select value={f.residence} onChange={(e) => set('residence', (e.target as HTMLSelectElement).value)}>{['SG', 'HK', 'CH', 'DE', 'AE-DIFC', 'US', 'GB'].map((j) => <option value={j}>{JUR[j]}</option>)}</select></Field>
+        <Field label="Residence"><select value={f.residence} onChange={(e) => set('residence', (e.target as HTMLSelectElement).value)}>{['SG', 'HK', 'CH', 'DE', 'LU', 'IE', 'GB', 'AE-DIFC', 'AE-ADGM', 'JP', 'US'].map((j) => <option value={j}>{JUR[j]}</option>)}</select></Field>
         <Field label="City"><input required value={f.city} onInput={(e) => set('city', (e.target as HTMLInputElement).value)} /></Field>
         <Field label="Booking center"><select value={f.booking_center} onChange={(e) => set('booking_center', (e.target as HTMLSelectElement).value)}>{Object.entries(BOOKING).map(([k, v]) => <option value={k}>{v}</option>)}</select></Field>
         <Field label="U.S. person"><label class="check"><input type="checkbox" checked={f.us_person || f.residence === 'US'} disabled={f.residence === 'US'} onChange={(e) => set('us_person', (e.target as HTMLInputElement).checked)} /> Resident in the United States (Regulation S)</label></Field>
-        <div class="form-actions"><Btn type="submit" kind="primary" disabled={busy}>{busy ? 'Saving' : 'Add client'}</Btn><Btn kind="ghost" onClick={() => onDone()}>Cancel</Btn></div>
+        <div class="form-actions"><PermBtn perm="clients:write" type="submit" kind="primary" busy={busy}>{busy ? 'Saving' : 'Add client'}</PermBtn><Btn kind="ghost" onClick={() => onDone()}>Cancel</Btn></div>
       </form>
       <ErrorBox error={err} />
     </Card>
@@ -118,7 +120,8 @@ export function ClientDetail({ id }: { id: string }) {
   const revoke = async () => { try { await api(`/v1/credentials/${i.credentialId}/revoke`, { body: {} }); setMsg('Credential revoked. Holdings move to redemption-only.'); r.reload(); } catch (e: any) { setMsg(e.message); } };
   return (
     <>
-      <Head title={i.name} sub={<>{i.kind}, {i.city}. Resident in {JUR[i.residence]}, booked in {BOOKING[i.booking]}.</>} actions={<><Btn kind="primary" onClick={() => go(`/orders/new?investor=${i.id}`)}>New order</Btn><Btn onClick={() => go(`/clients/${i.id}/credential`)}>{i.credentialId ? 'Renew credential' : 'Issue credential'}</Btn>{i.credentialId ? <Btn kind="danger" onClick={revoke}>Revoke</Btn> : null}</>} />
+      <Head title={i.name} sub={<>{i.kind}, {i.city}. Resident in {JUR[i.residence]}, booked in {BOOKING[i.booking]}.</>} actions={<><PermBtn perm="orders:write" kind="primary" onClick={() => go(`/orders/new?investor=${i.id}`)}>New order</PermBtn><PermBtn perm="clients:write" onClick={() => go(`/clients/${i.id}/credential`)}>{i.credentialId ? 'Renew credential' : 'Issue credential'}</PermBtn>{i.credentialId ? <PermBtn perm="clients:write" kind="danger" onClick={revoke}>Revoke credential</PermBtn> : null}</>} />
+      <PermNote perm="clients:write" />
       {msg ? <div class="note">{msg}</div> : null}
       <div class="grid2">
         <div class="app">{i.credentialId ? <Credential inv={i} /> : <Empty title="No credential yet">Issue a Laissez-passer to record this client’s classifications.</Empty>}</div>
@@ -131,6 +134,11 @@ export function ClientDetail({ id }: { id: string }) {
           ) : <Empty title="No holdings">Subscribe to a fund to create one.</Empty>}
         </Card>
       </div>
+      {i.reliedShare ? <div class="note">This client's credential was issued by {i.issuer}. Laissez reads it live from the issuing distributor, so a revocation there applies here at once.</div> : null}
+      <Card title="Investor portal">
+        <p class="muted small">Give the client a private link to read fund documents, acknowledge them, submit evidence and request subscriptions under your brand.</p>
+        <PortalInvite investorId={i.id} investorName={i.name} />
+      </Card>
       <Card title="Recent decisions">
         {i.recent_decisions.length ? <DecisionTable rows={i.recent_decisions} /> : <Empty title="No decisions yet" />}
       </Card>
@@ -157,11 +165,15 @@ export function IssueCredential({ id }: { id: string }) {
   const submit = async () => {
     setBusy(true); setErr(null);
     try {
-      await api('/v1/credentials', { body: { investor_id: inv.id, valid_months: months, classifications: Object.entries(sel).map(([class_code, s]) => ({ class_code, evidence: s.evidence, evidence_ref: s.ref || undefined })) } });
+      const r = await api('/v1/credentials', { body: { investor_id: inv.id, valid_months: months, classifications: Object.entries(sel).map(([class_code, s]) => ({ class_code, evidence: s.evidence, evidence_ref: s.ref || undefined })) } });
+      track('credential_issued', { credential: r.credential_id, classes: Object.keys(sel).length });
       go(`/clients/${inv.id}`);
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
-  const relevant = new Set([inv.residence === 'AE-DIFC' ? 'DIFC' : inv.residence, inv.booking === 'DIFC' ? 'DIFC' : inv.booking === 'ZRH' ? 'CH' : inv.booking === 'NY' ? 'US' : inv.booking]);
+  const BOOK_JUR: Record<string, string> = { HK: 'HK', SG: 'SG', ZRH: 'CH', DIFC: 'AE-DIFC', NY: 'US', LDN: 'GB', TYO: 'JP', ADGM: 'AE-ADGM' };
+  const CLASS_JUR: Record<string, string> = { EU: 'DE', DIFC: 'AE-DIFC', ADGM: 'AE-ADGM' };
+  const resJur = ['LU', 'IE'].includes(inv.residence) ? 'DE' : inv.residence;
+  const relevant = new Set([resJur, BOOK_JUR[inv.booking] ?? inv.booking]);
   return (
     <>
       <Head title={`${inv.credentialId ? 'Renew' : 'Issue'} credential`} sub={<>For {inv.name}{/\.$/.test(inv.name) ? '' : '.'} Each classification is checked against its legal threshold before anything is issued. {inv.credentialId ? `This replaces ${inv.credentialId}.` : ''}</>} />
@@ -169,7 +181,7 @@ export function IssueCredential({ id }: { id: string }) {
         <div class="pick">
           {available.map((t) => {
             const jur = t.code.split('_')[0];
-            return <label class={`pick-i ${sel[t.code] ? 'on' : ''}`}><input type="checkbox" checked={!!sel[t.code]} onChange={() => toggle(t.code)} /><span>{CLASS_LABEL[t.code]}</span>{relevant.has(jur === 'EU' ? 'DE' : jur) ? <Chip tone="info">Relevant</Chip> : null}</label>;
+            return <label class={`pick-i ${sel[t.code] ? 'on' : ''}`}><input type="checkbox" checked={!!sel[t.code]} onChange={() => toggle(t.code)} /><span>{CLASS_LABEL[t.code]}</span>{relevant.has(CLASS_JUR[jur] ?? jur) ? <Chip tone="info">Relevant</Chip> : null}</label>;
           })}
         </div>
       </Card>
@@ -192,9 +204,10 @@ export function IssueCredential({ id }: { id: string }) {
       <Card title="3. Issue">
         <div class="row-inline">
           <Field label="Valid for"><select value={months} onChange={(e) => setMonths(Number((e.target as HTMLSelectElement).value))}>{[6, 12, 18, 24].map((m) => <option value={m}>{m} months</option>)}</select></Field>
-          <Btn kind="primary" disabled={!allPass || busy} onClick={submit}>{busy ? 'Issuing' : 'Issue Laissez-passer'}</Btn>
+          <PermBtn perm="clients:write" kind="primary" disabled={!allPass} busy={busy} onClick={submit}>{busy ? 'Issuing' : 'Issue Laissez-passer'}</PermBtn>
           {!allPass ? <span class="muted">{Object.keys(sel).length ? 'Every selected classification must meet its threshold.' : 'Choose at least one classification.'}</span> : null}
         </div>
+        <PermNote perm="clients:write" />
         <ErrorBox error={err} />
       </Card>
     </>
@@ -203,6 +216,8 @@ export function IssueCredential({ id }: { id: string }) {
 
 // ---------- Order ticket with live pre-trade decision ----------
 export function NewOrder({ params }: { params: URLSearchParams }) {
+  const { can, why } = useMe();
+  const canOrder = can('orders:write');
   const invs = useApi('/v1/investors');
   const funds = useApi('/v1/funds');
   const [o, setO] = useState({ action: 'subscribe', investor_id: params.get('investor') ?? 'lumen', fund: 'TWLF', amount: 2_000_000, settle_with: 'USDC', counterparty_id: 'qamar', what_ifs: [] as string[] });
@@ -211,44 +226,101 @@ export function NewOrder({ params }: { params: URLSearchParams }) {
   const [busy, setBusy] = useState(false);
   const timer = useRef<number>(0);
   const fund = (funds.data?.data ?? []).find((f: any) => f.ticker === o.fund);
+  const orderBody = (extra: Record<string, unknown> = {}) => { const b: any = { ...o, ...extra }; if (o.action !== 'transfer') delete b.counterparty_id; return b; };
   useEffect(() => { if (fund && !fund.assets.includes(o.settle_with)) setO((x) => ({ ...x, settle_with: fund.assets[0] })); }, [o.fund, funds.data]);
+  // Fall back to the first client and fund when the demo defaults do not exist in this workspace.
   useEffect(() => {
+    const iv: any[] = invs.data?.data ?? []; const fs: any[] = funds.data?.data ?? [];
+    if (!iv.length || !fs.length) return;
+    setO((x) => {
+      const investor_id = iv.some((i) => i.id === x.investor_id) ? x.investor_id : iv[0].id;
+      const counterparty_id = iv.some((i) => i.id === x.counterparty_id && i.id !== investor_id) ? x.counterparty_id : (iv.find((i) => i.id !== investor_id)?.id ?? x.counterparty_id);
+      const f = fs.find((y) => y.ticker === x.fund) ?? fs[0];
+      return investor_id === x.investor_id && counterparty_id === x.counterparty_id && f.ticker === x.fund ? x : { ...x, investor_id, counterparty_id, fund: f.ticker };
+    });
+  }, [invs.data, funds.data]);
+  const ready = !!(invs.data?.data ?? []).some((i: any) => i.id === o.investor_id) && !!(funds.data?.data ?? []).some((f: any) => f.ticker === o.fund);
+  useEffect(() => {
+    if (!ready || !canOrder) return;
     clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
-      const b: any = { ...o, persist: false }; if (o.action !== 'transfer') delete b.counterparty_id;
-      api('/v1/decisions', { body: b }).then((d) => { setLive(d); setLiveErr(null); }).catch((e) => { setLiveErr(e); setLive(null); });
+      api('/v1/decisions', { body: orderBody({ persist: false }) }).then((d) => { setLive(d); setLiveErr(null); trackOnce('order_previewed', { action: o.action, fund: o.fund }); }).catch((e) => { setLiveErr(e); setLive(null); });
     }, 350);
     return () => clearTimeout(timer.current);
-  }, [JSON.stringify(o)]);
+  }, [JSON.stringify(o), ready]);
   const place = async () => {
     setBusy(true);
-    try { const b: any = { ...o }; if (o.action !== 'transfer') delete b.counterparty_id; const d = await api('/v1/decisions', { body: b }); go(`/decisions/${d.id}`); }
+    try { const d = await api('/v1/decisions', { body: orderBody() }); track('order_placed', { action: o.action, fund: o.fund, outcome: d.outcome, hypothetical: o.what_ifs.length > 0 }); go(`/decisions/${d.id}`); }
     catch (e) { setLiveErr(e); } finally { setBusy(false); }
   };
   const set = (k: string, v: any) => setO({ ...o, [k]: v });
   if ((invs.loading && !invs.data) || (funds.loading && !funds.data)) return <Loading />;
+  if (invs.error || funds.error) return <ErrorBox error={invs.error ?? funds.error} onRetry={() => { invs.reload(); funds.reload(); }} />;
+  if (!invs.data.data.length || !funds.data.data.length) return <><Head title="New order" /><Empty title={!invs.data.data.length ? 'Add a client first' : 'Create a fund first'}>{!invs.data.data.length ? <a href="#/clients">Go to clients</a> : <a href="#/funds/new">Create a fund</a>}</Empty></>;
   return (
     <>
       <Head title="New order" sub="The decision updates as you type. Nothing is recorded until you place the order." />
       <div class="grid-order">
-        <Card title="Order ticket">
-          <div class="seg-c" role="radiogroup" aria-label="Action">{['subscribe', 'transfer', 'redeem'].map((a) => <button type="button" role="radio" aria-checked={o.action === a} class={o.action === a ? 'on' : ''} onClick={() => set('action', a)}>{a[0].toUpperCase() + a.slice(1)}</button>)}</div>
-          <Field label="Client"><select value={o.investor_id} onChange={(e) => set('investor_id', (e.target as HTMLSelectElement).value)}>{invs.data.data.map((i: any) => <option value={i.id}>{i.name} ({i.residence_name})</option>)}</select></Field>
-          <Field label="Fund"><select value={o.fund} onChange={(e) => set('fund', (e.target as HTMLSelectElement).value)}>{funds.data.data.map((f: any) => <option value={f.ticker}>{f.short} ({f.ticker})</option>)}</select></Field>
-          <div class="form-grid two">
-            <Field label={`Amount (${fund?.currency ?? 'USD'})`} hint={fund ? `${(o.amount / fund.nav).toLocaleString('en-US', { maximumFractionDigits: 2 })} units at NAV ${fund.nav.toFixed(4)}` : ''}><input inputMode="numeric" value={o.amount.toLocaleString('en-US')} onInput={(e) => { const v = Number((e.target as HTMLInputElement).value.replace(/[^0-9.]/g, '')); if (Number.isFinite(v)) set('amount', v); }} /></Field>
-            <Field label={o.action === 'redeem' ? 'Paid out in' : 'Settle in'}><select value={o.settle_with} onChange={(e) => set('settle_with', (e.target as HTMLSelectElement).value)}>{[...(fund?.assets ?? []), 'USDT'].map((a: string) => <option>{a}</option>)}</select></Field>
-          </div>
-          {o.action === 'transfer' ? <Field label="Transfer to"><select value={o.counterparty_id} onChange={(e) => set('counterparty_id', (e.target as HTMLSelectElement).value)}>{invs.data.data.filter((i: any) => i.id !== o.investor_id).map((i: any) => <option value={i.id}>{i.name}</option>)}</select></Field> : null}
-          <fieldset class="wis"><legend>What if</legend>{WHAT_IFS.map((w) => <label title={w.hint}><input type="checkbox" checked={o.what_ifs.includes(w.id)} onChange={(e) => set('what_ifs', (e.target as HTMLInputElement).checked ? [...o.what_ifs, w.id] : o.what_ifs.filter((x) => x !== w.id))} /> {w.label}</label>)}</fieldset>
-          <div class="form-actions"><Btn kind="primary" disabled={busy || !live} onClick={place}>{busy ? 'Placing' : 'Place order'}</Btn>{o.what_ifs.length ? <span class="muted">What-ifs make the decision hypothetical: it records, but cannot settle.</span> : null}</div>
-        </Card>
+        <div>
+          <Card title="Order ticket">
+            <div class="seg-c" role="radiogroup" aria-label="Action">{['subscribe', 'transfer', 'redeem'].map((a) => <button type="button" role="radio" aria-checked={o.action === a} class={o.action === a ? 'on' : ''} onClick={() => set('action', a)}>{a[0].toUpperCase() + a.slice(1)}</button>)}</div>
+            <Field label="Client"><select value={o.investor_id} onChange={(e) => set('investor_id', (e.target as HTMLSelectElement).value)}>{invs.data.data.map((i: any) => <option value={i.id}>{i.name} ({i.residence_name})</option>)}</select></Field>
+            <Field label="Fund"><select value={o.fund} onChange={(e) => set('fund', (e.target as HTMLSelectElement).value)}>{funds.data.data.map((f: any) => <option value={f.ticker}>{f.short} ({f.ticker})</option>)}</select></Field>
+            <div class="form-grid two">
+              <Field label={`Amount (${fund?.currency ?? 'USD'})`} hint={fund ? `${(o.amount / fund.nav).toLocaleString('en-US', { maximumFractionDigits: 2 })} units at NAV ${fund.nav.toFixed(4)}` : ''}><input inputMode="numeric" value={o.amount.toLocaleString('en-US')} onInput={(e) => { const v = Number((e.target as HTMLInputElement).value.replace(/[^0-9.]/g, '')); if (Number.isFinite(v)) set('amount', v); }} /></Field>
+              <Field label={o.action === 'redeem' ? 'Paid out in' : 'Settle in'}><select value={o.settle_with} onChange={(e) => set('settle_with', (e.target as HTMLSelectElement).value)}>{[...(fund?.assets ?? []), 'USDT'].map((a: string) => <option>{a}</option>)}</select></Field>
+            </div>
+            {o.action === 'transfer' ? <Field label="Transfer to"><select value={o.counterparty_id} onChange={(e) => set('counterparty_id', (e.target as HTMLSelectElement).value)}>{invs.data.data.filter((i: any) => i.id !== o.investor_id).map((i: any) => <option value={i.id}>{i.name}</option>)}</select></Field> : null}
+            <fieldset class="wis"><legend>What if</legend>{WHAT_IFS.map((w) => <label title={w.hint}><input type="checkbox" checked={o.what_ifs.includes(w.id)} onChange={(e) => set('what_ifs', (e.target as HTMLInputElement).checked ? [...o.what_ifs, w.id] : o.what_ifs.filter((x) => x !== w.id))} /> {w.label}</label>)}</fieldset>
+            <div class="form-actions"><PermBtn perm="orders:write" kind="primary" disabled={!live} busy={busy} onClick={place}>{busy ? 'Placing' : 'Place order'}</PermBtn>{o.what_ifs.length ? <span class="muted">What-ifs make the decision hypothetical: it records, but cannot settle.</span> : null}</div>
+            <PermNote perm="orders:write" />
+          </Card>
+          <AsOfCard body={orderBody} live={live} />
+        </div>
         <div>
           <ErrorBox error={liveErr} />
-          {live ? <DecisionPanel d={live} /> : !liveErr ? <Loading label="Checking" /> : null}
+          {!canOrder ? <Card title="Live check is off"><p class="muted">{why('orders:write')} The live pre-trade check runs as an order preview, so it needs the same permission. You can still evaluate this order as of a past date.</p></Card> : live ? <DecisionPanel d={live} /> : !liveErr ? <Loading label="Checking" /> : null}
         </div>
       </div>
     </>
+  );
+}
+
+/** Re-runs the order against the rules and data as they stood on a past date. */
+function AsOfCard({ body, live }: { body: (extra?: Record<string, unknown>) => any; live: any }) {
+  const ago = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(ago);
+  const [res, setRes] = useState<any>(null);
+  const [err, setErr] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async (e: Event) => {
+    e.preventDefault(); setBusy(true); setErr(null); setRes(null);
+    try { const b = body(); delete b.persist; setRes(await api('/v1/evaluate/as-of', { body: { ...b, as_of: date } })); }
+    catch (x) { setErr(x); } finally { setBusy(false); }
+  };
+  const d = res ? res.decision ?? res : null;
+  const packs: string[] = d ? (d.rule_packs ?? d.rulePacks ?? []) : [];
+  const binding: any[] = d ? (d.binding_rules ?? d.resolved ?? []) : [];
+  return (
+    <Card title="Evaluate as of a past date">
+      <p class="small muted">Run this exact order against the rule packs, fund policy and credentials in force on an earlier date. Useful when a regulator asks why a trade was allowed at the time. Nothing is recorded.</p>
+      <form class="row-inline" onSubmit={run}>
+        <Field label="As of"><input type="date" required max={today} value={date} onInput={(e) => setDate((e.target as HTMLInputElement).value)} /></Field>
+        <Btn type="submit" busy={busy}>Evaluate on this date</Btn>
+      </form>
+      <ErrorBox error={err} />
+      {d ? (
+        <div class="asof">
+          <div class="row-inline tight">{outcomeChip(d.outcome)}<span class="small muted">on {new Date((res.as_of ?? date) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>{live && live.outcome !== d.outcome ? <Chip tone="warn">Today: {live.outcome === 'ALLOW' ? 'allowed' : live.outcome === 'DENY' ? 'denied' : 'frozen'}</Chip> : live ? <Chip>Same as today</Chip> : null}</div>
+          {d.headline ? <p class="asof-h">{d.headline}</p> : null}
+          {binding.length ? <ul class="asof-l">{binding.map((b: any) => <li>{b.text} <span class="muted small">{b.ruleRef ?? b.rule_ref}</span></li>)}</ul> : null}
+          {packs.length ? <p class="small muted">Rule packs in force: {packs.join(', ')}</p> : null}
+          {res.policy_version_used ? <p class="small muted">Fund policy version {res.policy_version_used.version}{res.policy_version_used.published_by ? `, published by ${res.policy_version_used.published_by}` : ''}{res.policy_version_used.effective_at ? ` on ${new Date(res.policy_version_used.effective_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}.</p> : null}
+          {res.note ? <p class="small muted">{res.note}</p> : null}
+        </div>
+      ) : null}
+    </Card>
   );
 }
 
@@ -274,7 +346,7 @@ export function DecisionPanel({ d }: { d: any }) {
 export function DecisionDetail({ id }: { id: string }) {
   const r = useApi(`/v1/decisions/${id}`, [id]);
   const [stl, setStl] = useState<any>(null);
-  const [step, setStep] = useState(0);
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<any>(null);
   const [verify, setVerify] = useState<any>(null);
   if (r.loading && !r.data) return <Loading />;
@@ -282,35 +354,155 @@ export function DecisionDetail({ id }: { id: string }) {
   const d = r.data;
   const canSettle = d.outcome === 'ALLOW' && !(d.what_ifs ?? []).length && !d.settlement_id && !stl && Date.now() - new Date(d.created_at).getTime() < 15 * 60_000;
   const settle = async () => {
-    setErr(null);
-    try { const s = await api('/v1/settlements', { body: { decision_id: d.id } }); setStl(s); s.steps.forEach((_: any, i: number) => setTimeout(() => setStep(i + 1), 450 * (i + 1))); }
-    catch (e) { setErr(e); }
+    setErr(null); setBusy(true);
+    try {
+      const s = await api('/v1/settlements', { body: { decision_id: d.id } });
+      setStl(s);
+      if (s.status === 'settled') track('settlement_completed', { settlement: s.id, action: d.action, fund: d.ticker });
+    } catch (e) { setErr(e); } finally { setBusy(false); }
   };
   const doVerify = async () => { setVerify(await api('/v1/receipts/verify', { body: { receipt: d.receipt, signature: d.signature }, auth: false }).catch((e) => ({ valid: false, message: e.message }))); };
-  const labels: Record<string, string> = { decision_signed: 'Settlement instruction signed', cash_locked: 'Cash leg locked', registry_confirmed: 'Registry confirms the claim', atomic_swap: 'Atomic swap', units_locked: 'Units locked', atomic_payout: 'Atomic payout', final: 'Final on Ethereum' };
   return (
     <>
-      <Head title={`Decision ${d.id}`} sub={<>{d.action[0].toUpperCase() + d.action.slice(1)} {money(d.amount, d.asset === 'EURC' || d.asset === 'AVB-EUR' ? 'EUR' : 'USD')} of {d.ticker} for {d.investor_name}{d.counterparty_name ? ` to ${d.counterparty_name}` : ''}{/\.$/.test(d.counterparty_name ?? d.investor_name ?? '') ? '' : '.'} {when(d.created_at)}.</>} actions={canSettle ? <Btn kind="primary" onClick={settle}>Settle now</Btn> : d.settlement_id ? <Chip tone="ok">Settled</Chip> : null} />
+      <Head title={`Decision ${d.id}`} sub={<>{d.action[0].toUpperCase() + d.action.slice(1)} {money(d.amount, d.asset === 'EURC' || d.asset === 'AVB-EUR' ? 'EUR' : 'USD')} of {d.ticker} for {d.investor_name}{d.counterparty_name ? ` to ${d.counterparty_name}` : ''}{/\.$/.test(d.counterparty_name ?? d.investor_name ?? '') ? '' : '.'} {when(d.created_at)}.</>}
+        actions={canSettle ? <PermBtn perm="orders:write" kind="primary" busy={busy} onClick={settle}>{busy ? 'Settling' : 'Settle now'}</PermBtn> : d.settlement_id ? <Btn onClick={() => go(`/settlements/${d.settlement_id}`)}>View settlement</Btn> : null} />
+      {canSettle ? <PermNote perm="orders:write" /> : null}
       <ErrorBox error={err} />
-      {stl ? (
-        <Card title="Settlement" actions={<Chip tone={step >= stl.steps.length ? 'ok' : 'info'}>{step >= stl.steps.length ? 'Settled' : 'Settling'}</Chip>}>
-          <ol class="steps2">{stl.steps.map((s: any, i: number) => <li class={step > i ? 'done' : ''}><b>{labels[s.step] ?? s.step}</b><span>{s.block ? `block ${s.block}, ` : ''}{new Date(s.at).toLocaleTimeString()}</span></li>)}</ol>
-          <p class="muted small">Simulated on Ethereum timings. Holdings were updated in one database transaction, so both legs moved or neither did.</p>
-        </Card>
-      ) : null}
+      {stl ? <SettlementCard initial={stl} animate /> : null}
       <DecisionPanel d={{ ...d, binding_rules: d.resolved }} />
       <div class="grid2">
         <Card title="Signed receipt" actions={d.signature ? <Btn kind="ghost" onClick={doVerify}>Verify signature</Btn> : null}>
           {d.receipt ? <><Json value={d.receipt} /><p class="small mono break">signature: {d.signature}</p></> : <Empty title="Receipt signing is not configured" />}
           {verify ? <p class={`verdict-line ${verify.valid ? 'ok' : 'warn'}`}>{verify.message}</p> : null}
         </Card>
-        {d.action === 'transfer' ? <TravelRuleCard d={d} /> : <Card title="On-chain record"><p>Only three fields would be written on-chain: the outcome, the input hash and the rule-pack versions. No names, no balances.</p><Json value={{ outcome: d.outcome, inputs_sha256: d.inputs_sha256, rule_packs: d.rule_packs }} /></Card>}
+        <div>
+          <ReplayCard id={d.id} replayable={d.replayable} />
+          {d.action === 'transfer' ? <TravelRuleCard d={d} /> : <Card title="On-chain record"><p>Only three fields would be written on-chain: the outcome, the input hash and the rule-pack versions. No names, no balances.</p><Json value={{ outcome: d.outcome, inputs_sha256: d.inputs_sha256, rule_packs: d.rule_packs }} /></Card>}
+        </div>
       </div>
     </>
   );
 }
+
+const humanKey = (k: string) => { const s = k.replace(/sha256/g, 'SHA-256').replace(/[._]/g, ' ').trim(); return s[0].toUpperCase() + s.slice(1); };
+function hashFields(obj: any, prefix = '', depth = 0): [string, string][] {
+  if (!obj || typeof obj !== 'object' || depth > 2) return [];
+  const out: [string, string][] = [];
+  for (const [k, v] of Object.entries(obj)) {
+    const key = prefix ? `${prefix} ${k}` : k;
+    if (typeof v === 'string' && /hash|sha256|digest/i.test(k)) out.push([key, v]);
+    else if (v && typeof v === 'object' && !Array.isArray(v)) out.push(...hashFields(v, key, depth + 1));
+  }
+  return out;
+}
+
+/** Re-runs a stored decision from its snapshot and checks that it comes out the same. */
+function ReplayCard({ id, replayable }: { id: string; replayable?: boolean }) {
+  const [res, setRes] = useState<any>(null);
+  const [err, setErr] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => { setBusy(true); setErr(null); try { setRes(await api(`/v1/decisions/${id}/replay`)); } catch (e) { setErr(e); } finally { setBusy(false); } };
+  const ok = res ? !!(res.reproduced ?? res.match) : null;
+  const word = (o: string) => (o === 'ALLOW' ? 'Allowed' : o === 'DENY' ? 'Denied' : o === 'FREEZE' ? 'Frozen' : o);
+  const extra = res && !('stored_hash' in res) ? hashFields(res) : [];
+  return (
+    <Card title="Replay" actions={replayable === false ? <Chip>Not replayable</Chip> : <Btn kind="ghost" busy={busy} onClick={run}>{res ? 'Replay again' : 'Replay this decision'}</Btn>}>
+      <p class="small muted">{replayable === false ? 'This decision was made before Laissez stored decision snapshots, so it cannot be replayed. Decisions made from now on can.' : 'Laissez re-runs the decision from the inputs stored with it, with the rule-pack versions that applied at the time, then compares the outcome and input hash with the original.'}</p>
+      <ErrorBox error={err} />
+      {res ? (
+        <>
+          <p class={`verdict-line ${ok ? 'ok' : 'warn'}`}>{ok ? 'Reproduced. Same outcome, same input hash.' : 'Not reproduced. The replay differs from the original decision.'}</p>
+          <dl class="kv wide hashes">
+            {res.stored_outcome ? <div><dt>Outcome</dt><dd>{word(res.stored_outcome)} then, {word(res.replayed_outcome).toLowerCase()} on replay</dd></div> : null}
+            {res.stored_hash ? <div><dt>Stored hash</dt><dd><Hash value={res.stored_hash} n={16} /></dd></div> : null}
+            {res.replayed_hash ? <div><dt>Replayed hash</dt><dd><Hash value={res.replayed_hash} n={16} /></dd></div> : null}
+            {(res.rule_packs ?? []).length ? <div><dt>Rule packs</dt><dd class="small">{res.rule_packs.join(', ')}</dd></div> : null}
+            {extra.map(([k, v]) => <div><dt>{humanKey(k)}</dt><dd><Hash value={v} n={16} /></dd></div>)}
+          </dl>
+          <details class="more"><summary>Full replay response</summary><Json value={res} /></details>
+        </>
+      ) : null}
+    </Card>
+  );
+}
+
 function TravelRuleCard({ d }: { d: any }) {
   return <Card title="Travel Rule message (IVMS101)"><p class="muted">Sent between distributors before settlement for transfers of USD/EUR 1,000 or more.</p><Json value={{ originator: d.investor_name, beneficiary: d.counterparty_name, amount: d.amount, asset: d.ticker, standard: 'IVMS101', rule: 'FATF R.16' }} /></Card>;
+}
+
+// ---------- Settlement ----------
+const STEP_LABEL: Record<string, string> = { decision_signed: 'Settlement instruction signed', cash_locked: 'Cash leg locked', registry_confirmed: 'Registry confirms the claim', atomic_swap: 'Atomic swap', units_locked: 'Units locked', atomic_payout: 'Atomic payout', final: 'Final on chain', submitted: 'Transaction submitted', confirmed: 'Confirmed on chain', travel_rule: 'Travel Rule approved' };
+const stepsOf = (s: any): any[] => (Array.isArray(s?.steps) ? s.steps : Array.isArray(s?.steps?.steps) ? s.steps.steps : []);
+function txsOf(s: any): string[] {
+  const c = s?.chain ?? {};
+  const all = [c.tx_hash, c.tx, c.hash, ...(c.tx_hashes ?? []), ...((c.txs ?? []).map((t: any) => t?.hash ?? t)), s?.tx_hash, ...(s?.tx_hashes ?? []), ...stepsOf(s).map((x) => x.tx_hash ?? x.tx)];
+  return [...new Set(all.filter((h) => typeof h === 'string' && /^0x[0-9a-fA-F]{8,}$/.test(h)))];
+}
+const stlChip = (status: string): any => status === 'settled' ? <Chip tone="ok">Settled</Chip> : status === 'pending' ? <Chip tone="info">Settling on chain</Chip> : status === 'reverted' ? <Chip tone="no">Reverted</Chip> : <Chip>{status}</Chip>;
+
+/** Shows a settlement and polls it every 2 seconds while it is pending. */
+function SettlementCard({ initial, animate, id }: { initial?: any; animate?: boolean; id?: string }) {
+  const [s, setS] = useState<any>(initial ?? null);
+  const [err, setErr] = useState<any>(null);
+  const [shown, setShown] = useState(animate ? 0 : 99);
+  const sid = id ?? initial?.id;
+  useEffect(() => {
+    if (!sid) return;
+    let stop = false; let t = 0; let last = initial?.status;
+    const tick = async () => {
+      try {
+        const x = await api(`/v1/settlements/${sid}`);
+        if (stop) return;
+        setS((prev: any) => ({ ...prev, ...x }));
+        setErr(null);
+        if (last === 'pending' && x.status === 'settled') track('settlement_completed', { settlement: sid });
+        last = x.status;
+        if (x.status === 'pending') t = window.setTimeout(tick, 2000);
+      } catch (e) { if (!stop) { setErr(e); t = window.setTimeout(tick, 4000); } }
+    };
+    if (!initial || initial.status === 'pending') tick();
+    return () => { stop = true; clearTimeout(t); };
+  }, [sid]);
+  const steps = stepsOf(s);
+  useEffect(() => {
+    if (!animate || !steps.length) return;
+    const ts = steps.map((_, i) => window.setTimeout(() => setShown((n) => Math.max(n, i + 1)), 450 * (i + 1)));
+    return () => ts.forEach(clearTimeout);
+  }, [steps.length]);
+  if (!s) return err ? <ErrorBox error={err} /> : <Loading />;
+  const txs = txsOf(s);
+  const status = s.status ?? 'pending';
+  const simulated = s.simulated ?? s.steps?.simulated;
+  const done = (x: any, i: number) => i < shown && (status === 'settled' || x.done === true || ['done', 'confirmed', 'complete'].includes(x.status) || !!x.tx_hash || (status !== 'pending' && status !== 'reverted'));
+  return (
+    <Card title={`Settlement ${s.id ?? ''}`} actions={stlChip(status)}>
+      {steps.length ? <ol class="steps2">{steps.map((x: any, i: number) => <li class={done(x, i) ? 'done' : ''}><b>{STEP_LABEL[x.step] ?? x.label ?? x.step}</b><span>{x.block ? `block ${x.block}, ` : ''}{x.at ? new Date(x.at).toLocaleTimeString() : ''}</span></li>)}</ol> : null}
+      {status === 'pending' ? <p class="poll" aria-live="polite"><span class="spin sm" aria-hidden="true" />{s.chain?.status === 'queued' ? 'Queued for the chain.' : s.chain?.status ? `Chain job ${s.chain.status}.` : 'Waiting for the chain.'} Checking every 2 seconds.</p> : null}
+      {txs.length ? (
+        <dl class="kv wide">
+          <div><dt>Network</dt><dd>{s.chain?.network ?? s.chain?.chain ?? 'Base Sepolia'}</dd></div>
+          {txs.map((h, i) => <div><dt>{txs.length > 1 ? `Transaction ${i + 1}` : 'Transaction'}</dt><dd><TxLink hash={h} /></dd></div>)}
+          {s.chain?.block ? <div><dt>Block</dt><dd>{Number(s.chain.block).toLocaleString('en-US')}</dd></div> : null}
+        </dl>
+      ) : null}
+      {status === 'reverted' ? <p class="verdict-line warn">{s.chain?.error ?? s.steps?.reason ?? s.reason ?? 'A leg failed, so both legs reverted. Nothing moved.'}</p> : null}
+      {simulated && !txs.length ? <p class="muted small">Simulated on Ethereum timings. Holdings were updated in one database transaction, so both legs moved or neither did.</p> : null}
+      {err && status === 'pending' ? <p class="small muted">Could not refresh: {err.message} Retrying.</p> : null}
+    </Card>
+  );
+}
+
+export function SettlementDetail({ id }: { id: string }) {
+  const r = useApi(`/v1/settlements/${id}`, [id]);
+  if (r.loading && !r.data) return <Loading />;
+  if (r.error) return <ErrorBox error={r.error} onRetry={r.reload} />;
+  const s = r.data;
+  return (
+    <>
+      <Head title={`Settlement ${s.id}`} sub={<>Delivery versus payment for decision <a href={`#/decisions/${s.decision_id}`}><code>{s.decision_id}</code></a>. Both legs move together or neither does.</>} actions={<Btn onClick={() => go(`/decisions/${s.decision_id}`)}>View decision</Btn>} />
+      <SettlementCard initial={s} id={s.id} />
+    </>
+  );
 }
 
 function DecisionTable({ rows }: { rows: any[] }) {
@@ -323,16 +515,16 @@ function DecisionTable({ rows }: { rows: any[] }) {
 }
 export function Decisions() {
   const r = useApi('/v1/decisions');
-  return <><Head title="Decisions" sub="Every pre-trade check placed in this sandbox, newest first." actions={<Btn kind="primary" onClick={() => go('/orders/new')}>New order</Btn>} />{r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} /> : r.data.data.length ? <DecisionTable rows={r.data.data} /> : <Empty title="No decisions yet">Place your first order.</Empty>}</>;
+  return <><Head title="Decisions" sub="Every pre-trade check placed in this workspace, newest first." actions={<PermBtn perm="orders:write" kind="primary" onClick={() => go('/orders/new')}>New order</PermBtn>} />{r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : r.data.data.length ? <DecisionTable rows={r.data.data} /> : <Empty title="No decisions yet">Place your first order.</Empty>}</>;
 }
 export function Settlements() {
   const r = useApi('/v1/settlements');
   return (
     <>
       <Head title="Settlements" sub="Atomic delivery versus payment. Both legs or neither." />
-      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} /> : r.data.data.length ? (
+      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : r.data.data.length ? (
         <div class="tw"><table class="t"><thead><tr><th>Settlement</th><th>Decision</th><th>Client</th><th>Action</th><th class="r">Amount</th><th>Status</th><th>When</th></tr></thead>
-          <tbody>{r.data.data.map((s: any) => <tr><td><code>{s.id}</code></td><td><a href={`#/decisions/${s.decision_id}`}><code>{s.decision_id}</code></a></td><td>{s.investor}</td><td>{s.action} {s.ticker}</td><td class="r">{Number(s.amount).toLocaleString('en-US')} {s.asset}</td><td>{s.status === 'settled' ? <Chip tone="ok">Settled</Chip> : <Chip tone="no">Reverted</Chip>}</td><td class="muted">{when(s.created_at)}</td></tr>)}</tbody></table></div>
+          <tbody>{r.data.data.map((s: any) => <tr class="click" onClick={() => go(`/settlements/${s.id}`)}><td><a href={`#/settlements/${s.id}`}><code>{s.id}</code></a></td><td><a href={`#/decisions/${s.decision_id}`} onClick={(e) => e.stopPropagation()}><code>{s.decision_id}</code></a></td><td>{s.investor}</td><td>{s.action} {s.ticker}</td><td class="r">{Number(s.amount).toLocaleString('en-US')} {s.asset}</td><td>{stlChip(s.status)}{txsOf(s).length ? <Chip tone="info">On chain</Chip> : null}</td><td class="muted">{when(s.created_at)}</td></tr>)}</tbody></table></div>
       ) : <Empty title="Nothing settled yet">Allowed decisions can be settled from their decision page.</Empty>}
     </>
   );

@@ -1,0 +1,23 @@
+{
+  "name": "laissez-jobs",
+  "private": true,
+  "type": "module",
+  "description": "Scheduled jobs for Laissez: sanctions list ingest, nightly monitoring sweep, regulator feeds. Run from api/ with npx tsx jobs/<job>.ts.",
+  "scripts": {
+    "sanctions": "cd .. && tsx jobs/sanctions-ingest.ts",
+    "sweep": "cd .. && tsx jobs/sweep.ts",
+    "feeds": "cd .. && tsx jobs/feeds.ts",
+    "test": "cd .. && tsx jobs/__tests__/parsers.test.ts && tsx jobs/__tests__/monitor.test.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.3.0",
+    "tsx": "^4.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

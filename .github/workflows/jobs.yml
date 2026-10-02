@@ -1,0 +1,94 @@
+name: Laissez jobs
+
+# Heavy work that does not fit the Workers free plan (10 ms CPU per request) runs here as scheduled Node jobs.
+# Each job connects with the DATABASE_URL secret (the owner role, which bypasses row-level security).
+# Optional repository variable FEEDS_CONTACT: an email address sent in the feed reader's user agent,
+# which sec.gov requires of automated clients.
+
+on:
+  schedule:
+    - cron: '20 5 * * *'    # sanctions lists, then monitoring in every workspace
+    - cron: '40 6 * * *'    # nightly monitoring sweep
+    - cron: '15 */6 * * *'  # regulator feeds
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Job to run
+        type: choice
+        options: [sanctions, sweep, feeds, all]
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: laissez-jobs-${{ github.event.schedule || inputs.job }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: ${{ github.event_name == 'workflow_dispatch' && format('Run {0}', inputs.job) || format('Scheduled {0}', github.event.schedule) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      FEEDS_CONTACT: ${{ vars.FEEDS_CONTACT }}
+      JOB: >-
+        ${{ github.event_name == 'workflow_dispatch' && inputs.job
+        || github.event.schedule == '20 5 * * *' && 'sanctions'
+        || github.event.schedule == '40 6 * * *' && 'sweep'
+        || github.event.schedule == '15 */6 * * *' && 'feeds'
+        || 'none' }}
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            api/package-lock.json
+            api/jobs/package-lock.json
+
+      - name: Check configuration
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::The DATABASE_URL secret is not set. Add the owner connection string under Settings > Secrets and variables > Actions, then run again."
+            exit 1
+          fi
+          if [ "$JOB" = "none" ]; then
+            echo "::error::No job matches this trigger. Check that the cron lines in this workflow match the job mapping."
+            exit 1
+          fi
+          echo "Running: $JOB"
+
+      - name: Install API dependencies
+        run: npm ci --omit=dev --no-audit --no-fund
+
+      - name: Install job dependencies
+        id: deps
+        working-directory: api/jobs
+        run: npm ci --no-audit --no-fund
+
+      # A parser regression must never reach the live lists; the sweep does not depend on the parsers.
+      - name: Job tests
+        id: tests
+        if: env.JOB == 'sanctions' || env.JOB == 'feeds' || env.JOB == 'all'
+        run: |
+          npx --prefix jobs tsx jobs/__tests__/parsers.test.ts
+          npx --prefix jobs tsx jobs/__tests__/monitor.test.ts
+
+      - name: Sanctions lists
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.tests.outcome == 'success' && (env.JOB == 'sanctions' || env.JOB == 'all') }}
+        run: npx --prefix jobs tsx jobs/sanctions-ingest.ts
+
+      - name: Monitoring sweep
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && (env.JOB == 'sweep' || env.JOB == 'all') }}
+        run: npx --prefix jobs tsx jobs/sweep.ts
+
+      - name: Regulator feeds
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.tests.outcome == 'success' && (env.JOB == 'feeds' || env.JOB == 'all') }}
+        run: npx --prefix jobs tsx jobs/feeds.ts

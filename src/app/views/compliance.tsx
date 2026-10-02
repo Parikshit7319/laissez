@@ -1,7 +1,8 @@
 /** @jsxImportSource preact */
 import { useState } from 'preact/hooks';
-import { api, API_BASE, getKey, when, JUR } from '../api';
-import { useApi, Head, Btn, Chip, ErrorBox, Loading, Empty, Field, Card, Json } from '../ui';
+import { api, API_BASE, authHeaders, when, JUR } from '../api';
+import { useApi, Head, Btn, Chip, ErrorBox, Loading, Empty, Field, Card, Json, Hash, TxLink } from '../ui';
+import { PermBtn, PermNote } from '../auth';
 
 export function RuleLibrary() {
   const packs = useApi('/v1/rule-packs');
@@ -66,30 +67,30 @@ export function RuleDrafts() {
   const r = useApi('/v1/rule-drafts');
   const [f, setF] = useState({ source_text: '', source_url: '', jurisdiction: 'GB' });
   const [err, setErr] = useState<any>(null);
-  const [busy, setBusy] = useState(false);
-  const [reviewer, setReviewer] = useState('');
-  const submit = async (e: Event) => { e.preventDefault(); setBusy(true); setErr(null); try { await api('/v1/rule-drafts', { body: { ...f, source_url: f.source_url || undefined } }); r.reload(); } catch (x) { setErr(x); } finally { setBusy(false); } };
-  const decide = async (id: string, d: 'approve' | 'reject') => { try { await api(`/v1/rule-drafts/${id}/${d}`, { body: { reviewer } }); r.reload(); } catch (x) { setErr(x); } };
+  const [busy, setBusy] = useState<string | null>(null);
+  const submit = async (e: Event) => { e.preventDefault(); setBusy('new'); setErr(null); try { await api('/v1/rule-drafts', { body: { ...f, source_url: f.source_url || undefined } }); r.reload(); } catch (x) { setErr(x); } finally { setBusy(null); } };
+  const decide = async (id: string, d: 'approve' | 'reject') => { setBusy(id + d); setErr(null); try { await api(`/v1/rule-drafts/${id}/${d}`, { body: {} }); r.reload(); } catch (x) { setErr(x); } finally { setBusy(null); } };
   const enabled = r.data?.agent_enabled;
   return (
     <>
       <Head title="Regulatory change agent" sub="Paste a regulator publication. The agent drafts a rule-pack change with citations. A reviewer approves or rejects it; nothing goes live on its own." />
-      {r.data && !enabled ? <div class="note">The drafting agent is built but switched off in this sandbox until an Anthropic API key is connected. Drafting stays available as an API call once it is.</div> : null}
+      {r.data && !enabled ? <div class="note">The drafting agent is built but switched off here until an Anthropic API key is connected. Drafting stays available as an API call once it is.</div> : null}
+      <PermNote perm="compliance:write" />
       <Card title="New draft">
         <form class="form-grid" onSubmit={submit}>
-          <Field label="Jurisdiction"><select value={f.jurisdiction} onChange={(e) => setF({ ...f, jurisdiction: (e.target as HTMLSelectElement).value })}>{['GB', 'SG', 'HK', 'CH', 'DE', 'AE-DIFC', 'US'].map((j) => <option value={j}>{JUR[j]}</option>)}</select></Field>
+          <Field label="Jurisdiction"><select value={f.jurisdiction} onChange={(e) => setF({ ...f, jurisdiction: (e.target as HTMLSelectElement).value })}>{['GB', 'SG', 'HK', 'CH', 'DE', 'LU', 'IE', 'AE-DIFC', 'AE-ADGM', 'JP', 'US'].map((j) => <option value={j}>{JUR[j]}</option>)}</select></Field>
           <Field label="Source link" hint="Optional"><input value={f.source_url} onInput={(e) => setF({ ...f, source_url: (e.target as HTMLInputElement).value })} placeholder="https://www.fca.org.uk/publication/consultation/cp25-36.pdf" /></Field>
           <div class="span2"><Field label="Regulator text"><textarea rows={6} value={f.source_text} onInput={(e) => setF({ ...f, source_text: (e.target as HTMLTextAreaElement).value })} placeholder="Paste the relevant section, at least a paragraph." /></Field></div>
-          <div class="form-actions"><Btn type="submit" kind="primary" disabled={busy || f.source_text.length < 40 || !enabled}>{busy ? 'Drafting' : 'Draft rule change'}</Btn></div>
+          <div class="form-actions"><PermBtn perm="compliance:write" type="submit" kind="primary" busy={busy === 'new'} disabled={f.source_text.length < 40 || !enabled}>{busy === 'new' ? 'Drafting' : 'Draft rule change'}</PermBtn></div>
         </form>
         <ErrorBox error={err} />
       </Card>
-      <Card title="Drafts" actions={<input class="sm" placeholder="Reviewer name" value={reviewer} onInput={(e) => setReviewer((e.target as HTMLInputElement).value)} aria-label="Reviewer name" />}>
+      <Card title="Drafts">
         {r.loading && !r.data ? <Loading /> : (r.data?.data ?? []).length ? r.data.data.map((d: any) => (
           <div class="rule">
             <div class="rule-h"><h3>{d.draft.summary ?? d.id}</h3>{d.status === 'draft' ? <Chip tone="warn">Draft</Chip> : d.status === 'approved' ? <Chip tone="ok">Approved by {d.reviewer}</Chip> : <Chip tone="no">Rejected by {d.reviewer}</Chip>}{d.draft.source_status ? <Chip tone="info">Source: {d.draft.source_status}</Chip> : null}</div>
             <Json value={d.draft.changes ?? d.draft} />
-            {d.status === 'draft' ? <div class="row-inline"><Btn kind="primary" disabled={reviewer.length < 2} onClick={() => decide(d.id, 'approve')}>Approve</Btn><Btn kind="ghost" disabled={reviewer.length < 2} onClick={() => decide(d.id, 'reject')}>Reject</Btn></div> : null}
+            {d.status === 'draft' ? <div class="row-inline"><PermBtn perm="compliance:write" kind="primary" busy={busy === d.id + 'approve'} onClick={() => decide(d.id, 'approve')}>Approve draft</PermBtn><PermBtn perm="compliance:write" kind="ghost" busy={busy === d.id + 'reject'} onClick={() => decide(d.id, 'reject')}>Reject draft</PermBtn><span class="small muted">Your name is recorded as the reviewer.</span></div> : null}
           </div>
         )) : <Empty title="No drafts yet" />}
       </Card>
@@ -101,24 +102,77 @@ export function AuditLog() {
   const [type, setType] = useState('');
   const r = useApi(`/v1/audit-events${type ? `?type=${type}` : ''}`, [type]);
   const [err, setErr] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
   const exportCsv = async () => {
+    setBusy(true); setErr(null);
     try {
-      const res = await fetch(`${API_BASE}/v1/audit-events.csv`, { headers: { authorization: `Bearer ${getKey()}` } });
-      if (!res.ok) throw new Error('Export failed. Try again.');
+      const res = await fetch(`${API_BASE}/v1/audit-events.csv`, { headers: authHeaders() });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error?.message ?? `Export failed (${res.status}). Try again.`); }
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement('a'); a.href = url; a.download = 'laissez-audit-log.csv'; a.click(); URL.revokeObjectURL(url);
-    } catch (e) { setErr(e); }
+    } catch (e: any) { setErr(e instanceof TypeError ? new Error('Could not reach the Laissez API. Check your connection and try again.') : e); } finally { setBusy(false); }
   };
   return (
     <>
-      <Head title="Audit log" sub="A permanent record of every action in this sandbox." actions={<Btn onClick={exportCsv}>Export CSV</Btn>} />
-      <div class="toolbar"><select value={type} onChange={(e) => setType((e.target as HTMLSelectElement).value)} aria-label="Filter by event type"><option value="">All events</option>{['decision', 'settlement', 'credential', 'policy', 'investor', 'fund', 'webhook', 'api_key', 'screening', 'rule_draft', 'eligibility'].map((t) => <option value={t}>{t}</option>)}</select></div>
+      <Head title="Audit log" sub="A permanent, hash-chained record of every action. Each event includes the hash of the one before it, so a change anywhere breaks every hash after it." actions={<PermBtn perm="audit:export" busy={busy} onClick={exportCsv}>Export CSV</PermBtn>} />
+      <VerifyChain />
+      <div class="toolbar"><select value={type} onChange={(e) => setType((e.target as HTMLSelectElement).value)} aria-label="Filter by event type"><option value="">All events</option>{['decision', 'settlement', 'credential', 'policy', 'investor', 'fund', 'member', 'session', 'sso', 'organization', 'webhook', 'api_key', 'screening', 'rule_draft', 'eligibility'].map((t) => <option value={t}>{t}</option>)}</select></div>
       <ErrorBox error={err} />
-      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} /> : (
-        <div class="tw"><table class="t"><thead><tr><th>When</th><th>Event</th><th>Subject</th><th>Details</th></tr></thead>
-          <tbody>{r.data.data.map((e: any) => <tr><td class="muted nowrap">{when(e.created_at)}</td><td><code>{e.type}</code></td><td><code>{e.subject}</code></td><td class="small mono clamp">{JSON.stringify(e.data)}</td></tr>)}</tbody></table></div>
+      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : (
+        <div class="tw"><table class="t">
+          <thead><tr><th class="r">Seq</th><th>When</th><th>Event</th><th>Actor</th><th>Subject</th><th>Details</th><th>Hash</th></tr></thead>
+          <tbody>{r.data.data.map((e: any) => (
+            <tr>
+              <td class="r mono small">{e.seq ?? ''}</td>
+              <td class="muted nowrap">{when(e.created_at)}</td>
+              <td><code>{e.type}</code></td>
+              <td class="small">{e.actor_name ?? 'Laissez'}{e.actor && /^key:/.test(e.actor) ? <div class="muted">API key</div> : null}</td>
+              <td><code>{e.subject}</code></td>
+              <td class="small mono clamp">{JSON.stringify(e.data)}</td>
+              <td><Hash value={e.hash} n={8} /></td>
+            </tr>
+          ))}</tbody>
+        </table></div>
       )}
     </>
+  );
+}
+
+/** Recomputes the audit hash chain on the server and shows whether it is intact. */
+function VerifyChain() {
+  const [v, setV] = useState<any>(null);
+  const [err, setErr] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => { setBusy(true); setErr(null); try { setV(await api('/v1/audit-events/verify')); } catch (e) { setErr(e); } finally { setBusy(false); } };
+  const intact = v ? !!(v.valid ?? v.intact) : null;
+  const anchor = v?.latest_anchor ?? null;
+  const brk = v ? (v.first_break_seq ?? v.first_break ?? null) : null;
+  return (
+    <Card class="verify" title="Verify the chain" actions={<Btn kind={v ? 'ghost' : 'primary'} busy={busy} onClick={run}>{v ? 'Verify again' : 'Verify chain'}</Btn>}>
+      {!v && !err ? <p class="muted small">Laissez recomputes every event's hash from its contents and the previous hash, checks that each event links to the one before it, and compares the result with the latest anchor written on-chain.</p> : null}
+      <ErrorBox error={err} />
+      {v ? (
+        <div class="verify-grid">
+          <div class={`verify-stamp ${intact ? 'ok' : 'bad'}`}>
+            <b>{intact ? 'Intact' : 'Broken'}</b>
+            <span>{v.message ?? (intact ? 'Every hash matches.' : 'At least one event was changed after it was written.')}</span>
+          </div>
+          <dl class="kv wide">
+            <div><dt>Events checked</dt><dd>{Number(v.events ?? 0).toLocaleString('en-US')}{v.head_seq ? <span class="muted small"> (1 to {v.head_seq})</span> : null}</dd></div>
+            <div><dt>Head hash</dt><dd><Hash value={v.head_hash} n={20} /></dd></div>
+            {brk !== null && brk !== undefined ? <div><dt>First break</dt><dd>Event {typeof brk === 'object' ? brk.seq : brk}{v.bad_hashes ? <span class="muted small">. {v.bad_hashes} altered hash{v.bad_hashes === 1 ? '' : 'es'}</span> : null}{v.broken_links ? <span class="muted small">. {v.broken_links} broken link{v.broken_links === 1 ? '' : 's'}</span> : null}</dd></div> : null}
+            {anchor ? (
+              <div><dt>Latest anchor</dt><dd>
+                {anchor.anchor_date ? new Date(anchor.anchor_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Anchored'}, covering events up to {anchor.seq}
+                {anchor.merkle_root ? <div class="small muted">Merkle root <Hash value={anchor.merkle_root} n={14} /></div> : null}
+                {anchor.tx_hash ? <div><TxLink hash={anchor.tx_hash} />{anchor.block ? <span class="small muted"> block {Number(anchor.block).toLocaleString('en-US')}</span> : null}</div> : <div class="small muted">{anchor.status === 'pending' ? 'Waiting to be written on-chain.' : 'Not on-chain yet.'}</div>}
+                {anchor.matches_log === true ? <div class="small ok-text">The anchored head still matches the log.</div> : anchor.matches_log === false ? <div class="small" style={{ color: '#a3302a' }}>The anchored head no longer matches the log.</div> : null}
+              </dd></div>
+            ) : <div><dt>Latest anchor</dt><dd class="muted">None yet. Laissez anchors every organization's chain head once a day.</dd></div>}
+          </dl>
+        </div>
+      ) : null}
+    </Card>
   );
 }
 

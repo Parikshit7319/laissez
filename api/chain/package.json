@@ -1,0 +1,22 @@
+{
+  "name": "laissez-chain",
+  "private": true,
+  "type": "module",
+  "description": "Laissez on-chain settlement: Solidity build, deployment and local tests for the ERC-3643 suite on Base Sepolia.",
+  "scripts": {
+    "compile": "node compile.mjs",
+    "node": "hardhat node --port 8545",
+    "test:local": "node local-test.mjs",
+    "deploy": "node deploy.mjs"
+  },
+  "dependencies": {
+    "@onchain-id/solidity": "2.2.1",
+    "@tokenysolutions/t-rex": "4.1.6",
+    "solc": "0.8.24",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "hardhat": "^2.22.0",
+    "pg": "^8.23.1"
+  }
+}
