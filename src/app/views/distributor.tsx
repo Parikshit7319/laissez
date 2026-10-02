@@ -23,10 +23,10 @@ export function Overview() {
       <Head title="Overview" sub="Live numbers from this sandbox. Every order you place below shows up here." actions={<><Btn kind="primary" onClick={() => go('/orders/new')}>New order</Btn><Btn onClick={() => go('/clients')}>Clients</Btn></>} />
       <div class="kpis">
         <div class="kpi"><span>Decisions</span><b>{d.totals.decisions}</b><em>{d.totals.allowed} allowed, {d.totals.denied} denied, {d.totals.frozen} frozen</em></div>
-        <div class="kpi"><span>Allow rate</span><b>{d.totals.allow_rate === null ? 'No orders yet' : `${Math.round(d.totals.allow_rate * 100)}%`}</b><em>share of pre-trade checks that passed</em></div>
-        <div class="kpi"><span>Value settled</span><b>{settledUsd ? compact(settledUsd.value) : '$0'}{settledEur ? ` + ${compact(settledEur.value, 'EUR')}` : ''}</b><em>{(d.settled_value as any[]).reduce((s, x) => s + x.n, 0)} atomic settlements</em></div>
-        <div class="kpi"><span>Credential reuse</span><b>{d.credential_reuse.rate === null ? 'No data yet' : `${Math.round(d.credential_reuse.rate * 100)}%`}</b><em>clients cleared for 2 or more funds on one credential</em></div>
-        <div class="kpi"><span>Expiring in 30 days</span><b>{d.credentials_expiring_30d}</b><em>credentials to renew</em></div>
+        <div class="kpi"><span>Allow rate</span><b>{d.totals.allow_rate === null ? 'None yet' : `${Math.round(d.totals.allow_rate * 100)}%`}</b><em>share of pre-trade checks that passed</em></div>
+        <div class="kpi"><span>Value settled</span><b>{settledUsd ? compact(settledUsd.value) : '$0'}{settledEur ? ` + ${compact(settledEur.value, 'EUR')}` : ''}</b><em>{(() => { const n = (d.settled_value as any[]).reduce((s, x) => s + x.n, 0); return `${n} atomic settlement${n === 1 ? '' : 's'}`; })()}</em></div>
+        <div class="kpi"><span>Credential reuse</span><b>{d.credential_reuse.rate === null ? 'None yet' : `${Math.round(d.credential_reuse.rate * 100)}%`}</b><em>clients cleared for 2 or more funds on one credential</em></div>
+        <div class="kpi"><span>Expiring in 30 days</span><b>{d.credentials_expiring_30d}</b><em>{d.credentials_expiring_30d === 1 ? 'credential' : 'credentials'} to renew</em></div>
       </div>
       <div class="grid2">
         <Card title="Decisions per day">
@@ -164,7 +164,7 @@ export function IssueCredential({ id }: { id: string }) {
   const relevant = new Set([inv.residence === 'AE-DIFC' ? 'DIFC' : inv.residence, inv.booking === 'DIFC' ? 'DIFC' : inv.booking === 'ZRH' ? 'CH' : inv.booking === 'NY' ? 'US' : inv.booking]);
   return (
     <>
-      <Head title={`${inv.credentialId ? 'Renew' : 'Issue'} credential`} sub={<>For {inv.name}. Each classification is checked against its legal threshold before anything is issued. {inv.credentialId ? `This replaces ${inv.credentialId}.` : ''}</>} />
+      <Head title={`${inv.credentialId ? 'Renew' : 'Issue'} credential`} sub={<>For {inv.name}{/\.$/.test(inv.name) ? '' : '.'} Each classification is checked against its legal threshold before anything is issued. {inv.credentialId ? `This replaces ${inv.credentialId}.` : ''}</>} />
       <Card title="1. Choose classifications">
         <div class="pick">
           {available.map((t) => {
@@ -173,6 +173,7 @@ export function IssueCredential({ id }: { id: string }) {
           })}
         </div>
       </Card>
+      {Object.keys(sel).length === 0 ? <Card title="2. Evidence"><p class="muted">Choose a classification above. Laissez then asks for the figures its legal test needs, such as net assets, portfolio size or income.</p></Card> : null}
       {Object.keys(sel).map((code) => {
         const t = findTest(code, inv.kind)!;
         const res = t.check(sel[code].evidence);
@@ -192,7 +193,7 @@ export function IssueCredential({ id }: { id: string }) {
         <div class="row-inline">
           <Field label="Valid for"><select value={months} onChange={(e) => setMonths(Number((e.target as HTMLSelectElement).value))}>{[6, 12, 18, 24].map((m) => <option value={m}>{m} months</option>)}</select></Field>
           <Btn kind="primary" disabled={!allPass || busy} onClick={submit}>{busy ? 'Issuing' : 'Issue Laissez-passer'}</Btn>
-          {!allPass ? <span class="muted">Every selected classification must meet its threshold.</span> : null}
+          {!allPass ? <span class="muted">{Object.keys(sel).length ? 'Every selected classification must meet its threshold.' : 'Choose at least one classification.'}</span> : null}
         </div>
         <ErrorBox error={err} />
       </Card>
@@ -286,10 +287,10 @@ export function DecisionDetail({ id }: { id: string }) {
     catch (e) { setErr(e); }
   };
   const doVerify = async () => { setVerify(await api('/v1/receipts/verify', { body: { receipt: d.receipt, signature: d.signature }, auth: false }).catch((e) => ({ valid: false, message: e.message }))); };
-  const labels: Record<string, string> = { decision_signed: 'Decision signed', cash_locked: 'Cash leg locked', registry_confirmed: 'Registry confirms the claim', atomic_swap: 'Atomic swap', units_locked: 'Units locked', atomic_payout: 'Atomic payout', final: 'Final on Ethereum' };
+  const labels: Record<string, string> = { decision_signed: 'Settlement instruction signed', cash_locked: 'Cash leg locked', registry_confirmed: 'Registry confirms the claim', atomic_swap: 'Atomic swap', units_locked: 'Units locked', atomic_payout: 'Atomic payout', final: 'Final on Ethereum' };
   return (
     <>
-      <Head title={`Decision ${d.id}`} sub={<>{d.action[0].toUpperCase() + d.action.slice(1)} {money(d.amount, d.asset === 'EURC' || d.asset === 'AVB-EUR' ? 'EUR' : 'USD')} of {d.ticker} for {d.investor_name}{d.counterparty_name ? ` to ${d.counterparty_name}` : ''}. {when(d.created_at)}.</>} actions={canSettle ? <Btn kind="primary" onClick={settle}>Settle now</Btn> : d.settlement_id ? <Chip tone="ok">Settled</Chip> : null} />
+      <Head title={`Decision ${d.id}`} sub={<>{d.action[0].toUpperCase() + d.action.slice(1)} {money(d.amount, d.asset === 'EURC' || d.asset === 'AVB-EUR' ? 'EUR' : 'USD')} of {d.ticker} for {d.investor_name}{d.counterparty_name ? ` to ${d.counterparty_name}` : ''}{/\.$/.test(d.counterparty_name ?? d.investor_name ?? '') ? '' : '.'} {when(d.created_at)}.</>} actions={canSettle ? <Btn kind="primary" onClick={settle}>Settle now</Btn> : d.settlement_id ? <Chip tone="ok">Settled</Chip> : null} />
       <ErrorBox error={err} />
       {stl ? (
         <Card title="Settlement" actions={<Chip tone={step >= stl.steps.length ? 'ok' : 'info'}>{step >= stl.steps.length ? 'Settled' : 'Settling'}</Chip>}>
