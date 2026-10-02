@@ -312,7 +312,7 @@ const INITIAL_DOC_TYPES: Record<string, string> = { offering_memorandum: 'Offeri
 type Doc = { doc_type: string; title: string; content: string; jurisdiction: string; audience: 'all' | 'retail' | 'professional'; required: boolean };
 
 export function CreateFund() {
-  const [f, setF] = useState({ ticker: '', name: '', domicile: 'Luxembourg', structure: 'Money market fund, tokenized share class', currency: 'USD', nav: 1, reg_s: true, min_subscription: 100000, holder_cap: '', lockup_months: '', assets: 'USDC', issuer: '' });
+  const [f, setF] = useState({ ticker: '', name: '', fund_type: 'open_ended', domicile: 'Luxembourg', structure: 'Money market fund, tokenized share class', currency: 'USD', nav: 1, reg_s: true, min_subscription: 100000, holder_cap: '', lockup_months: '', assets: 'USDC', issuer: '' });
   const [terms, setTerms] = useState({ cutoff_time: '16:00', cutoff_tz: 'America/New_York', dealing_frequency: 'daily', notice_days: '0', gate_pct: '', yield_bps: '', share_class_type: 'distributing' });
   const [chains, setChains] = useState<string[]>(['Ethereum']);
   const [otherChain, setOtherChain] = useState('');
@@ -331,6 +331,7 @@ export function CreateFund() {
     e.preventDefault(); setErr(null); setBusy(true);
     try {
       const body = {
+        fund_type: f.fund_type,
         ...f, ticker: f.ticker.toUpperCase(), nav: Number(f.nav), min_subscription: Number(f.min_subscription), holder_cap: f.holder_cap ? Number(f.holder_cap) : null, lockup_months: f.lockup_months ? Number(f.lockup_months) : null,
         assets: f.assets.split(',').map((x) => x.trim()).filter(Boolean), chains: allChains,
         distribution: Object.entries(dist).filter(([, a]) => a.length).map(([jurisdiction, accepts]) => ({ jurisdiction, accepts })),
@@ -361,6 +362,7 @@ export function CreateFund() {
             <Field label="Lock-up (months)" hint="Optional"><input inputMode="numeric" value={f.lockup_months} onInput={(e) => set('lockup_months', (e.target as HTMLInputElement).value)} /></Field>
             <Field label="Accepted cash assets" hint="Comma-separated"><input value={f.assets} onInput={(e) => set('assets', (e.target as HTMLInputElement).value)} /></Field>
             <Field label="Regulation S"><label class="check"><input type="checkbox" checked={f.reg_s} onChange={(e) => set('reg_s', (e.target as HTMLInputElement).checked)} /> Offered to non-U.S. persons only</label></Field>
+            <Field label="Fund type" hint="Closed-end funds take commitments and call capital; free subscriptions are refused."><select value={f.fund_type} onChange={(e) => set('fund_type', (e.target as HTMLSelectElement).value)}><option value="open_ended">Open-ended</option><option value="closed_end">Closed-end</option></select></Field>
           </div>
         </Card>
 
