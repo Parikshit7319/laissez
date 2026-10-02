@@ -3,6 +3,7 @@
 // single insert, and failures are logged, not raised, so a notification can never fail the action behind it.
 import type { Sql } from './db';
 import { id } from './util';
+import { fanoutAll } from './routes/integrations';
 
 export type Notice = {
   /** Machine kind, for example 'monitor.item', 'monitor.run', 'policy.proposed', 'screening.hit', 'travel_rule.review'. */
@@ -33,6 +34,7 @@ export async function notify(sql: Sql, ws: string, notices: Notice | Notice[]): 
        from unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[]) as u(id, uid, kind, title, body, link)`,
       [ws, list.map(() => id('ntf', 12)), list.map((n) => n.user_id ?? null), list.map((n) => n.kind), list.map((n) => clip(n.title, 200)), list.map((n) => clip(n.body ?? '', 1000)), list.map((n) => n.link ?? null)],
     );
+    void fanoutAll(sql, ws, list); // Slack, Teams and JSON channels (api/src/routes/integrations.ts); never blocks or fails the write.
     return list.length;
   } catch (e) {
     console.error('notify failed', e);

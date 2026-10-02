@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 import type { Env } from './util';
 import { ApiError, b64url, fromB64url, enc, randomB64, sha256Bytes } from './util';
 import { adminSql } from './db';
+import { isProduction } from './mode';
 
 type Fetcher = (req: Request) => Promise<Response>;
 let selfFetch: Fetcher | null = null;
@@ -111,6 +112,11 @@ async function signJwt(env: Env, claims: Record<string, unknown>) {
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]!));
 
 export const idp = new Hono<{ Bindings: Env }>();
+// Fictional people only exist in sandbox mode: in production the whole provider answers 404.
+idp.use('*', async (c, next) => {
+  if (isProduction(c.env)) throw new ApiError(404, 'not_found', 'The demo identity provider exists only in sandbox mode. This deployment runs in production mode.');
+  await next();
+});
 idp.get('/.well-known/openid-configuration', (c) => {
   const iss = `${c.env.API_URL}/idp`;
   return c.json({ issuer: iss, authorization_endpoint: `${iss}/authorize`, token_endpoint: `${iss}/token`, jwks_uri: `${iss}/jwks`, response_types_supported: ['code'], subject_types_supported: ['public'], id_token_signing_alg_values_supported: ['ES256'], code_challenge_methods_supported: ['S256'], scopes_supported: ['openid', 'email', 'profile'], token_endpoint_auth_methods_supported: ['client_secret_post'] });

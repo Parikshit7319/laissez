@@ -45,6 +45,7 @@ SSO_ENC_KEY=<32 random bytes, base64url>
 DEMO_IDP_JWK={"kty":"EC","crv":"P-256","x":"...","y":"...","d":"..."}
 INTERNAL_TOKEN=<random string>
 CHAIN_RPC_URL=https://sepolia.base.org
+# LAISSEZ_MODE=sandbox            # production turns off every fictional path; see Deployment mode below
 # CHAIN_OPERATOR_KEY=, CHAIN_CLAIM_KEY=, CHAIN_CUSTODY_SEED=, ANTHROPIC_API_KEY= are optional locally
 ```
 
@@ -61,7 +62,7 @@ Then `cd api && npm install && npx wrangler dev` serves the API on `http://127.0
 ### Tests
 
 ```bash
-npm test && npm run test:rules && npm run test:openapi
+npm test && npm run test:rules && npm run test:openapi && npm run test:mode
 cd api && npx tsc --noEmit
 npx --prefix api/jobs tsx sdk/typescript/test.ts
 (cd sdk/python && python3 -m unittest discover -s tests)
@@ -131,6 +132,35 @@ The Worker is deployed by hand from the owner's machine. Order matters when a re
 5. Verify: `node api/test/smoke.mjs` against the live URL, then open the status page. Every response now carries `X-Request-Id` and `X-Response-Time`.
 
 Roll back with `npx wrangler rollback` (Cloudflare keeps previous versions) or `npx wrangler versions deploy` to pick a specific version. Migrations are not rolled back; they are additive.
+
+### Deployment mode (`LAISSEZ_MODE`)
+
+One code base serves two audiences. `LAISSEZ_MODE` in `wrangler.toml` `[vars]` (or `api/.dev.vars` locally) picks which one; anything other than the exact string `production` means `sandbox`, the default. The public API at `laissez-api.laissez.workers.dev` runs in sandbox mode. A customer deployment sets `LAISSEZ_MODE = "production"` and nothing fictional can run:
+
+| Surface | sandbox | production |
+| --- | --- | --- |
+| `POST /v1/sandboxes` | creates a 7-day fictional sandbox | `404 not_found` |
+| Demo identity provider `/idp/*` | served | `404 not_found` |
+| Workspaces of kind `sandbox` | created by the sandbox route | never created |
+| Fictional seed data on a new organization | opt-in at sign-up (`demo_data`) | never inserted, whatever the form sent |
+| Test cash auto-mint on settlement | per deployment flag | reported and treated as off |
+| `POST /v1/reconciliation/simulate-break` | sandboxes only | `404 not_found` |
+| `POST /v1/session/act-as` (teammate switch) | sandboxes only | `403 sandbox_only` |
+| `GET /v1/network/demo-ids` | sandboxes only | `404 not_found` |
+| `GET /v1/metrics/public`, `GET /v1/status`, `GET /v1/errors` | served | served |
+
+The guard runs as the first `/v1` middleware (`api/src/mode.ts`, `modeGuard`), before authentication, so a production answer never touches the database; each handler keeps its own check as well. `GET /` reports `mode`. `npm run test:mode` imports the Worker with `LAISSEZ_MODE=production` and a database driver that throws, and asserts every row above. Run it before deploying a change to `mode.ts`, `auth.ts`, `oidc.ts` or `chain.ts`.
+
+### Feature flags
+
+`feature_flags` (global defaults) and `workspace_flags` (per-organization overrides) arrived with `migrate-014-platform2.sql`. `GET /v1/flags` lists them; `PUT /v1/flags/:key {"on": true|false|null}` overrides or clears (administrators only, audited as `flag.updated`); the Organization, Branding page has the same controls. Reads cache for 60 seconds per organization in the Worker isolate (`api/src/flags.ts`), so a flip reaches in-flight isolates within a minute. Flags today: `chain_settlement` (off means simulated settlement even with a deployment), `approvals_workflow`, `order_batching`, `portal_transfers`, `regulatory_agent`. To add one, insert a row in a migration and add it to `FLAG_DEFS` so the Worker answers before the migration runs.
+
+### Generated documents
+
+- `npm run docs:errors` scans every `new ApiError(status, 'code', 'message')` and writes `api/src/errors.generated.ts` (served at `GET /v1/errors`) and `docs/errors.md`. It fails when a code is not snake_case or is thrown with two statuses. Run it whenever you add or change an error.
+- `npm run docs:erd` reads the SQL files and writes `docs/erd.md` (Mermaid ER diagrams per domain).
+- `npm run docs:openapi` writes the merged OpenAPI document to `api/src/openapi.generated.json`. The Worker serves the same merge from memory at `GET /v1/openapi.json`: the hand-written `openapi.ts` plus request bodies derived from the zod schemas in `api/src/openapi-gen.ts` (`BODY_SCHEMAS`), the operations newer routers declare in `OPENAPI_OPS`, and the pagination contract. `npm run test:openapi` fails when a hand-written body disagrees with zod on required fields.
+- `npm run docs:all` runs the three.
 
 ### Migrations
 

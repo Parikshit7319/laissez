@@ -6,6 +6,7 @@ import { Overview, Clients, ClientDetail, IssueCredential, NewOrder, DecisionDet
 import { Funds, FundDetail, PolicyChanges, CreateFund } from './views/issuer';
 import { RuleLibrary, Screening, RuleDrafts, AuditLog, ReceiptChecker } from './views/compliance';
 import { Explorer, Webhooks } from './views/developers';
+import { Integrations } from './views/integrations';
 import { Members, SingleSignOn, Security, ApiKeys, Branding } from './views/settings';
 import { Outbox, Sessions, Provisioning, Organization } from './views/settings2';
 import { WorkQueue, ScreeningHits, ScreeningHitDetail, SanctionsLists, Monitoring, RegFeed, InboundTravelRule } from './views/compliance2';
@@ -15,7 +16,9 @@ import { RedemptionNotices } from './views/fundops';
 import { Network } from './views/network';
 import { PortalRequests, EvidenceReview } from './views/portalAdmin';
 import { TravelRule } from './views/travel';
+import { Approvals, ApprovalPolicies, Waitlist, Batches } from './views/workflow';
 import { Reports } from './views/reports';
+import { ReportBuilder } from './views/reports2';
 import { ChainOverview, ChainJobsPage, Reconciliation } from './views/chain';
 
 export type RouteProps = { params: Record<string, string>; query: URLSearchParams };
@@ -48,6 +51,9 @@ export const ROUTES: RouteEntry[] = [
   { pattern: '/network', group: 'Distributor', label: 'Network', component: Network },
   { pattern: '/portal-requests', group: 'Distributor', label: 'Portal requests', component: PortalRequests },
   { pattern: '/redemption-notices', group: 'Distributor', label: 'Redemption notices', component: (r) => <RedemptionNotices query={r.query} /> },
+  { pattern: '/waitlist', group: 'Distributor', label: 'Waitlist', component: Waitlist },
+  { pattern: '/batches', group: 'Distributor', label: 'Order batches', component: () => <Batches /> },
+  { pattern: '/batches/:id', group: 'Distributor', component: (r) => <Batches id={r.params.id} /> },
 
   // Issuer
   { pattern: '/funds', group: 'Issuer', label: 'Funds', component: Funds },
@@ -55,6 +61,8 @@ export const ROUTES: RouteEntry[] = [
   { pattern: '/funds/:ticker', group: 'Issuer', component: (r) => <FundDetail ticker={r.params.ticker} /> },
   { pattern: '/policy-changes', group: 'Issuer', label: 'Policy changes', component: PolicyChanges },
   { pattern: '/reports', group: 'Issuer', label: 'Reports', component: Reports },
+  { pattern: '/reports/builder', group: 'Issuer', label: 'Report builder', component: () => <ReportBuilder /> },
+  { pattern: '/reports/builder/:id', group: 'Issuer', component: (r) => <ReportBuilder id={r.params.id} /> },
 
   // Compliance
   { pattern: '/rules', group: 'Compliance', label: 'Rule library', component: RuleLibrary },
@@ -75,6 +83,8 @@ export const ROUTES: RouteEntry[] = [
   { pattern: '/anchors', group: 'Compliance', label: 'Audit anchors', component: Anchors },
   { pattern: '/notifications', group: 'Compliance', component: Notifications, hidden: true },
   { pattern: '/receipts', group: 'Compliance', label: 'Receipt checker', component: ReceiptChecker },
+  { pattern: '/approvals', group: 'Compliance', label: 'Approvals', component: () => <Approvals /> },
+  { pattern: '/approvals/:id', group: 'Compliance', component: (r) => <Approvals id={r.params.id} /> },
 
   // Settlement network
   { pattern: '/chain', group: 'Settlement', label: 'On-chain', component: ChainOverview },
@@ -84,6 +94,7 @@ export const ROUTES: RouteEntry[] = [
   // Developers
   { pattern: '/explorer', group: 'Developers', label: 'API explorer', component: Explorer },
   { pattern: '/webhooks', group: 'Developers', label: 'Webhooks', component: Webhooks },
+  { pattern: '/settings/integrations', group: 'Developers', label: 'Integrations', component: Integrations },
 
   // Organization
   { pattern: '/settings/members', group: 'Organization', label: 'Members', component: Members },
@@ -95,6 +106,7 @@ export const ROUTES: RouteEntry[] = [
   { pattern: '/settings/branding', group: 'Organization', label: 'Branding', component: Branding },
   { pattern: '/settings/outbox', group: 'Organization', label: 'Outbox', component: Outbox },
   { pattern: '/settings/organization', group: 'Organization', label: 'Organization', component: Organization },
+  { pattern: '/approval-policies', group: 'Organization', label: 'Approval policies', component: ApprovalPolicies },
   { pattern: '/keys', group: 'Organization', component: ApiKeys, perm: 'keys:admin', hidden: true },
 ];
 

@@ -2,7 +2,8 @@
 // In-app notifications: the bell in the top bar (unread count, polled every 60 seconds) and the full page.
 import { useEffect, useState } from 'preact/hooks';
 import { api, when } from '../api';
-import { useApi, Btn, Chip, Card, Empty, Loading, ErrorBox, Head, Popover } from '../ui';
+import { Btn, Chip, Card, Empty, Loading, ErrorBox, Head, Popover } from '../ui';
+import { usePaged, LoadMore } from '../paged';
 
 const POLL_MS = 60_000;
 
@@ -84,27 +85,28 @@ export function NotificationBell() {
 
 export function Notifications() {
   const [filter, setFilter] = useState<'unread' | 'all'>('unread');
-  const r = useApi(`/v1/notifications?limit=200&unread=${filter === 'unread'}`, [filter]);
+  const r = usePaged(`/v1/notifications?limit=50&unread=${filter === 'unread'}`, [filter]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<any>(null);
-  const rows: any[] = r.data?.data ?? [];
+  const rows: any[] = r.rows;
+  const unread: number | undefined = r.extra.unread;
   const readAll = async () => {
     setBusy(true); setErr(null);
     try { await api('/v1/notifications/read-all', { body: {} }); r.reload(); } catch (e) { setErr(e); } finally { setBusy(false); }
   };
   const openOne = async (x: any) => {
-    if (!x.read_at) { await markRead(x.id); r.setData((d: any) => (d ? { ...d, unread: Math.max(0, (d.unread ?? 1) - 1), data: d.data.map((y: any) => (y.id === x.id ? { ...y, read_at: new Date().toISOString() } : y)) } : d)); }
+    if (!x.read_at) { await markRead(x.id); r.setExtra((d) => ({ ...d, unread: Math.max(0, (d.unread ?? 1) - 1) })); r.setRows((rs) => rs.map((y: any) => (y.id === x.id ? { ...y, read_at: new Date().toISOString() } : y))); }
     if (x.link) location.hash = x.link.startsWith('#') ? x.link : `#${x.link}`;
   };
   return (
     <>
       <Head title="Notifications" sub="What Laissez found and what needs a person: monitoring findings, screening matches, policy changes waiting for a second approver, and Travel Rule inquiries held for review. Organization-wide items are shown to everyone; the rest are addressed to you."
-        actions={<Btn kind="ghost" busy={busy} disabled={!r.data?.unread} onClick={readAll}>Mark all read</Btn>} />
+        actions={<Btn kind="ghost" busy={busy} disabled={!unread} onClick={readAll}>Mark all read</Btn>} />
       <div class="tabs" role="tablist" aria-label="Filter notifications">
-        {([['unread', `Unread${r.data ? ` (${r.data.unread})` : ''}`], ['all', 'All']] as const).map(([v, l]) => <button type="button" role="tab" aria-selected={filter === v} class={filter === v ? 'on' : ''} onClick={() => setFilter(v)}>{l}</button>)}
+        {([['unread', `Unread${unread !== undefined ? ` (${unread})` : ''}`], ['all', 'All']] as const).map(([v, l]) => <button type="button" role="tab" aria-selected={filter === v} class={filter === v ? 'on' : ''} onClick={() => setFilter(v)}>{l}</button>)}
       </div>
       <ErrorBox error={err} />
-      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : !rows.length ? (
+      {r.loading && !rows.length ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : !rows.length ? (
         <Card><Empty title={filter === 'unread' ? 'You are caught up' : 'No notifications yet'}>{filter === 'unread' ? 'New findings appear here and on the bell within a minute.' : 'Monitoring runs nightly and after each sanctions list update.'}</Empty></Card>
       ) : (
         <Card pad={false}>
@@ -123,6 +125,7 @@ export function Notifications() {
               </tr>
             ))}</tbody>
           </table></div>
+          <LoadMore p={r} what="notifications" />
         </Card>
       )}
     </>

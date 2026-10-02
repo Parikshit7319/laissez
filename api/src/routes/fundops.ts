@@ -8,8 +8,12 @@ import {
   loadFundRow, fundNow, dealingDate, noticeDealingDate, periodStart, aumOf, lifecycleCtx, strikeNav, runAccruals, payDistribution,
   accruedUnpaid, docApplies, validCutoff, validTimeZone, DOC_TYPES, type FundRow,
 } from '../fundops-core';
+import * as fundops2 from './fundops2';
 
 export const routes = router();
+// Closed-end fund operations (commitments, capital calls, capital distributions) live in ./fundops2 and mount here,
+// so index.ts needs no change. Both routers share the /v1 prefix.
+routes.route('/', fundops2.routes);
 
 const ticker = (c: C) => c.req.param('ticker')!.toUpperCase();
 const dateZ = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date in YYYY-MM-DD format.').refine((s) => !Number.isNaN(Date.parse(s + 'T00:00:00Z')), 'Not a real date.');

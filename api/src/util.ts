@@ -17,6 +17,8 @@ export type Env = {
   CHAIN_OPERATOR_KEY?: string;
   CHAIN_CLAIM_KEY?: string;
   CHAIN_CUSTODY_SEED?: string;
+  /** Optional. sandbox (default) or production. Production disables every fictional path: see api/src/mode.ts. */
+  LAISSEZ_MODE?: 'sandbox' | 'production' | string;
   /** Optional. Resend API key; without it every email lands in the outbox only. */
   RESEND_API_KEY?: string;
   /** Optional. Sender for outgoing email, for example "Laissez <no-reply@laissez.example>". */

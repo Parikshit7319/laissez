@@ -7,6 +7,7 @@ import { ApiError, id, rand, sha256, validCidr, rateLimit, type Env } from '../u
 import { type Vars, router, body, bg, need, audit, auditQ, SCOPES } from '../http';
 import { deliver } from '../ctx';
 import { VERSIONS, LATEST_VERSION } from '../version';
+import { pageParams, pageOut } from '../pagination';
 
 export const routes = router();
 export const publicRoutes = router();
@@ -85,6 +86,15 @@ const keyRow = (r: any, current?: string) => ({
   known_networks: Array.isArray(r.known_ip_hashes) ? r.known_ip_hashes.length : 0,
 });
 const scopesZ = z.array(z.string()).min(1).max(Object.keys(SCOPES).length).refine((s) => s.every((x) => x in SCOPES), { message: `Each scope must be one of: ${Object.keys(SCOPES).join(', ')}` });
+// Request bodies, exported so api/src/openapi-gen.ts derives their JSON Schema for the OpenAPI document.
+export const apiKeyIn = z.object({
+  name: z.string().trim().min(1).max(60).default('API key'),
+  scopes: scopesZ.optional(),
+  ip_allowlist: z.array(z.string().trim()).max(20).optional(),
+  expires_in_days: z.number().int().min(1).max(365).optional(),
+});
+export const webhookIn = z.object({ url: z.string().url().startsWith('https://', 'Webhook URLs must use https.').max(500), events: z.array(z.string().regex(/^(\*|[a-z_]+(\.[a-z_]+)*)$/)).min(1).max(20) });
+export const eventIn = z.object({ event: z.string().max(40), anon_id: z.string().max(64).optional(), props: z.record(z.string(), z.unknown()).optional() });
 
 routes.get('/api-keys', async (c) => {
   const a = need(c, 'keys:admin');
@@ -105,12 +115,7 @@ routes.get('/api-keys', async (c) => {
 routes.post('/api-keys', async (c) => {
   const a = need(c, 'keys:admin');
   const sql = c.get('sql'); const ws = c.get('ws');
-  const b = await body(c, z.object({
-    name: z.string().trim().min(1).max(60).default('API key'),
-    scopes: scopesZ.optional(),
-    ip_allowlist: z.array(z.string().trim()).max(20).optional(),
-    expires_in_days: z.number().int().min(1).max(365).optional(),
-  }));
+  const b = await body(c, apiKeyIn);
   const scopes = [...new Set(b.scopes ?? Object.keys(SCOPES))];
   if (a.kind === 'key') {
     const extra = scopes.filter((s) => !(a.scopes ?? []).includes(s));
@@ -169,7 +174,7 @@ routes.get('/webhooks', async (c) => {
 routes.post('/webhooks', async (c) => {
   const a = need(c, 'developer');
   const sql = c.get('sql'); const ws = c.get('ws');
-  const b = await body(c, z.object({ url: z.string().url().startsWith('https://', 'Webhook URLs must use https.').max(500), events: z.array(z.string().regex(/^(\*|[a-z_]+(\.[a-z_]+)*)$/)).min(1).max(20) }));
+  const b = await body(c, webhookIn);
   const cap = c.get('wsKind') === 'sandbox' ? MAX_WEBHOOKS.sandbox : MAX_WEBHOOKS.org;
   const [{ n }] = await sql`select count(*)::int as n from webhooks where workspace_id = ${ws}`;
   if (n >= cap) throw new ApiError(422, 'limit', `This organization can have up to ${cap} webhook endpoints. Delete one first.`);
@@ -198,9 +203,16 @@ routes.post('/webhooks/:id/test', async (c) => {
   bg(c, deliver(sql, ws, h, 'ping', payload, null));
   return c.json({ sent: true, webhook_id: h.id, note: 'The delivery appears in GET /v1/webhook-deliveries within a few seconds.' });
 });
+/** Deliveries, newest first. Cursor pagination (limit, cursor); optional webhook_id and event filters. */
 routes.get('/webhook-deliveries', async (c) => {
   need(c, 'read');
-  return c.json({ data: await c.get('sql')`select id, webhook_id, event, status, attempts, response_ms, replay_of, created_at from webhook_deliveries where workspace_id = ${c.get('ws')} order by created_at desc limit 100` });
+  const page = pageParams(c, 50, 200);
+  const hook = c.req.query('webhook_id') || null; const event = c.req.query('event') || null;
+  const rows = await c.get('sql')`select id, webhook_id, event, status, attempts, response_ms, replay_of, created_at from webhook_deliveries
+    where workspace_id = ${c.get('ws')} and (${hook}::text is null or webhook_id = ${hook}) and (${event}::text is null or event = ${event})
+      and (${page.at}::timestamptz is null or (created_at, id) < (${page.at}::timestamptz, ${page.id}::bigint))
+    order by created_at desc, id desc limit ${page.limit + 1}`;
+  return c.json(pageOut(rows as any[], page));
 });
 routes.get('/webhook-deliveries/:id', async (c) => {
   need(c, 'read');
@@ -222,15 +234,22 @@ routes.post('/webhook-deliveries/:id/replay', async (c) => {
 });
 
 // ---------- Audit log ----------
+/**
+ * Audit events, newest first. Cursor pagination (limit, cursor) like every other list; before_seq still works
+ * for the SDKs that page by sequence number, and next_before_seq is returned alongside next_cursor.
+ */
 routes.get('/audit-events', async (c) => {
   need(c, 'read');
   const type = c.req.query('type') || null; const actor = c.req.query('actor') || null;
   const before = Number(c.req.query('before_seq') ?? 0) || null;
-  const limit = Math.max(1, Math.min(300, Number(c.req.query('limit') ?? 300) || 300));
+  const page = pageParams(c, 50, 300);
+  // The cursor carries the row's created_at and seq. Events are ordered by seq, which is also time order within an organization.
+  const beforeSeq = page.cursor ? Number(page.cursor.id) : before;
   const rows = await c.get('sql')`select id, seq, type, subject, data, actor, actor_name, created_at, hash, prev_hash from audit_events
     where workspace_id = ${c.get('ws')} and (${type}::text is null or type like ${(type ?? '') + '%'}) and (${actor}::text is null or actor = ${actor} or actor_name ilike ${'%' + (actor ?? '') + '%'})
-      and (${before}::bigint is null or seq < ${before}) order by seq desc limit ${limit}`;
-  return c.json({ data: rows, next_before_seq: rows.length === limit ? rows[rows.length - 1].seq : null });
+      and (${beforeSeq}::bigint is null or seq < ${beforeSeq}) order by seq desc limit ${page.limit + 1}`;
+  const out = pageOut(rows as any[], page, { id: 'seq' });
+  return c.json({ ...out, next_before_seq: out.next_cursor ? Number(out.data[out.data.length - 1].seq) : null });
 });
 routes.get('/audit-events.csv', async (c) => {
   need(c, 'audit:export');
@@ -299,7 +318,7 @@ function cleanProps(p: Record<string, unknown> | undefined) {
 }
 publicRoutes.post('/events', async (c) => {
   const admin = adminSql(c.env.DATABASE_URL);
-  const b = await body(c, z.object({ event: z.string().max(40), anon_id: z.string().max(64).optional(), props: z.record(z.string(), z.unknown()).optional() }));
+  const b = await body(c, eventIn);
   if (!EVENTS.has(b.event)) throw new ApiError(422, 'unknown_event', `Event ${b.event} is not recorded. Allowed: ${[...EVENTS].join(', ')}.`);
   const ipHash = await sha256(c.req.header('cf-connecting-ip') ?? 'unknown');
   if (!(await rateLimit(admin, `events:${ipHash}`, 120, 60))) throw new ApiError(429, 'rate_limited', 'More than 120 events in a minute from this network. Events were dropped; slow down.');

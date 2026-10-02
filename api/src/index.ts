@@ -10,7 +10,11 @@ import { authenticate, pub, acct } from './auth';
 import { idp, setSelfFetch } from './oidc';
 import { versionMiddleware, LATEST_VERSION, SUPPORTED_VERSIONS } from './version';
 import { requestLogging } from './logging';
-import { OPENAPI } from './openapi';
+import { mergedSpec } from './openapi-gen';
+import { modeGuard, mode } from './mode';
+import * as flags from './flags';
+import * as errors from './errors';
+import * as integrations from './routes/integrations';
 import * as core from './routes/core';
 import * as platform from './routes/platform';
 import * as compliance from './routes/compliance';
@@ -20,9 +24,11 @@ import * as network from './routes/network';
 import * as portal from './routes/portal';
 import * as travel from './routes/travel';
 import * as reports from './routes/reports';
+import { runScheduledReports } from './routes/reports2';
 import * as chainRoutes from './routes/chain';
 import * as leads from './routes/leads';
 import * as account2 from './routes/account2';
+import * as workflow from './routes/workflow';
 import { scim } from './scim';
 import { sendDigests } from './email';
 import * as chainLib from './chain';
@@ -46,6 +52,8 @@ app.use('*', async (c, next) => {
 });
 app.use('*', platform.securityHeaders);
 app.use('*', versionMiddleware);
+// Deployment mode: in production every fictional route answers 404 or 403 here, before auth or the database.
+app.use('*', modeGuard);
 
 app.onError((err, c) => {
   if (err instanceof ApiError) {
@@ -68,14 +76,14 @@ app.notFound((c) => c.json({ error: { code: 'not_found', message: `No route for 
 
 // ---------- Public ----------
 app.get('/', (c) => c.json({
-  name: 'Laissez API', version: LATEST_VERSION, versions: SUPPORTED_VERSIONS,
-  docs: 'https://parikshit7319.github.io/laissez/developers/', sandbox: 'POST /v1/sandboxes', status: 'GET /v1/status',
+  name: 'Laissez API', version: LATEST_VERSION, versions: SUPPORTED_VERSIONS, mode: mode(c.env),
+  docs: 'https://parikshit7319.github.io/laissez/developers/', ...(mode(c.env) === 'sandbox' ? { sandbox: 'POST /v1/sandboxes' } : {}), status: 'GET /v1/status', errors: 'GET /v1/errors',
 }));
 app.get('/v1/health', async (c) => {
   await adminSql(c.env.DATABASE_URL)`select 1`;
   return c.json({ ok: true, version: LATEST_VERSION });
 });
-app.get('/v1/openapi.json', (c) => c.json(OPENAPI));
+app.get('/v1/openapi.json', (c) => c.json(mergedSpec() as any));
 app.route('/idp', idp);
 
 /** Reads an optional export: modules are written in parallel and some start as stubs. */
@@ -88,6 +96,7 @@ const mount = (path: string, r: App | null) => { if (r) app.route(path, r); };
 app.route('/v1', pub);
 app.route('/v1', platform.publicRoutes);
 app.route('/v1', core.publicRoutes);
+app.route('/v1', errors.publicRoutes);
 mount('/v1', opt(network, 'publicRoutes'));
 mount('/v1', opt(compliance, 'publicRoutes'));
 mount('/v1', opt(fundops, 'publicRoutes'));
@@ -108,7 +117,9 @@ v1.use('*', platform.idempotency);
 v1.route('/', acct);
 v1.route('/', core.routes);
 v1.route('/', platform.routes);
-for (const m of [compliance, compliance2, fundops, network, reports, chainRoutes, travel, portal, account2]) {
+v1.route('/', flags.routes);
+v1.route('/', integrations.routes);
+for (const m of [compliance, compliance2, fundops, network, reports, chainRoutes, travel, portal, account2, workflow]) {
   const r = opt(m, 'routes');
   if (r) v1.route('/', r);
 }
@@ -159,6 +170,7 @@ async function uptimeChecks(env: Env, ctx: ExecutionContext) {
 }
 
 async function dailyCleanup(env: Env) {
+  await runScheduledReports(env, adminSql(env.DATABASE_URL)).catch((e) => console.error('scheduled reports', e));
   const admin = adminSql(env.DATABASE_URL);
   await admin.transaction([
     // Only sandboxes expire. Organizations and the shared network workspace are never removed here.

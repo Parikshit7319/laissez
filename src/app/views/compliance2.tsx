@@ -3,6 +3,7 @@
 import { useState } from 'preact/hooks';
 import { api, when, day, JUR } from '../api';
 import { useApi, Head, Btn, Chip, Card, Empty, Loading, ErrorBox, Field, Toast, statusChip } from '../ui';
+import { usePaged, LoadMore } from '../paged';
 import { useMe, PermBtn, PermNote } from '../auth';
 
 const pct = (score: number) => `${Math.round(Number(score) * 100)}%`;
@@ -76,10 +77,10 @@ function WorkItem({ item, onDone }: { item: any; onDone: (msg: string) => void }
 
 export function WorkQueue() {
   const [status, setStatus] = useState<'open' | 'done' | 'dismissed' | 'all'>('open');
-  const r = useApi(`/v1/work-items?status=${status}`, [status]);
+  const r = usePaged(`/v1/work-items?status=${status}&limit=100`, [status]);
   const toast = useToast();
-  const counts = r.data?.open_counts ?? {};
-  const items: any[] = r.data?.data ?? [];
+  const counts = r.extra.open_counts ?? {};
+  const items: any[] = r.rows;
   const done = (m: string) => { toast.show(m); r.reload(); };
   return (
     <>
@@ -91,14 +92,15 @@ export function WorkQueue() {
       </div>
       <Tabs label="Filter work items" value={status} onChange={setStatus} options={[['open', 'Open'], ['done', 'Done'], ['dismissed', 'Dismissed'], ['all', 'All']]} />
       <PermNote perm="work:write" />
-      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : !items.length ? (
+      {r.loading && !items.length ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : !items.length ? (
         <Card><Empty title={status === 'open' ? 'Nothing needs attention' : 'No items here'}>{status === 'open' ? 'Monitoring runs every night and after each sanctions list update. New items appear here.' : 'Switch the filter to see other items.'}</Empty></Card>
       ) : status === 'open' ? (
         SEVERITY.map(([sev, label, tone]) => {
           const group = items.filter((i) => i.severity === sev);
-          return group.length ? <Card title={<>{label} <Chip tone={tone}>{group.length}</Chip></>}>{group.map((i) => <WorkItem key={i.id} item={i} onDone={done} />)}</Card> : null;
+          return group.length ? <Card title={<>{label} <Chip tone={tone}>{group.length}{(counts[sev] ?? 0) > group.length ? ` of ${counts[sev]}` : ''}</Chip></>}>{group.map((i) => <WorkItem key={i.id} item={i} onDone={done} />)}</Card> : null;
         })
       ) : <Card>{items.map((i) => <WorkItem key={i.id} item={i} onDone={done} />)}</Card>}
+      {items.length ? <LoadMore p={r} what="items" /> : null}
       <Toast msg={toast.msg} />
     </>
   );
@@ -263,18 +265,18 @@ export function ScreeningHitDetail({ id }: { id: string }) {
 
 export function ScreeningHits() {
   const [status, setStatus] = useState<'open' | 'needs_information' | 'false_positive' | 'confirmed' | 'all'>('open');
-  const r = useApi(`/v1/screening-hits?status=${status}`, [status]);
+  const r = usePaged(`/v1/screening-hits?status=${status}&limit=50`, [status]);
   const toast = useToast();
-  const counts = r.data?.counts ?? {};
-  const rows: any[] = r.data?.data ?? [];
+  const counts = r.extra.counts ?? {};
+  const rows: any[] = r.rows;
   return (
     <>
       <Head title="Screening hits" sub="Names that matched a sanctions list entry closely enough to hold. A false positive clears the pair for good; a confirmed match keeps the holder frozen; needs information keeps the hold while you gather facts." actions={<a class="b b-ghost" href="#/sanctions-lists">Screen a name</a>} />
       <Tabs label="Filter screening hits" value={status} onChange={setStatus}
         options={[['open', `Open (${counts.open ?? 0})`], ['needs_information', `Needs information (${counts.needs_information ?? 0})`], ['false_positive', `False positives (${counts.false_positive ?? 0})`], ['confirmed', `Confirmed (${counts.confirmed ?? 0})`], ['all', 'All']]} />
       <PermNote perm="compliance:write" />
-      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : rows.length ? (
-        <Card>{rows.map((h) => <Hit key={h.id} hit={h} onDone={(m) => { toast.show(m); r.reload(); }} />)}</Card>
+      {r.loading && !rows.length ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : rows.length ? (
+        <Card>{rows.map((h) => <Hit key={h.id} hit={h} onDone={(m) => { toast.show(m); r.reload(); }} />)}<LoadMore p={r} what="hits" /></Card>
       ) : <Card><Empty title={status === 'open' ? 'No open hits' : 'Nothing here yet'}>{status === 'open' ? 'Every match has a decision. New matches from orders and monitoring appear here.' : 'Switch the filter to see other hits.'}</Empty></Card>}
       <Toast msg={toast.msg} />
     </>

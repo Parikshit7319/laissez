@@ -10,12 +10,17 @@
     "test": "esbuild scripts/test-engine.ts --bundle --platform=node --format=esm --outfile=.astro/test-engine.mjs --log-level=warning && node .astro/test-engine.mjs",
     "test:api": "node api/test/smoke.mjs",
     "test:rules": "esbuild scripts/test-rulepacks.ts --bundle --platform=node --format=esm --outfile=.astro/test-rules.mjs --log-level=warning && node .astro/test-rules.mjs",
-    "test:openapi": "esbuild scripts/test-openapi.ts --bundle --platform=node --format=esm --outfile=.astro/test-openapi.mjs --log-level=warning --packages=external && node .astro/test-openapi.mjs",
+    "test:openapi": "esbuild scripts/test-openapi.ts --bundle --platform=node --format=esm --outfile=.astro/test-openapi.mjs --log-level=warning --external:@seriousme/openapi-schema-validator --external:pg --external:pg-native --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" && node .astro/test-openapi.mjs",
+    "test:mode": "esbuild scripts/test-mode.ts --bundle --platform=node --format=esm --outfile=.astro/test-mode.mjs --log-level=warning --external:pg --external:pg-native --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" && node .astro/test-mode.mjs",
+    "docs:openapi": "esbuild scripts/gen-openapi.ts --bundle --platform=node --format=esm --outfile=.astro/gen-openapi.mjs --log-level=warning --external:pg --external:pg-native --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" && node .astro/gen-openapi.mjs",
+    "docs:errors": "esbuild scripts/gen-errors.ts --bundle --platform=node --format=esm --outfile=.astro/gen-errors.mjs --log-level=warning --packages=external && node .astro/gen-errors.mjs",
+    "docs:erd": "esbuild scripts/gen-erd.ts --bundle --platform=node --format=esm --outfile=.astro/gen-erd.mjs --log-level=warning --packages=external && node .astro/gen-erd.mjs",
+    "docs:all": "npm run docs:errors && npm run docs:erd && npm run docs:openapi",
     "db:local": "node api/db/local.mjs",
     "db:reset": "node api/db/local.mjs reset",
     "api:local": "node api/server.mjs",
     "dev:all": "concurrently -k -n db,api,web -c blue,green,magenta \"npm run db:local\" \"sleep 6 && npm run api:local\" \"PUBLIC_API_BASE=http://127.0.0.1:8787 astro dev\"",
-    "test:all": "npm test && npm run test:rules && npm run test:openapi"
+    "test:all": "npm test && npm run test:rules && npm run test:openapi && npm run test:mode"
   },
   "dependencies": {
     "@astrojs/preact": "^4.1.3",

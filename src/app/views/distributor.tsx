@@ -7,6 +7,7 @@ import { Credential } from '../../proto/Credential';
 import { TESTS, findTest, subjectOf } from '../../proto/thresholds';
 import { WHAT_IFS } from '../../proto/engine';
 import { PortalInvite } from './portalAdmin';
+import { EditClient, RevisionHistory, SuitabilityCard, TaxCard } from './clients2';
 
 // ---------- Cursor pagination ----------
 /** Loads a paginated list ({ data, next_cursor }) and appends further pages on demand. */
@@ -148,7 +149,7 @@ function AddClient({ onDone }: { onDone: (id?: string) => void }) {
       <form class="form-grid" onSubmit={submit}>
         <Field label="Legal name"><input required value={f.name} onInput={(e) => set('name', (e.target as HTMLInputElement).value)} placeholder="Harbourline Capital Pte. Ltd." /></Field>
         <Field label="Type"><select value={f.kind} onChange={(e) => set('kind', (e.target as HTMLSelectElement).value)}>{['Corporate', 'Family office', 'Pension fund', 'Holding company', 'Individual'].map((k) => <option>{k}</option>)}</select></Field>
-        <Field label="Residence"><select value={f.residence} onChange={(e) => set('residence', (e.target as HTMLSelectElement).value)}>{['SG', 'HK', 'CH', 'DE', 'LU', 'IE', 'GB', 'AE-DIFC', 'AE-ADGM', 'JP', 'US'].map((j) => <option value={j}>{JUR[j]}</option>)}</select></Field>
+        <Field label="Residence"><select value={f.residence} onChange={(e) => set('residence', (e.target as HTMLSelectElement).value)}>{['SG', 'HK', 'CH', 'DE', 'LU', 'IE', 'GB', 'AE-DIFC', 'AE-ADGM', 'JP', 'IN', 'AU', 'CA', 'BR', 'KR', 'US'].map((j) => <option value={j}>{JUR[j]}</option>)}</select></Field>
         <Field label="City"><input required value={f.city} onInput={(e) => set('city', (e.target as HTMLInputElement).value)} /></Field>
         <Field label="Booking center"><select value={f.booking_center} onChange={(e) => set('booking_center', (e.target as HTMLSelectElement).value)}>{Object.entries(BOOKING).map(([k, v]) => <option value={k}>{v}</option>)}</select></Field>
         <Field label="U.S. person"><label class="check"><input type="checkbox" checked={f.us_person || f.residence === 'US'} disabled={f.residence === 'US'} onChange={(e) => set('us_person', (e.target as HTMLInputElement).checked)} /> Resident in the United States (Regulation S)</label></Field>
@@ -162,14 +163,17 @@ function AddClient({ onDone }: { onDone: (id?: string) => void }) {
 export function ClientDetail({ id }: { id: string }) {
   const r = useApi(`/v1/investors/${id}`, [id]);
   const [msg, setMsg] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [rev, setRev] = useState(0);
   if (r.loading && !r.data) return <Loading />;
   if (r.error) return <ErrorBox error={r.error} onRetry={r.reload} />;
   const i = r.data;
   const revoke = async () => { try { await api(`/v1/credentials/${i.credentialId}/revoke`, { body: {} }); setMsg('Credential revoked. Holdings move to redemption-only.'); r.reload(); } catch (e: any) { setMsg(e.message); } };
   return (
     <>
-      <Head title={i.name} sub={<>{i.kind}, {i.city}. Resident in {JUR[i.residence]}, booked in {BOOKING[i.booking]}.</>} actions={<><PermBtn perm="orders:write" kind="primary" onClick={() => go(`/orders/new?investor=${i.id}`)}>New order</PermBtn><PermBtn perm="clients:write" onClick={() => go(`/clients/${i.id}/credential`)}>{i.credentialId ? 'Renew credential' : 'Issue credential'}</PermBtn>{i.credentialId ? <PermBtn perm="clients:write" kind="danger" onClick={revoke}>Revoke credential</PermBtn> : null}</>} />
+      <Head title={i.name} sub={<>{i.kind}, {i.city}. Resident in {JUR[i.residence]}, booked in {BOOKING[i.booking]}.</>} actions={<><PermBtn perm="orders:write" kind="primary" onClick={() => go(`/orders/new?investor=${i.id}`)}>New order</PermBtn><PermBtn perm="clients:write" onClick={() => go(`/clients/${i.id}/credential`)}>{i.credentialId ? 'Renew credential' : 'Issue credential'}</PermBtn>{i.credentialId ? <PermBtn perm="clients:write" kind="danger" onClick={revoke}>Revoke credential</PermBtn> : null}<PermBtn perm="clients:write" kind="ghost" onClick={() => setEditing(true)}>Edit record</PermBtn></>} />
       <PermNote perm="clients:write" />
+      {editing ? <EditClient inv={i} onDone={(m) => { setEditing(false); if (m) { setMsg(m); r.reload(); } setRev((n) => n + 1); }} /> : null}
       {msg ? <div class="note">{msg}</div> : null}
       <div class="grid2">
         <div class="app">{i.credentialId ? <Credential inv={i} /> : <Empty title="No credential yet">Issue a Laissez-passer to record this client’s classifications.</Empty>}</div>
@@ -188,6 +192,11 @@ export function ClientDetail({ id }: { id: string }) {
         <PortalInvite investorId={i.id} investorName={i.name} />
         <PortalAccessList investorId={i.id} />
       </Card>
+      <div class="grid2">
+        <SuitabilityCard investorId={i.id} />
+        <TaxCard investorId={i.id} />
+      </div>
+      <RevisionHistory investorId={i.id} refresh={rev} />
       <Card title="Recent decisions">
         {i.recent_decisions.length ? <DecisionTable rows={i.recent_decisions} /> : <Empty title="No decisions yet" />}
       </Card>
@@ -347,11 +356,25 @@ export function NewOrder({ params }: { params: URLSearchParams }) {
     }, 350);
     return () => clearTimeout(timer.current);
   }, [JSON.stringify(o), ready]);
+  const [pending, setPending] = useState<any>(null);
+  const [waitlisted, setWaitlisted] = useState<any>(null);
+  const [wlBusy, setWlBusy] = useState(false);
   const place = async () => {
     setBusy(true);
-    try { const d = await api('/v1/decisions', { body: orderBody() }); track('order_placed', { action: o.action, fund: o.fund, outcome: d.outcome, hypothetical: o.what_ifs.length > 0 }); go(`/decisions/${d.id}`); }
+    try {
+      const d = await api('/v1/decisions', { body: orderBody() });
+      // Above the large-order threshold the order is stored for a second person instead of being decided now.
+      if (d.pending) { setPending(d); return; }
+      track('order_placed', { action: o.action, fund: o.fund, outcome: d.outcome, hypothetical: o.what_ifs.length > 0 }); go(`/decisions/${d.id}`);
+    }
     catch (e) { setLiveErr(e); } finally { setBusy(false); }
   };
+  const joinWaitlist = async () => {
+    setWlBusy(true); setLiveErr(null);
+    try { setWaitlisted(await api('/v1/waitlist', { body: { ticker: o.fund, investor_id: o.investor_id, amount: o.amount, asset: o.settle_with } })); }
+    catch (e) { setLiveErr(e); } finally { setWlBusy(false); }
+  };
+  useEffect(() => { setPending(null); setWaitlisted(null); }, [JSON.stringify(o)]);
   const set = (k: string, v: any) => setO({ ...o, [k]: v });
   if ((invs.loading && !invs.data) || (funds.loading && !funds.data)) return <Loading />;
   if (invs.error || funds.error) return <ErrorBox error={invs.error ?? funds.error} onRetry={() => { invs.reload(); funds.reload(); }} />;
@@ -371,8 +394,10 @@ export function NewOrder({ params }: { params: URLSearchParams }) {
             </div>
             {o.action === 'transfer' ? <Field label="Transfer to"><select value={o.counterparty_id} onChange={(e) => set('counterparty_id', (e.target as HTMLSelectElement).value)}>{invs.data.data.filter((i: any) => i.id !== o.investor_id).map((i: any) => <option value={i.id}>{i.name}</option>)}</select></Field> : null}
             <fieldset class="wis"><legend>What if</legend>{WHAT_IFS.map((w) => <label title={w.hint}><input type="checkbox" checked={o.what_ifs.includes(w.id)} onChange={(e) => set('what_ifs', (e.target as HTMLInputElement).checked ? [...o.what_ifs, w.id] : o.what_ifs.filter((x) => x !== w.id))} /> {w.label}</label>)}</fieldset>
-            <div class="form-actions"><PermBtn perm="orders:write" kind="primary" disabled={!live} busy={busy} onClick={place}>{busy ? 'Placing' : 'Place order'}</PermBtn>{o.what_ifs.length ? <span class="muted">What-ifs make the decision hypothetical: it records, but cannot settle.</span> : null}</div>
+            <div class="form-actions"><PermBtn perm="orders:write" kind="primary" disabled={!live} busy={busy} onClick={place}>{busy ? 'Placing' : 'Place order'}</PermBtn>{live?.waitlist_eligible && !waitlisted ? <PermBtn perm="orders:write" busy={wlBusy} onClick={joinWaitlist}>Join the waitlist</PermBtn> : null}{o.what_ifs.length ? <span class="muted">What-ifs make the decision hypothetical: it records, but cannot settle.</span> : null}</div>
             <PermNote perm="orders:write" />
+            {pending ? <div class="note" role="status"><b>Waiting for approval.</b> {pending.reason} Request <a href={`#/approvals/${pending.approval_id}`}>{pending.approval_id}</a> is in the approvals queue. When another person approves it the order is decided and settled under their name.</div> : null}
+            {waitlisted ? <div class="note" role="status"><b>On the waitlist</b> as {waitlisted.id}, position {waitlisted.position}. {waitlisted.note} <a href="#/waitlist">View the waitlist</a>.</div> : live?.waitlist_eligible && !waitlisted ? <p class="small muted">Refused only by a holder limit. Join the waitlist and the order is re-evaluated when a holder fully redeems.</p> : null}
           </Card>
           <AsOfCard body={orderBody} live={live} />
         </div>

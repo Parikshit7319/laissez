@@ -5,6 +5,7 @@ import { useApi, Head, Btn, Chip, ErrorBox, Loading, Empty, Field, Card, Copy, R
 import { useMe, PermBtn, PermNote, ROLE_LABEL, type Role } from '../auth';
 import { createPasskey } from '../webauthn';
 import { KeysExtras } from './settings2';
+import { THEMES, readTheme, setTheme, onThemeChange, type Theme } from '../theme';
 
 const ROLE_HELP: Record<Role, string> = {
   admin: 'Everything, including members, single sign-on and keys',
@@ -381,56 +382,197 @@ function readableOn(hex: string) {
 }
 
 export function Branding() {
-  const { me, can, reload } = useMe();
-  const w = me!.workspace;
-  const [f, setF] = useState({ brand_name: w.brand_name ?? w.name, brand_color: w.brand_color ?? '#1f3a33' });
-  const [hex, setHex] = useState(f.brand_color);
+  const { can, reload } = useMe();
+  const brand = useApi<any>('/v1/brand');
+  const [f, setF] = useState<any>(null);
+  const [hex, setHex] = useState('#1f3a33');
   const [err, setErr] = useState<any>(null);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [logoNote, setLogoNote] = useState<string | null>(null);
   const admin = can('members:admin');
-  useEffect(() => setHex(f.brand_color), [f.brand_color]);
-  const save = async (e: Event) => {
-    e.preventDefault(); setBusy(true); setErr(null); setSaved(false);
-    try { await api('/v1/organization', { method: 'PATCH', body: { brand_name: f.brand_name.trim(), brand_color: f.brand_color } }); await reload(); setSaved(true); }
-    catch (x) { setErr(x); } finally { setBusy(false); }
+  useEffect(() => {
+    if (brand.data && !f) {
+      const b = brand.data;
+      setF({ brand_name: b.brand_name, brand_color: b.brand_color, logo_data_url: b.logo_data_url, portal_domain: b.portal_domain ?? '', email_footer: b.email_footer ?? '', support_email: b.support_email ?? '', support_phone: b.support_phone ?? '' });
+      setHex(b.brand_color);
+    }
+  }, [brand.data]);
+  useEffect(() => { if (f) setHex(f.brand_color); }, [f?.brand_color]);
+  const set = (k: string, v: unknown) => { setF({ ...f, [k]: v }); setSaved(null); };
+  const onLogo = (e: Event) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    setLogoNote(null); setErr(null);
+    if (!file) return;
+    if (!['image/png', 'image/svg+xml'].includes(file.type)) { setLogoNote('Use a PNG or SVG file.'); return; }
+    if (file.size > 200 * 1024) { setLogoNote(`That file is ${Math.round(file.size / 1024)} KB. Keep the logo under 200 KB; an SVG or a 400 px wide PNG is plenty.`); return; }
+    const reader = new FileReader();
+    reader.onload = () => { set('logo_data_url', String(reader.result)); setLogoNote(`${file.name}, ${Math.round(file.size / 1024)} KB. Save to apply it.`); };
+    reader.onerror = () => setLogoNote('The file could not be read. Try again.');
+    reader.readAsDataURL(file);
   };
+  const save = async (e: Event) => {
+    e.preventDefault(); setBusy(true); setErr(null); setSaved(null);
+    try {
+      const b = brand.data;
+      const body: Record<string, unknown> = {};
+      if (f.brand_name.trim() !== b.brand_name) body.brand_name = f.brand_name.trim();
+      if (f.brand_color !== b.brand_color) body.brand_color = f.brand_color;
+      if ((f.logo_data_url ?? null) !== (b.logo_data_url ?? null)) body.logo_data_url = f.logo_data_url ?? null;
+      if ((f.portal_domain.trim() || null) !== (b.portal_domain ?? null)) body.portal_domain = f.portal_domain.trim() || null;
+      if ((f.email_footer.trim() || null) !== (b.email_footer ?? null)) body.email_footer = f.email_footer.trim() || null;
+      if ((f.support_email.trim() || null) !== (b.support_email ?? null)) body.support_email = f.support_email.trim() || null;
+      if ((f.support_phone.trim() || null) !== (b.support_phone ?? null)) body.support_phone = f.support_phone.trim() || null;
+      if (!Object.keys(body).length) { setSaved('Nothing changed.'); return; }
+      const res = await api('/v1/brand', { method: 'PUT', body });
+      brand.setData(res); setF({ ...f, logo_data_url: res.logo_data_url }); setLogoNote(null); setSaved(res.note); await reload();
+    } catch (x) { setErr(x); } finally { setBusy(false); }
+  };
+  if (brand.error) return <><Head title="Branding" /><ErrorBox error={brand.error} onRetry={brand.reload} /></>;
+  if (!f) return <><Head title="Branding" /><Loading /></>;
   const fg = readableOn(f.brand_color);
+  const name = f.brand_name || 'Your brand';
+  const initials = name.split(/\s+/).map((w: string) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+  const dns = brand.data?.custom_domain?.dns ?? [];
+  const logo = f.logo_data_url ? <img src={f.logo_data_url} alt={`${name} logo`} style={{ height: '28px', maxWidth: '160px', objectFit: 'contain', display: 'block' }} /> : null;
   return (
     <>
-      <Head title="Branding" sub="How your name and color appear to investors in the investor portal and on documents Laissez generates for you." />
+      <Head title="Branding" sub="How your name, logo and color appear to investors in the portal and in the emails Laissez sends for you." />
       <PermNote perm="members:admin" />
-      <div class="grid2">
-        <Card title="Brand">
-          <form class="form-grid one" onSubmit={save}>
-            <fieldset class="plain-fs" disabled={!admin}>
-              <Field label="Brand name" hint="Shown to investors. Usually your legal or trading name."><input required minLength={2} maxLength={80} value={f.brand_name} onInput={(e) => { setF({ ...f, brand_name: (e.target as HTMLInputElement).value }); setSaved(false); }} /></Field>
+      <form onSubmit={save}>
+        <div class="grid2">
+          <Card title="Brand">
+            <fieldset class="plain-fs form-grid one" disabled={!admin}>
+              <Field label="Brand name" hint="Shown to investors. Usually your legal or trading name."><input required minLength={2} maxLength={80} value={f.brand_name} onInput={(e) => set('brand_name', (e.target as HTMLInputElement).value)} /></Field>
               <Field label="Brand color" hint="Pick a dark or saturated color. Text on it switches between white and black for contrast.">
                 <div class="color-row">
-                  <input type="color" value={f.brand_color} aria-label="Brand color picker" onInput={(e) => { setF({ ...f, brand_color: (e.target as HTMLInputElement).value }); setSaved(false); }} />
-                  <input class="mono" value={hex} maxLength={7} aria-label="Brand color hex value" onInput={(e) => { const v = (e.target as HTMLInputElement).value; setHex(v); if (/^#[0-9a-fA-F]{6}$/.test(v)) { setF({ ...f, brand_color: v.toLowerCase() }); setSaved(false); } }} />
+                  <input type="color" value={f.brand_color} aria-label="Brand color picker" onInput={(e) => set('brand_color', (e.target as HTMLInputElement).value)} />
+                  <input class="mono" value={hex} maxLength={7} aria-label="Brand color hex value" onInput={(e) => { const v = (e.target as HTMLInputElement).value; setHex(v); if (/^#[0-9a-fA-F]{6}$/.test(v)) set('brand_color', v.toLowerCase()); }} />
                 </div>
               </Field>
+              <Field label="Logo" hint="PNG or SVG, under 200 KB. Shown in the portal header and at the top of emails. Scripts inside an SVG are refused.">
+                <div class="row-inline" style={{ flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center' }}>
+                  <input type="file" accept="image/png,image/svg+xml" aria-label="Upload a logo" onChange={onLogo} />
+                  {f.logo_data_url ? <Btn kind="ghost" onClick={() => { set('logo_data_url', null); setLogoNote('Logo removed. Save to apply.'); }}>Remove logo</Btn> : null}
+                </div>
+                {logoNote ? <span class="small muted" role="status">{logoNote}</span> : null}
+              </Field>
+              <Field label="Support contact" hint="Shown in the portal footer so investors know who to call.">
+                <div class="form-grid two" style={{ marginTop: 0 }}>
+                  <input type="email" placeholder="investors@yourbank.example" value={f.support_email} aria-label="Support email" onInput={(e) => set('support_email', (e.target as HTMLInputElement).value)} />
+                  <input placeholder="+1 212 555 0100" maxLength={40} value={f.support_phone} aria-label="Support phone" onInput={(e) => set('support_phone', (e.target as HTMLInputElement).value)} />
+                </div>
+              </Field>
+              <Field label="Email footer" hint="Plain text under every email sent on your behalf: regulatory status, address, unsubscribe wording. Leave empty for the Laissez default."><textarea rows={3} maxLength={600} value={f.email_footer} onInput={(e) => set('email_footer', (e.target as HTMLTextAreaElement).value)} /></Field>
+              <Field label="Portal domain" hint="The host investors should see, for example invest.yourbank.com. Stored with DNS instructions; see the note below.">
+                <input placeholder="invest.yourbank.example" maxLength={253} value={f.portal_domain} onInput={(e) => set('portal_domain', (e.target as HTMLInputElement).value.toLowerCase())} />
+              </Field>
             </fieldset>
-            <div class="form-actions"><PermBtn perm="members:admin" type="submit" kind="primary" busy={busy}>Save branding</PermBtn>{saved ? <span class="ok-text" role="status">Saved. The investor portal uses it now.</span> : null}</div>
-          </form>
-          <ErrorBox error={err} />
-        </Card>
-        <Card title="Investor portal preview">
-          <div class="portal-prev" aria-label="Preview of the investor portal header">
-            <div class="pp-bar" style={{ background: f.brand_color, color: fg }}>
-              <span class="pp-name">{f.brand_name || 'Your brand'}</span>
-              <span class="pp-nav"><span>Holdings</span><span>Documents</span><span>Statements</span></span>
-            </div>
-            <div class="pp-body">
-              <p class="pp-k">Good morning, Wen Li</p>
-              <div class="pp-row"><span>Tidewell Liquidity Fund</span><b>$2,000,000.00</b></div>
-              <div class="pp-row"><span>Credential</span><span class="pp-chip" style={{ background: f.brand_color, color: fg }}>Active to Oct 2027</span></div>
-              <p class="pp-foot">Powered by Laissez</p>
-            </div>
+            <div class="form-actions"><PermBtn perm="members:admin" type="submit" kind="primary" busy={busy}>Save branding</PermBtn>{saved ? <span class="ok-text" role="status">{saved}</span> : null}</div>
+            <ErrorBox error={err} />
+          </Card>
+          <div>
+            <Card title="Investor portal preview">
+              <div class="portal-prev" aria-label="Preview of the investor portal header">
+                <div class="pp-bar" style={{ background: '#fff', color: '#14161a', borderTop: `4px solid ${f.brand_color}` }}>
+                  <span class="pp-name" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {logo ?? <span aria-hidden="true" style={{ width: '1.7rem', height: '1.7rem', borderRadius: '50%', display: 'inline-grid', placeItems: 'center', background: f.brand_color, color: fg, fontSize: '0.75rem', fontWeight: 600 }}>{initials}</span>}
+                    {name}
+                  </span>
+                  <span class="pp-nav" style={{ color: '#4a4f57' }}><span style={{ borderBottom: `2px solid ${f.brand_color}` }}>Overview</span><span>Requests</span><span>Evidence</span></span>
+                </div>
+                <div class="pp-body">
+                  <p class="pp-k">Good morning, Wen Li</p>
+                  <div class="pp-row"><span>Tidewell Treasury Liquidity</span><b>$2,000,000.00</b></div>
+                  <div class="pp-row"><span>Credential</span><span class="pp-chip" style={{ background: f.brand_color, color: fg }}>Active to Oct 2027</span></div>
+                  <p class="pp-foot">{f.support_email || f.support_phone ? `Questions: ${[f.support_email, f.support_phone].filter(Boolean).join(', ')}. ` : ''}Powered by Laissez</p>
+                </div>
+              </div>
+            </Card>
+            <Card title="Email preview">
+              <div class="portal-prev" aria-label="Preview of an email header and footer" style={{ background: '#f1eee8', padding: '0.9rem' }}>
+                <div style={{ background: '#fff', border: '1px solid #ddd6c9', borderRadius: '12px', padding: '1rem 1.1rem', fontSize: '0.85rem', color: '#2a2722' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.8rem' }}>
+                    <div style={{ fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8a8377' }}>{name}</div>
+                    {logo}
+                  </div>
+                  <h3 style={{ margin: '0.4rem 0 0.6rem', fontSize: '1.05rem', color: '#151412' }}>Your investor portal at {name}</h3>
+                  <p style={{ margin: '0 0 0.7rem' }}>{name} has opened an investor portal for Wen Li Tan. In it you can see your credential, which funds you are eligible for and why, and sign subscription requests.</p>
+                  <span style={{ display: 'inline-block', background: f.brand_color, color: fg, padding: '0.45rem 0.8rem', borderRadius: '8px', fontWeight: 600 }}>Open your portal</span>
+                  <p style={{ margin: '0.9rem 0 0', paddingTop: '0.6rem', borderTop: '1px solid #eee8dc', fontSize: '0.72rem', color: '#8a8377' }}>{f.email_footer || `Sent by Laissez on behalf of ${name}. If you were not expecting this message, ignore it; nothing happens unless the link is used.`}</p>
+                </div>
+              </div>
+              <p class="small muted" style={{ margin: '0.6rem 0 0' }}>The email templates read your brand name today. Logo and footer are stored now and picked up as the templates are updated.</p>
+            </Card>
           </div>
-        </Card>
+        </div>
+      </form>
+      <Card title="Custom portal domain">
+        <p class="small" style={{ marginTop: 0 }}>{brand.data?.custom_domain?.note}</p>
+        {dns.length ? (
+          <div class="tw"><table class="t small">
+            <thead><tr><th>Type</th><th>Host</th><th>Value</th><th>TTL</th><th>Purpose</th></tr></thead>
+            <tbody>{dns.map((d: any) => <tr><td><code>{d.type}</code></td><td><code>{d.host}</code></td><td><code>{d.value}</code></td><td>{d.ttl}</td><td class="muted">{d.purpose}</td></tr>)}</tbody>
+          </table></div>
+        ) : null}
+        <p class="small muted" style={{ margin: '0.6rem 0 0' }}>Today investors use <a href={brand.data?.portal_url} target="_blank" rel="noopener">{brand.data?.portal_url}</a>. The portal is a static site on GitHub Pages, which allows one custom domain per site, so a per-tenant host needs a different edge in front of it. The domain is stored and audited so the switch is a flag when that exists.</p>
+      </Card>
+      <div class="grid2">
+        <FeatureFlags admin={admin} />
+        <Appearance />
       </div>
     </>
+  );
+}
+
+/** Per-organization feature flags. Reads are cached for a minute on the API; a change applies to new requests at once. */
+function FeatureFlags({ admin }: { admin: boolean }) {
+  const r = useApi('/v1/flags');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<any>(null);
+  const set = async (key: string, on: boolean | null) => {
+    setBusy(key); setErr(null);
+    try { const row = await api(`/v1/flags/${key}`, { method: 'PUT', body: { on } }); r.setData((d: any) => (d ? { ...d, data: d.data.map((f: any) => (f.key === key ? row : f)) } : d)); }
+    catch (x) { setErr(x); } finally { setBusy(null); }
+  };
+  return (
+    <Card title="Feature flags">
+      <p class="small muted">Switch parts of the product on or off for this organization. Overrides are audited as flag.updated. Changes reach requests already in flight within 60 seconds.</p>
+      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : (
+        <div class="tw"><table class="t">
+          <thead><tr><th>Flag</th><th>State</th><th /></tr></thead>
+          <tbody>{(r.data?.data ?? []).map((f: any) => (
+            <tr>
+              <td><code>{f.key}</code><div class="small muted">{f.description}</div></td>
+              <td>{f.on ? <Chip tone="ok">On</Chip> : <Chip>Off</Chip>}<div class="small muted">{f.overridden ? `Overridden here (default ${f.default_on ? 'on' : 'off'})` : `Default ${f.default_on ? 'on' : 'off'}`}</div></td>
+              <td><div class="row-inline tight acts">
+                <PermBtn perm="members:admin" kind="ghost" busy={busy === f.key} disabled={!admin} onClick={() => set(f.key, !f.on)}>{f.on ? 'Turn off' : 'Turn on'}</PermBtn>
+                {f.overridden && admin ? <Btn kind="ghost" disabled={busy === f.key} onClick={() => set(f.key, null)}>Use default</Btn> : null}
+              </div></td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+      <ErrorBox error={err} />
+    </Card>
+  );
+}
+
+/** Theme preference. Stored in this browser only, so each person picks their own. */
+function Appearance() {
+  const [theme, setLocal] = useState<Theme>(readTheme);
+  useEffect(() => onThemeChange(setLocal), []);
+  return (
+    <Card title="Appearance">
+      <p class="small muted">How the app looks in this browser. Other members and other devices keep their own setting.</p>
+      <div class="pick" role="radiogroup" aria-label="Theme">
+        {THEMES.map((t) => (
+          <label class={`pick-i ${theme === t.id ? 'on' : ''}`}>
+            <input type="radio" name="theme" checked={theme === t.id} onChange={() => { setTheme(t.id); setLocal(t.id); }} />
+            <span><strong>{t.label}</strong><div class="small muted">{t.hint}</div></span>
+          </label>
+        ))}
+      </div>
+    </Card>
   );
 }

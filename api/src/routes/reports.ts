@@ -5,8 +5,16 @@ import { router, need, type C } from '../http';
 import { today } from '../util';
 import { loadGlobals } from '../ctx';
 import { PLACEMENT_LIMITS } from '../placement-limits';
+import * as reports2 from './reports2';
+import * as brand from './brand';
 
 export const routes = router();
+/** Public (portal-token) routes: the investor portal's branding lookup. */
+export const publicRoutes = router();
+// The report builder (./reports2) and branding (./brand) mount here under /v1, so index.ts needs no change.
+routes.route('/', reports2.routes);
+routes.route('/', brand.routes);
+publicRoutes.route('/', brand.publicRoutes);
 
 type Limit = { jurisdiction: string; basis: string; limit_text: string; number: number | null; unit: string; period: string | null; citation: string; source_url: string; verified: boolean | string };
 const LIMITS = PLACEMENT_LIMITS as unknown as Limit[];

@@ -6,6 +6,7 @@ import type { VNode } from 'preact';
 import { api, money, when, JUR } from '../api';
 import { useApi, Head, Btn, Chip, ErrorBox, Loading, Empty, Field, Card, ConfirmBtn } from '../ui';
 import { useMe, PermBtn, PermNote } from '../auth';
+import { ClosedEndOps } from './fundops2';
 
 // ---------- Formatting ----------
 /** Formats a YYYY-MM-DD date without shifting it into the viewer's time zone. */
@@ -675,7 +676,20 @@ function AckMatrix({ ticker, m, onRecorded }: { ticker: string; m: ApiState; onR
   );
 }
 
-/** Small wrapper for embedding: lifecycle first, documents after. */
+/**
+ * Small wrapper for embedding. Open-ended funds show dealing, NAV and income; closed-end funds show commitments,
+ * capital calls and distributions instead (decided from GET /v1/funds/:ticker/commitments, which carries fund_type).
+ * Documents come last for both.
+ */
 export function FundOps({ ticker, onChange }: { ticker: string; onChange?: () => void }): VNode {
-  return <><FundLifecycle ticker={ticker} onChange={onChange} /><FundDocuments ticker={ticker} /></>;
+  const kind = useApi<any>(`/v1/funds/${ticker}/commitments`, [ticker]);
+  const closedEnd = kind.data?.fund_type === 'closed_end';
+  return (
+    <>
+      {kind.loading && !kind.data ? <Card title="Fund operations"><Loading /></Card>
+        : closedEnd ? <ClosedEndOps ticker={ticker} currency={kind.data.currency} onChange={onChange} />
+          : <FundLifecycle ticker={ticker} onChange={onChange} />}
+      <FundDocuments ticker={ticker} />
+    </>
+  );
 }

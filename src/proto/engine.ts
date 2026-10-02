@@ -25,7 +25,11 @@ export type FundExt = Fund & {
   offeringDate?: string | null;
   /** Debt securities carry a 40-day period, equity one year (Rule 903(b)(3)). Fund units are equity unless stated. */
   regSSecurityType?: 'debt' | 'equity' | null;
+  /** Closed-end funds take money only through capital calls against commitments; open-ended funds deal continuously. */
+  fundType?: 'open_ended' | 'closed_end' | null;
 };
+/** The capital call an order answers. Only a closed-end fund reads it: a subscription without one is refused. */
+export type CapitalCallCtx = { id: string; ticker: string; callNumber: number; dueOn: string; status: string; /** Amount this investor was called for, when known. */ amount?: number | null };
 /** Public holidays by calendar key (the fund's cutoffTz), as ISO dates. Weekends are never dealing days regardless. */
 export type Calendars = Record<string, readonly string[]>;
 /** A potential watchlist match. score is a 0 to 1 name similarity; source is the list (OFAC-SDN, UN, EU, UK). */
@@ -65,6 +69,8 @@ export type Ctx = {
   calendars?: Calendars;
   /** USD already remitted this Indian financial year under the LRS, keyed by investor id. Overrides the figure recorded on the IN_LRS classification. */
   lrsRemitted?: Record<string, number>;
+  /** The capital call this order settles, for closed-end funds. Absent for a free subscription. */
+  capitalCall?: CapitalCallCtx | null;
 };
 export const defaultCtx: Ctx = {
   investors: INVESTORS, funds: FUNDS, classInfo, bookingCenters, jurName, sanctioned: sanctionedJurisdictions as Record<string, string>, today: SIM_DATE,
@@ -588,6 +594,22 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = [], ctx: Ctx = defaul
   if (o.action === 'subscribe') {
     const r = eligibilityChecks(inv, fund, '', !!holding, o.amount);
     checks.push(...r.checks); reqs = r.reqs;
+    // Closed-end funds: money comes in only when the manager calls it against a commitment.
+    if ((fund as FundExt).fundType === 'closed_end') {
+      const call = C.capitalCall && C.capitalCall.ticker === fund.ticker ? C.capitalCall : null;
+      const open = !!call && (call.status === 'issued' || call.status === 'settling');
+      const amountOk = !call || call.amount == null || Math.abs(Number(call.amount) - o.amount) < 0.01;
+      const pass = open && amountOk;
+      checks.push({ id: 'closed_end', layer: 'Fund policy', subject: inv.short, label: 'Closed-end fund: capital call required', result: pass ? 'pass' : 'fail',
+        detail: pass
+          ? `${fund.short} is closed-end. This subscription answers capital call ${call!.callNumber} (${call!.id}), due ${call!.dueOn}${call!.amount != null ? `, for ${money(Number(call!.amount), fund.currency)}` : ''}.`
+          : !call
+            ? `${fund.short} is closed-end. Investors commit capital and pay it in when the manager issues a capital call; a free subscription is not accepted.`
+            : !open
+              ? `Capital call ${call.callNumber} (${call.id}) is ${call.status}, so nothing more can be paid against it.`
+              : `Capital call ${call.callNumber} called ${money(Number(call.amount), fund.currency)} from ${inv.short}, but this order is for ${money(o.amount, fund.currency)}. The paid-in amount must match the notice.`,
+        remedy: pass ? undefined : !call ? 'Record a commitment for the investor, then issue a capital call. Each notice settles through POST /v1/capital-calls/{id}/settle.' : !open ? 'Issue a new capital call for the remaining commitment.' : 'Settle the call notice for the amount on it.' });
+    }
     checks.push({ id: 'min', layer: 'Fund policy', subject: inv.short, label: `Minimum subscription ${money(fund.minSubscription, fund.currency)}`, result: o.amount >= fund.minSubscription ? 'pass' : 'fail',
       detail: `Order is ${money(o.amount, fund.currency)}.`, remedy: o.amount >= fund.minSubscription ? undefined : `Increase the order to at least ${money(fund.minSubscription, fund.currency)}.` });
     if (C.documents) checks.push(...documentChecks(inv, fund));
@@ -738,6 +760,8 @@ export type Snapshot = {
   calendars?: Calendars | null;
   /** LRS remittances for the involved investors, when the context had them. */
   lrsRemitted?: Record<string, number> | null;
+  /** The capital call the order answered, for closed-end funds. */
+  capitalCall?: CapitalCallCtx | null;
 };
 
 const pick = <T,>(src: Record<string, T> | undefined, keys: Iterable<string>): Record<string, T> => {
@@ -758,7 +782,11 @@ export function snapshotFor(order: Order, ctx: Ctx, whatIfs: WhatIf[] = []): Sna
   for (const b of bookings) if (ctx.bookingCenters[b]) jurs.add(ctx.bookingCenters[b].jur);
   const classes = new Set<string>([...(fund?.usAccepts ?? []), ...invs.flatMap((i) => i.classifications.map((c) => c.code))]);
   for (const d of Object.values(fund?.distribution ?? {}) as (DistEntry | undefined)[]) { d?.accepts.forEach((c) => classes.add(c)); if (d?.lawRequires) classes.add(d.lawRequires); d?.lawRequiresAny?.forEach((c) => classes.add(c)); }
-  for (const b of bookings) { const r = ctx.bookingCenters[b]?.requires; if (r) classes.add(r); }
+  for (const b of bookings) {
+    const bc = ctx.bookingCenters[b] as (BookingCenter & { requiresAny?: string[] | null }) | undefined;
+    if (bc?.requires) classes.add(bc.requires);
+    bc?.requiresAny?.forEach((c) => classes.add(c));
+  }
   const noticeKeys = invs.map((i) => `${i.id}:${ticker}`);
   const snap: Snapshot = {
     v: 1,
@@ -783,6 +811,7 @@ export function snapshotFor(order: Order, ctx: Ctx, whatIfs: WhatIf[] = []): Sna
   const tz = fund?.cutoffTz;
   if (ctx.calendars && tz && ctx.calendars[tz]) snap.calendars = { [tz]: [...ctx.calendars[tz]] };
   if (ctx.lrsRemitted) snap.lrsRemitted = pick(ctx.lrsRemitted, ids);
+  if (ctx.capitalCall) snap.capitalCall = { ...ctx.capitalCall };
   return JSON.parse(JSON.stringify(snap));
 }
 
@@ -793,7 +822,7 @@ export function ctxFromSnapshot(snap: Snapshot): Ctx {
     jurName: snap.jurName, sanctioned: snap.sanctioned, today: snap.today,
     now: snap.now ?? undefined, rulePacks: snap.rulePacks ?? undefined, documents: snap.documents ?? undefined, acks: snap.acks ?? undefined,
     aum: snap.aum ?? undefined, redeemedInPeriod: snap.redeemedInPeriod ?? undefined, notices: snap.notices ?? undefined,
-    calendars: snap.calendars ?? undefined, lrsRemitted: snap.lrsRemitted ?? undefined,
+    calendars: snap.calendars ?? undefined, lrsRemitted: snap.lrsRemitted ?? undefined, capitalCall: snap.capitalCall ?? undefined,
     screen: (name: string) => screens[name] ?? null,
   };
 }

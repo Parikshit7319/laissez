@@ -6,8 +6,8 @@ import { useMe, PermBtn, PermNote } from '../auth';
 import { FundOps } from './fundops';
 import { PolicyDiff } from './policydiff';
 
-const JURS = ['SG', 'HK', 'CH', 'DE', 'LU', 'IE', 'GB', 'AE-DIFC', 'AE-ADGM', 'JP', 'IN', 'US'];
-const ACCEPTS: Record<string, string[]> = { SG: ['SG_AI'], HK: ['HK_PI'], CH: ['CH_PRO'], DE: ['EU_PRO', 'EU_RETAIL'], 'AE-DIFC': ['DIFC_PRO'], US: ['US_AI', 'US_QP', 'US_QIB', 'US_IAI'], IN: ['IN_AI', 'IN_LRS', 'IFSCA_PRO'], LU: ['EU_PRO'], IE: ['EU_PRO'], GB: ['GB_PRO', 'GB_EPRO'], 'AE-ADGM': ['ADGM_PRO'], JP: ['JP_QII'] };
+const JURS = ['SG', 'HK', 'CH', 'DE', 'LU', 'IE', 'GB', 'AE-DIFC', 'AE-ADGM', 'JP', 'IN', 'AU', 'CA', 'BR', 'KR', 'US'];
+const ACCEPTS: Record<string, string[]> = { SG: ['SG_AI'], HK: ['HK_PI'], CH: ['CH_PRO'], DE: ['EU_PRO', 'EU_RETAIL'], 'AE-DIFC': ['DIFC_PRO'], US: ['US_AI', 'US_QP', 'US_QIB', 'US_IAI'], IN: ['IN_AI', 'IN_LRS', 'IFSCA_PRO'], LU: ['EU_PRO'], IE: ['EU_PRO'], GB: ['GB_PRO', 'GB_EPRO'], 'AE-ADGM': ['ADGM_PRO'], JP: ['JP_QII'], AU: ['AU_WHOLESALE', 'AU_PRO'], CA: ['CA_AI', 'CA_PC', 'CA_MIN'], BR: ['BR_QUAL', 'BR_PRO'], KR: ['KR_PRO', 'KR_QPI'] };
 
 export function Funds() {
   const r = useApi('/v1/funds');
@@ -51,6 +51,7 @@ export function FundDetail({ ticker }: { ticker: string }) {
       <Card title="Policy changes" actions={<Chip>{(pcs.data?.data ?? []).filter((p: any) => p.ticker === ticker && p.status === 'draft').length} awaiting approval</Chip>}>
         <PolicyChangeList rows={(pcs.data?.data ?? []).filter((p: any) => p.ticker === ticker)} onChange={reload} />
       </Card>
+      <ConcentrationCard ticker={ticker} currency={fund.currency} />
       <FundOps ticker={ticker} onChange={reload} />
       <Card title="Register" actions={reg.data ? <span class="muted small">{reg.data.sandbox_holders} holders in this workspace; {reg.data.total_holders_of_record} holders of record in total</span> : null}>
         {reg.loading && !reg.data ? <Loading /> : reg.error ? <ErrorBox error={reg.error} /> : reg.data.data.length ? (
@@ -59,6 +60,51 @@ export function FundDetail({ ticker }: { ticker: string }) {
         ) : <Empty title="No holders yet" />}
       </Card>
     </>
+  );
+}
+
+/** Concentration limits: largest holder against the per-investor and share-of-assets caps, with an edit form. */
+function ConcentrationCard({ ticker, currency }: { ticker: string; currency: string }) {
+  const r = useApi(`/v1/funds/${ticker}/concentration`, [ticker]);
+  const [editing, setEditing] = useState(false);
+  const [pct, setPct] = useState('');
+  const [amt, setAmt] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<any>(null);
+  const [note, setNote] = useState<string | null>(null);
+  if (r.loading && !r.data) return <Card title="Concentration limits"><Loading /></Card>;
+  if (r.error) return <Card title="Concentration limits"><ErrorBox error={r.error} onRetry={r.reload} /></Card>;
+  const d = r.data; const top = d.largest_holder;
+  const start = () => { setPct(d.max_holder_pct ? String(d.max_holder_pct) : ''); setAmt(d.max_holding_per_investor ? Number(d.max_holding_per_investor).toLocaleString('en-US') : ''); setEditing(true); setNote(null); };
+  const save = async (e: Event) => {
+    e.preventDefault(); setBusy(true); setErr(null);
+    try {
+      const res = await api(`/v1/funds/${ticker}/concentration`, { method: 'PATCH', body: { max_holder_pct: pct ? Number(pct) : null, max_holding_per_investor: amt ? Number(amt.replace(/[^0-9.]/g, '')) : null } });
+      setNote(res.note); setEditing(false); r.reload();
+    } catch (x) { setErr(x); } finally { setBusy(false); }
+  };
+  const pctUsed = top && d.max_holder_pct ? Math.min(100, Math.round((top.pct / d.max_holder_pct) * 100)) : null;
+  return (
+    <Card title="Concentration limits" actions={<>{d.breached ? <Chip tone="no">Breached</Chip> : d.max_holder_pct || d.max_holding_per_investor ? <Chip tone="ok">Within limits</Chip> : <Chip>No limits set</Chip>}{!editing ? <PermBtn perm="funds:write" kind="ghost" onClick={start}>Edit limits</PermBtn> : null}</>}>
+      <div class="kpis">
+        <div class="kpi"><span>Largest holder</span><b>{top ? `${top.pct.toFixed(1)}%` : 'None'}</b><em>{top ? `${top.name}, ${money(top.value, currency)}` : 'no holdings in this workspace'}</em></div>
+        <div class="kpi"><span>Single-holder cap</span><b>{d.max_holder_pct ? `${d.max_holder_pct}%` : 'None'}</b><em>{pctUsed !== null ? `${pctUsed}% of the cap used` : 'of fund assets'}</em></div>
+        <div class="kpi"><span>Per-investor cap</span><b>{d.max_holding_per_investor ? compact(d.max_holding_per_investor, currency) : 'None'}</b><em>{top && d.max_holding_per_investor ? `largest holds ${Math.round((top.value / d.max_holding_per_investor) * 100)}% of it` : 'maximum holding value'}</em></div>
+        <div class="kpi"><span>Assets</span><b>{compact(d.aum, currency)}</b><em>{d.holders_here} holder{d.holders_here === 1 ? '' : 's'} here, scaled to holders of record</em></div>
+      </div>
+      {note ? <p class="note small">{note}</p> : null}
+      {editing ? (
+        <form class="row-inline" onSubmit={save} style={{ alignItems: 'flex-end' }}>
+          <Field label="Max share of assets (%)" hint="Empty for no cap"><input inputMode="decimal" value={pct} onInput={(e) => setPct((e.target as HTMLInputElement).value.replace(/[^0-9.]/g, ''))} placeholder="10" /></Field>
+          <Field label={`Max holding per investor (${currency})`} hint="Empty for no cap"><input inputMode="numeric" value={amt} onInput={(e) => setAmt((e.target as HTMLInputElement).value)} placeholder="25,000,000" /></Field>
+          <PermBtn perm="funds:write" type="submit" kind="primary" busy={busy}>{busy ? 'Saving' : 'Save limits'}</PermBtn>
+          <Btn kind="ghost" onClick={() => setEditing(false)}>Cancel</Btn>
+        </form>
+      ) : null}
+      <ErrorBox error={err} />
+      {d.top_holders?.length > 1 ? <details class="small" style={{ marginTop: '0.5rem' }}><summary>Top holders</summary><ul>{d.top_holders.map((h: any) => <li>{h.name}: {money(h.value, currency)} ({h.pct.toFixed(1)}%)</li>)}</ul></details> : null}
+      <p class="small muted" style={{ marginTop: '0.5rem' }}>Subscriptions and transfers that would push a holder past either limit fail the concentration check. Limits apply directly here with an audit event; the production path is a policy change with a second approver.</p>
+    </Card>
   );
 }
 

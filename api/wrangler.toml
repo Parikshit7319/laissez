@@ -14,6 +14,8 @@ MAX_ACTIVE_SANDBOXES = "500"
 APP_URL = "https://parikshit7319.github.io/laissez/app/"
 API_URL = "https://laissez-api.laissez.workers.dev"
 CHAIN_RPC_URL = "https://sepolia.base.org"
+# sandbox (default) serves the public sandbox, demo identity provider and test cash. production turns every fictional path off (api/src/mode.ts).
+LAISSEZ_MODE = "sandbox"
 
 # Secrets. Set each with: wrangler secret put NAME
 #   DATABASE_URL          Neon owner connection (bypasses row-level security; auth, sandboxes, jobs)

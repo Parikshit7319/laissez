@@ -8,6 +8,7 @@ import { adminSql, type Sql } from '../db';
 import { ApiError, id, rand, sha256, rateLimit, today } from '../util';
 import { loadGlobals } from '../ctx';
 import { sendEmail, templates, deliverable } from '../email';
+import { pageParams, pageOut } from '../pagination';
 
 export const routes = router();
 export const publicRoutes = router();
@@ -96,17 +97,26 @@ routes.post('/credential-shares', async (c) => {
   }, 201);
 });
 
+/** Credential shares, newest first. Filters: direction (incoming, outgoing), status. Cursor pagination (limit, cursor). */
 routes.get('/credential-shares', async (c) => {
   need(c, 'read');
   const ws = c.get('ws');
+  const page = pageParams(c, 50, 200);
+  const direction = c.req.query('direction') || null; const status = c.req.query('status') || null;
+  if (direction && direction !== 'incoming' && direction !== 'outgoing') throw new ApiError(400, 'invalid_filter', 'direction must be incoming or outgoing.');
   const rows = await c.get('admin')`select s.*, c.status as cred_status, c.expires_on::text as cred_expires_on,
       coalesce(wf.brand_name, wf.name) as from_name, coalesce(wt.brand_name, wt.name) as to_name
     from credential_shares s
     left join credentials c on c.workspace_id = s.from_workspace and c.id = s.credential_id
     join workspaces wf on wf.id = s.from_workspace join workspaces wt on wt.id = s.to_workspace
-    where s.from_workspace = ${ws} or s.to_workspace = ${ws} order by s.created_at desc limit 200`;
-  const data = rows.map((r: any) => shareView(r, ws));
-  return c.json({ incoming: data.filter((s) => s.direction === 'incoming'), outgoing: data.filter((s) => s.direction === 'outgoing') });
+    where (s.from_workspace = ${ws} or s.to_workspace = ${ws})
+      and (${direction}::text is null or (${direction} = 'incoming' and s.to_workspace = ${ws}) or (${direction} = 'outgoing' and s.from_workspace = ${ws}))
+      and (${status}::text is null or s.status = ${status})
+      and (${page.at}::timestamptz is null or (s.created_at, s.id) < (${page.at}::timestamptz, ${page.id}))
+    order by s.created_at desc, s.id desc limit ${page.limit + 1}`;
+  const out = pageOut(rows as any[], page);
+  const data = out.data.map((r: any) => shareView(r, ws));
+  return c.json({ ...out, data, incoming: data.filter((s) => s.direction === 'incoming'), outgoing: data.filter((s) => s.direction === 'outgoing') });
 });
 
 routes.post('/credential-shares/:id/revoke', async (c) => {

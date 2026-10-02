@@ -3,7 +3,7 @@
 import { z } from 'zod';
 import {
   evaluate, holderStatus, inputsHash, snapshotFor, ctxFromSnapshot, replaySnapshot, WHAT_IFS,
-  type WhatIf, type Decision, type Ctx, type Order, type Snapshot, type DocReq,
+  type WhatIf, type Decision, type Ctx, type Order, type Snapshot, type DocReq, type FundExt, type Check,
 } from '../../../src/proto/engine';
 import type { Investor, Fund } from '../../../src/proto/data';
 import { findTest } from '../../../src/proto/thresholds';
@@ -13,7 +13,7 @@ import { type C, type Actor, router, body, bg, need, audit, auditQ, actorRef } f
 import { buildCtx, loadGlobals, loadInvestors, loadFunds, packsAsOf, emit } from '../ctx';
 import { screenNames, recordHits, type Match } from '../sanctions';
 import { lawDefaults } from '../seed';
-import { docsCtx, lifecycleCtx, noticeExecutionQueries } from '../fundops-core';
+import { docsCtx, lifecycleCtx, noticeExecutionQueries, closedEndCtx } from '../fundops-core';
 import { calendarsCtx } from '../calendars';
 import { receiptPdf } from '../receipt-pdf';
 import { chainEnabled, queueSettlement, onCredentialRevoked, onCredentialIssued, onPolicyPublished } from '../chain';
@@ -21,6 +21,8 @@ import { placementCapCheck } from './compliance2';
 import { notifyRoles, APPROVER_ROLES } from '../notifications';
 import { startTravelRule, travelRuleApproved, travelRuleConfirm } from './travel';
 import { pageParams, pageOut } from '../pagination';
+import { requireApproval, registerExecutor, isPending } from '../approvals';
+import { waitlistEligible, releaseWaitlist, joinBatch, concentrationCheck, suitabilityCheck, taxCheck } from './workflow';
 
 export const routes = router();
 /** Reference data the engine reads. Public: no organization data. */
@@ -84,7 +86,7 @@ routes.get('/metrics', async (c) => {
 });
 
 // ---------- Investors ----------
-const investorIn = z.object({
+export const investorIn = z.object({
   name: z.string().trim().min(2).max(120), kind: z.string().trim().min(2).max(60), residence: z.string().min(2).max(10), city: z.string().trim().min(1).max(80),
   booking_center: z.string().min(2).max(10), us_person: z.boolean().default(false), wallet: z.string().max(80).optional(), email: z.string().trim().toLowerCase().email().max(160).optional(),
 });
@@ -169,7 +171,7 @@ routes.get('/investors/:id', async (c) => {
 });
 
 // ---------- Credentials ----------
-const credentialIn = z.object({
+export const credentialIn = z.object({
   investor_id: z.string(),
   valid_months: z.number().int().min(1).max(24).default(12),
   classifications: z.array(z.object({ class_code: z.string(), evidence: z.record(z.string(), z.union([z.number(), z.boolean()])).default({}), evidence_ref: z.string().max(200).optional() })).max(10),
@@ -221,7 +223,15 @@ export async function issueCredential(c: C, input: CredentialInput, a: Actor = c
 }
 routes.post('/credentials', async (c) => {
   const a = need(c, 'clients:write');
-  return c.json(await issueCredential(c, await body(c, credentialIn), a), 201);
+  const input = await body(c, credentialIn);
+  const [inv] = await c.get('sql')`select id, name, kind from investors where workspace_id = ${c.get('ws')} and id = ${input.investor_id}`;
+  if (!inv) throw new ApiError(404, 'not_found', `No investor ${input.investor_id} in this organization.`);
+  // Maker-checker: the organization's credential.issue policy decides whether a second person must approve first.
+  const res = await requireApproval(c, 'credential.issue', inv.id, { input, investor_kind: inv.kind, investor_name: inv.name, classes: input.classifications.map((x) => x.class_code) }, () => issueCredential(c, input, a), {
+    title: `Issue credential to ${inv.name} (${input.classifications.map((x) => x.class_code).join(', ')})`, link: `#/clients/${inv.id}`,
+  });
+  if (isPending(res)) return c.json(res, 202);
+  return c.json(res, 201);
 });
 routes.get('/credentials', async (c) => {
   need(c, 'read');
@@ -269,10 +279,12 @@ const initialDocIn = z.object({
   audience: z.enum(['all', 'retail', 'professional']).default('all'),
   required: z.boolean().optional(),
 });
-const fundIn = z.object({
+export const fundIn = z.object({
   ticker: z.string().regex(/^[A-Z]{3,6}$/), name: z.string().trim().min(3).max(140), domicile: z.string().trim().min(2).max(80), structure: z.string().trim().min(3).max(160),
   currency: z.enum(['USD', 'EUR']), nav: z.number().positive(), reg_s: z.boolean(), min_subscription: z.number().nonnegative(),
   holder_cap: z.number().int().positive().nullable().default(null), lockup_months: z.number().int().positive().nullable().default(null),
+  /** Closed-end funds take money only through capital calls against commitments (see POST /v1/funds/{ticker}/commitments). */
+  fund_type: z.enum(['open_ended', 'closed_end']).default('open_ended'),
   assets: z.array(z.string().min(2).max(20)).min(1).max(8), chains: z.array(z.string().min(2).max(40)).min(1).max(8), issuer: z.string().trim().min(2).max(120),
   distribution: z.array(z.object({ jurisdiction: z.string(), accepts: z.array(z.string()).min(1) })).min(1),
   ...termsIn,
@@ -312,9 +324,9 @@ routes.post('/funds', async (c) => {
   const usAccepts = b.reg_s ? null : b.distribution.find((d) => d.jurisdiction === 'US')?.accepts ?? null;
   await sql.transaction([
     sql`insert into funds (workspace_id, ticker, name, short_name, domicile, structure, currency, nav, reg_s, us_accepts, min_subscription, holder_cap, holders, lockup_months, assets, chains, issuer,
-        cutoff_time, cutoff_tz, dealing_frequency, notice_days, gate_pct, share_class_type, yield_bps)
+        cutoff_time, cutoff_tz, dealing_frequency, notice_days, gate_pct, share_class_type, yield_bps, fund_type)
       values (${ws}, ${b.ticker}, ${b.name}, ${b.name.split(',')[0].slice(0, 60)}, ${b.domicile}, ${b.structure}, ${b.currency}, ${b.nav}, ${b.reg_s}, ${usAccepts}, ${b.min_subscription}, ${b.holder_cap}, 0, ${b.lockup_months}, ${b.assets}, ${b.chains}, ${b.issuer},
-        ${b.cutoff_time ?? '16:00'}, ${b.cutoff_tz ?? 'America/New_York'}, ${b.dealing_frequency ?? 'daily'}, ${b.notice_days ?? 0}, ${b.gate_pct ?? null}, ${b.share_class_type ?? 'distributing'}, ${b.yield_bps ?? null})`,
+        ${b.cutoff_time ?? '16:00'}, ${b.cutoff_tz ?? 'America/New_York'}, ${b.dealing_frequency ?? 'daily'}, ${b.notice_days ?? 0}, ${b.gate_pct ?? null}, ${b.share_class_type ?? 'distributing'}, ${b.yield_bps ?? null}, ${b.fund_type})`,
     ...docRows.map((d) => sql`insert into fund_documents (workspace_id, id, ticker, doc_type, title, version, jurisdiction, audience, content, sha256, required, published_by)
       values (${ws}, ${d.id}, ${b.ticker}, ${d.doc_type}, ${d.title}, 1, ${d.jurisdiction}, ${d.audience}, ${d.content}, ${d.sha256}, ${d.required}, ${a.name})`),
     ...docRows.map((d) => auditQ(sql, ws, a, 'document.published', d.id, { ticker: b.ticker, doc_type: d.doc_type, title: d.title, version: 1, jurisdiction: d.jurisdiction, audience: d.audience, required: d.required, sha256: d.sha256, supersedes: null, at_creation: true })),
@@ -322,7 +334,7 @@ routes.post('/funds', async (c) => {
       values (${ws}, ${b.ticker}, ${j}, ${l.accepts}, ${l.basis}, ${l.lawRequires}, ${(l as any).lawRequiresAny ?? (l.lawRequires ? [l.lawRequires] : null)}, ${l.lawText}, ${l.lawRef}, ${l.lawSource})`),
     sql`insert into fund_policy_versions (workspace_id, ticker, version, distribution, min_subscription, holder_cap, lockup_months, published_by)
       values (${ws}, ${b.ticker}, 1, ${JSON.stringify(dist)}, ${b.min_subscription}, ${b.holder_cap}, ${b.lockup_months}, ${a.name})`,
-    auditQ(sql, ws, a, 'fund.created', b.ticker, { name: b.name, distribution: Object.keys(dist), chains: b.chains, documents: docRows.map((d) => d.id), terms: { cutoff_time: b.cutoff_time ?? '16:00', cutoff_tz: b.cutoff_tz ?? 'America/New_York', dealing_frequency: b.dealing_frequency ?? 'daily', notice_days: b.notice_days ?? 0, gate_pct: b.gate_pct ?? null, share_class_type: b.share_class_type ?? 'distributing', yield_bps: b.yield_bps ?? null } }),
+    auditQ(sql, ws, a, 'fund.created', b.ticker, { name: b.name, fund_type: b.fund_type, distribution: Object.keys(dist), chains: b.chains, documents: docRows.map((d) => d.id), terms: { cutoff_time: b.cutoff_time ?? '16:00', cutoff_tz: b.cutoff_tz ?? 'America/New_York', dealing_frequency: b.dealing_frequency ?? 'daily', notice_days: b.notice_days ?? 0, gate_pct: b.gate_pct ?? null, share_class_type: b.share_class_type ?? 'distributing', yield_bps: b.yield_bps ?? null } }),
   ]);
   return c.json({ ...(await loadFunds(sql, ws, b.ticker))[b.ticker], documents: docRows.map((d) => ({ id: d.id, doc_type: d.doc_type, title: d.title, version: 1, jurisdiction: d.jurisdiction, required: d.required, sha256: d.sha256 })) }, 201);
 });
@@ -346,7 +358,7 @@ routes.get('/funds/:ticker/register', async (c) => {
 });
 
 // ---------- Fund policy: preview, propose, approve ----------
-const policyIn = z.object({
+export const policyIn = z.object({
   distribution: z.array(z.object({ jurisdiction: z.string(), accepts: z.array(z.string()).min(1) })).min(1),
   min_subscription: z.number().nonnegative().optional(), holder_cap: z.number().int().positive().nullable().optional(), lockup_months: z.number().int().positive().nullable().optional(),
 });
@@ -467,17 +479,22 @@ routes.post('/policy-changes/:id/reject', async (c) => {
 export const decisionIn = z.object({
   action: z.enum(['subscribe', 'transfer', 'redeem']), investor_id: z.string().min(1), fund: z.string().min(1), amount: z.number().positive().max(1e12),
   settle_with: z.string().min(1).max(20), counterparty_id: z.string().optional(), what_ifs: z.array(z.string()).max(6).default([]), persist: z.boolean().default(true),
+  /** Closed-end funds only: the capital call this subscription pays in. Set by POST /v1/capital-calls/{id}/settle. */
+  capital_call_id: z.string().min(1).max(40).optional(),
 });
 export type DecisionInput = z.input<typeof decisionIn>;
 
 /** Builds the full engine context for live orders: register state, screening, documents, fund liquidity and the clock. */
-export async function liveCtx(c: C, ids: string[], ticker: string): Promise<{ ctx: Ctx; matches: Record<string, Match | null> }> {
+export async function liveCtx(c: C, ids: string[], ticker: string, capitalCallId: string | null = null): Promise<{ ctx: Ctx; matches: Record<string, Match | null> }> {
   const sql = c.get('sql'); const ws = c.get('ws');
-  const [ctx, docs, life] = await Promise.all([
+  const [ctx, docs, life, closed] = await Promise.all([
     buildCtx(sql, ws, ids, ticker, adminOf(c)),
     docsCtx(sql, ws, [ticker], ids),
     lifecycleCtx(sql, ws, ticker, ids),
+    closedEndCtx(sql, ws, ticker, ids[0] ?? null, capitalCallId),
   ]);
+  if (ctx.funds[ticker]) (ctx.funds[ticker] as FundExt).fundType = closed.fundType;
+  ctx.capitalCall = closed.capitalCall;
   const names = ids.map((i) => ctx.investors[i]?.name).filter((n): n is string => !!n);
   const matches = names.length ? await screenNames(sql, ws, names) : {};
   ctx.screen = (n: string) => { const m = matches[n]; return m ? { entry: m.entry, program: m.program, score: m.score, source: m.source } : null; };
@@ -541,13 +558,19 @@ const orderOf = (b: { action: Order['action']; investor_id: string; fund: string
  * Evaluates an order against current state and, unless persist is false, records the decision with its snapshot.
  * Shared by POST /v1/decisions and the investor portal. Callers check permissions first.
  */
-export async function createDecision(c: C, input: DecisionInput) {
+export type DecisionOpts = {
+  /** Set by the order.large executor and the waitlist: the approval already happened, or does not apply. */
+  bypassApproval?: boolean;
+  /** Settle now even when the dealing date is in the future (waitlist releases, one-off operator orders). */
+  bypassBatch?: boolean;
+};
+export async function createDecision(c: C, input: DecisionInput, opts: DecisionOpts = {}) {
   const b = decisionIn.parse(input);
   const sql = c.get('sql'); const ws = c.get('ws'); const a: Actor = c.get('actor');
   if (b.action === 'transfer' && !b.counterparty_id) throw new ApiError(422, 'counterparty_required', 'A transfer needs counterparty_id, the investor receiving the units.');
   if (b.counterparty_id && b.counterparty_id === b.investor_id) throw new ApiError(422, 'same_party', 'The sender and the receiver are the same investor. Pick a different counterparty.');
   const ids = [b.investor_id, ...(b.action === 'transfer' && b.counterparty_id ? [b.counterparty_id] : [])];
-  const { ctx, matches } = await liveCtx(c, ids, b.fund);
+  const { ctx, matches } = await liveCtx(c, ids, b.fund, b.capital_call_id ?? null);
   if (!ctx.investors[b.investor_id]) throw new ApiError(404, 'not_found', `No investor ${b.investor_id} in this organization.`);
   if (b.action === 'transfer' && !ctx.investors[b.counterparty_id!]) throw new ApiError(404, 'not_found', `No investor ${b.counterparty_id} in this organization.`);
   if (!ctx.funds[b.fund]) throw new ApiError(404, 'not_found', `No fund ${b.fund} in this organization.`);
@@ -567,34 +590,72 @@ export async function createDecision(c: C, input: DecisionInput) {
       }
     }
   }
+  // Checks the engine cannot make from its context alone: they read organization tables and append to the trace
+  // the same way the placement cap does. A failing one turns the outcome to DENY.
+  if (!whatIfs.length && d.outcome !== 'FREEZE') {
+    const fund = ctx.funds[b.fund];
+    const receiver = b.action === 'transfer' ? ctx.investors[b.counterparty_id!] : ctx.investors[b.investor_id];
+    const extra: Check[] = [];
+    if (b.action === 'subscribe') {
+      const s = await suitabilityCheck(sql, ws, receiver, fund, ctx.jurName);
+      if (s) extra.push(s);
+    }
+    if (b.action !== 'redeem') {
+      extra.push(await taxCheck(sql, ws, receiver, fund));
+      const con = await concentrationCheck(sql, ws, fund, receiver, b.amount, d.units);
+      if (con) extra.push(con);
+    }
+    for (const ch of extra) {
+      d.checks.push(ch);
+      if (ch.result === 'fail' && d.outcome === 'ALLOW') {
+        d.outcome = 'DENY';
+        d.headline = `${b.action === 'subscribe' ? 'Subscription' : b.action === 'transfer' ? 'Transfer' : 'Redemption'} denied. ${ch.detail}`;
+      }
+      if (ch.result === 'fail' && ch.remedy) d.remedies.push(ch.remedy);
+    }
+  }
   const hash = await inputsHash(d);
   const out = decisionOut(d, hash, whatIfs);
+  // A subscription refused only by a holder limit can wait for a slot.
+  (out as any).waitlist_eligible = !whatIfs.length && waitlistEligible(d, b.action);
 
   const hits = ids.map((i) => ctx.investors[i]).filter((inv) => matches[inv.name]).map((inv) => ({ investorId: inv.id, name: inv.name, m: matches[inv.name]! }));
   if (hits.length) bg(c, recordHits(sql, ws, hits, 'order'));
-  if (!b.persist) return { ...out, persisted: false };
+  if (!b.persist) return { ...out, persisted: false as const, pending: false as const };
 
+  const persist = async () => {
   const decId = id('dec', 12);
   const snapshot = snapshotFor(order, ctx, whatIfs);
+  // Orders dealing on a later date join that date's batch and settle together after the cut-off.
+  const batchId = !opts.bypassBatch && !whatIfs.length && b.action !== 'transfer' && d.dealingDate && d.dealingDate > ctx.today ? await joinBatch(sql, ws, ctx.funds[b.fund], d.dealingDate) : null;
   const [[row]] = await sql.transaction([
-    sql`insert into decisions (workspace_id, id, action, investor_id, counterparty_id, ticker, amount, asset, outcome, headline, checks, resolved, remedies, rule_packs, what_ifs, units, inputs_sha256, snapshot, dealing_date, actor)
+    sql`insert into decisions (workspace_id, id, action, investor_id, counterparty_id, ticker, amount, asset, outcome, headline, checks, resolved, remedies, rule_packs, what_ifs, units, inputs_sha256, snapshot, dealing_date, actor, capital_call_id, batch_id)
       values (${ws}, ${decId}, ${b.action}, ${b.investor_id}, ${order.counterpartyId ?? null}, ${b.fund}, ${b.amount}, ${d.order.asset}, ${d.outcome}, ${d.headline}, ${JSON.stringify(d.checks)}, ${JSON.stringify(d.resolved)},
-        ${JSON.stringify(out.remedies)}, ${d.rulePacks}, ${whatIfs}, ${d.units}, ${hash}, ${JSON.stringify(snapshot)}, ${d.dealingDate ?? null}, ${actorRef(a)})
+        ${JSON.stringify(out.remedies)}, ${d.rulePacks}, ${whatIfs}, ${d.units}, ${hash}, ${JSON.stringify(snapshot)}, ${d.dealingDate ?? null}, ${actorRef(a)}, ${b.capital_call_id ?? null}, ${batchId})
       returning id, action, investor_id, counterparty_id, ticker, amount::float8 as amount, asset, outcome, headline, resolved, rule_packs, what_ifs, units::float8 as units, inputs_sha256, dealing_date::text, created_at`,
-    auditQ(sql, ws, a, 'decision.created', decId, { outcome: d.outcome, action: b.action, fund: b.fund, investor: b.investor_id, counterparty: order.counterpartyId ?? null, amount: b.amount, inputs_sha256: hash, hypothetical: whatIfs.length > 0 }),
+    auditQ(sql, ws, a, 'decision.created', decId, { outcome: d.outcome, action: b.action, fund: b.fund, investor: b.investor_id, counterparty: order.counterpartyId ?? null, amount: b.amount, inputs_sha256: hash, hypothetical: whatIfs.length > 0, batch: batchId }),
   ]);
   out.id = decId;
-  if (d.outcome === 'ALLOW' && !whatIfs.length) out.settle_by = new Date(new Date(row.created_at).getTime() + SETTLE_WINDOW_MS).toISOString();
-  bg(c, emit(sql, ws, 'decision.created', { id: decId, outcome: d.outcome, headline: d.headline, action: b.action, fund: b.fund }));
+  if (d.outcome === 'ALLOW' && !whatIfs.length && !batchId) out.settle_by = new Date(new Date(row.created_at).getTime() + SETTLE_WINDOW_MS).toISOString();
+  bg(c, emit(sql, ws, 'decision.created', { id: decId, outcome: d.outcome, headline: d.headline, action: b.action, fund: b.fund, batch: batchId }));
   if (d.outcome === 'ALLOW' && b.action === 'transfer' && !whatIfs.length) bg(c, startTravelRule(c, row));
   const { receipt, signature } = await signed(c, row);
-  return { ...out, persisted: true, receipt, signature, created_at: row.created_at };
+  return { ...out, persisted: true as const, pending: false as const, receipt, signature, created_at: row.created_at, batch_id: batchId, in_batch: !!batchId,
+    ...(batchId ? { batch_note: `Deals on ${d.dealingDate}. The order settles with its batch after the cut-off; an operator can still settle it alone with force: true.` } : {}) };
+  };
+  // Large orders need a second person before they are recorded and settled. The approval executor re-enters with bypassApproval.
+  if (opts.bypassApproval || whatIfs.length || d.outcome !== 'ALLOW') return persist();
+  const res = await requireApproval(c, 'order.large', b.fund, { input: { ...b, what_ifs: [] }, amount: b.amount, currency: ctx.funds[b.fund].currency, investor_name: ctx.investors[b.investor_id].name, preview_outcome: d.outcome, headline: d.headline }, persist, {
+    title: `${b.action[0].toUpperCase()}${b.action.slice(1)} ${ctx.funds[b.fund].currency} ${b.amount.toLocaleString('en-US')} of ${b.fund} for ${ctx.investors[b.investor_id].short}`, link: '#/approvals',
+  });
+  if (isPending(res)) return { ...out, persisted: false as const, ...res, preview: { outcome: d.outcome, headline: d.headline } };
+  return res;
 }
 
 routes.post('/decisions', async (c) => {
   need(c, 'orders:write');
   const res = await createDecision(c, await body(c, decisionIn));
-  return c.json(res, res.persisted ? 201 : 200);
+  return c.json(res, res.pending ? 202 : res.persisted ? 201 : 200);
 });
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** Decisions, newest first, with cursor pagination. Filters: outcome (ALLOW, DENY, FREEZE), fund, investor_id, action, from and to (YYYY-MM-DD, inclusive). */
@@ -676,7 +737,7 @@ routes.get('/decisions/:id/replay', async (c) => {
   const ids = [snap.order.investorId, ...(snap.order.counterpartyId ? [snap.order.counterpartyId] : [])];
   let live: Decision | null = null; let liveNote: string;
   try {
-    const { ctx } = await liveCtx(c, ids, snap.order.fundId);
+    const { ctx } = await liveCtx(c, ids, snap.order.fundId, snap.capitalCall?.id ?? null);
     if (ids.every((i) => ctx.investors[i]) && ctx.funds[snap.order.fundId]) { live = evaluate(snap.order, snap.whatIfs ?? [], ctx); liveNote = 'Evaluated again against the register, credentials, policy, rule packs, documents and screening lists as they are now.'; }
     else liveNote = 'The investor, counterparty or fund on this decision no longer exists, so there is no live evaluation to compare.';
   } catch (e: any) { liveNote = `Live evaluation unavailable: ${e?.message ?? 'error'}.`; }
@@ -700,7 +761,7 @@ routes.get('/decisions/:id/replay', async (c) => {
   });
 });
 
-const asOfIn = decisionIn.omit({ what_ifs: true, persist: true }).extend({ as_of: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD') });
+export const asOfIn = decisionIn.omit({ what_ifs: true, persist: true, capital_call_id: true }).extend({ as_of: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD') });
 routes.post('/evaluate/as-of', async (c) => {
   need(c, 'read');
   const sql = c.get('sql'); const ws = c.get('ws');
@@ -869,11 +930,16 @@ async function simulatedLegQueries(sql: Sql, ws: string, ctx: Ctx, dec: any, u: 
  * configured (and API version 2026-10-02), queues the chain job and returns 202 pending; otherwise runs the
  * simulated atomic settlement in one database transaction and returns 201.
  */
-export async function executeSettlement(c: C, dec: any): Promise<{ httpStatus: 201 | 202; settlement: Record<string, unknown> }> {
+export type SettleOpts = {
+  /** Batch settlement: the decision was taken days before its dealing date, so the 15-minute window does not apply. */
+  ignoreWindow?: boolean;
+  fromBatch?: boolean;
+};
+export async function executeSettlement(c: C, dec: any, opts: SettleOpts = {}): Promise<{ httpStatus: 201 | 202; settlement: Record<string, unknown> }> {
   const sql = c.get('sql'); const ws = c.get('ws'); const a: Actor = c.get('actor');
   if (dec.outcome !== 'ALLOW') throw new ApiError(409, 'not_allowed', 'Only allowed decisions can settle. Fix the refusal and request a new decision.');
   if ((dec.what_ifs as string[] | null)?.length) throw new ApiError(409, 'hypothetical', 'This decision used what-if scenarios, so it is hypothetical and cannot settle. Request a decision without what_ifs.');
-  if (Date.now() - new Date(dec.created_at).getTime() > SETTLE_WINDOW_MS) throw new ApiError(409, 'expired', 'Settlement instructions expire 15 minutes after the decision. Request a new decision.');
+  if (!opts.ignoreWindow && Date.now() - new Date(dec.created_at).getTime() > SETTLE_WINDOW_MS) throw new ApiError(409, 'expired', 'Settlement instructions expire 15 minutes after the decision. Request a new decision.');
   const done = await sql`select id, status from settlements where workspace_id = ${ws} and decision_id = ${dec.id}`;
   if (done.length) {
     if (done[0].status === 'reverted') throw new ApiError(409, 'reverted', `The settlement of this decision (${done[0].id}) reverted. Retry it from the settlement page, or request a new decision and settle that one.`);
@@ -883,7 +949,7 @@ export async function executeSettlement(c: C, dec: any): Promise<{ httpStatus: 2
   const amount = Number(dec.amount);
   // Re-check against current state: something may have changed since the decision.
   const ids = [dec.investor_id, ...(dec.counterparty_id ? [dec.counterparty_id] : [])];
-  const { ctx } = await liveCtx(c, ids, dec.ticker);
+  const { ctx } = await liveCtx(c, ids, dec.ticker, dec.capital_call_id ?? null);
   if (!ctx.investors[dec.investor_id] || !ctx.funds[dec.ticker] || (dec.counterparty_id && !ctx.investors[dec.counterparty_id])) throw new ApiError(409, 'state_changed', 'The investor, counterparty or fund on this decision no longer exists.');
   const d = evaluate({ action: dec.action, investorId: dec.investor_id, fundId: dec.ticker, amount, asset: dec.asset, counterpartyId: dec.counterparty_id ?? undefined }, [], ctx);
   const recheck = { outcome: d.outcome, inputs_sha256: await inputsHash(d), checked_at: new Date().toISOString() };
@@ -922,10 +988,11 @@ export async function executeSettlement(c: C, dec: any): Promise<{ httpStatus: 2
   }
 
   // Simulated atomic settlement: both legs move in one database transaction, or neither does.
+  const fullRedemption = dec.action === 'redeem' && (ctx.investors[dec.investor_id].holdings[t]?.units ?? 0) - u <= 0.0001;
   const q = await simulatedLegQueries(sql, ws, ctx, dec, u, t);
   const steps = stepsFor(dec.action);
-  q.push(sql`insert into settlements (workspace_id, id, decision_id, status, steps) values (${ws}, ${stlId}, ${dec.id}, 'settled', ${JSON.stringify({ simulated: true, chain: 'Ethereum', recheck, steps })})`);
-  q.push(auditQ(sql, ws, a, 'settlement.completed', stlId, { decision: dec.id, action: dec.action, units: u, fund: t, simulated: true }));
+  q.push(sql`insert into settlements (workspace_id, id, decision_id, status, steps) values (${ws}, ${stlId}, ${dec.id}, 'settled', ${JSON.stringify({ simulated: true, chain: 'Ethereum', recheck, steps, ...(opts.fromBatch ? { batch: dec.batch_id ?? null } : {}) })})`);
+  q.push(auditQ(sql, ws, a, 'settlement.completed', stlId, { decision: dec.id, action: dec.action, units: u, fund: t, simulated: true, batch: dec.batch_id ?? null }));
   try { await sql.transaction(q); }
   catch (e: any) {
     if (e?.code === '23505') throw new ApiError(409, 'already_settled', 'This decision settled a moment ago. Check GET /v1/settlements.');
@@ -938,16 +1005,20 @@ export async function executeSettlement(c: C, dec: any): Promise<{ httpStatus: 2
   }
   bg(c, emit(sql, ws, 'settlement.completed', { id: stlId, decision: dec.id, units: u, fund: t }));
   if (dec.action === 'transfer') bg(c, travelRuleConfirm(c, dec.id, stlId));
+  // A holder leaving frees a slot under the holder cap: the oldest waiting order is re-evaluated.
+  if (fullRedemption) bg(c, releaseWaitlist(c, t));
   return { httpStatus: 201, settlement: { id: stlId, decision_id: dec.id, status: 'settled', units: u, fund: t, steps, simulated: true, chain: null } };
 }
 
 routes.post('/settlements', async (c) => {
   need(c, 'orders:write');
-  const { decision_id } = await body(c, z.object({ decision_id: z.string().min(1) }));
-  const [dec] = await c.get('sql')`select id, action, investor_id, counterparty_id, ticker, amount::float8 as amount, asset, outcome, what_ifs, units::float8 as units, inputs_sha256, created_at
-    from decisions where workspace_id = ${c.get('ws')} and id = ${decision_id}`;
+  const { decision_id, force } = await body(c, z.object({ decision_id: z.string().min(1), force: z.boolean().default(false) }));
+  const [dec] = await c.get('sql')`select d.id, d.action, d.investor_id, d.counterparty_id, d.ticker, d.amount::float8 as amount, d.asset, d.outcome, d.what_ifs, d.units::float8 as units, d.inputs_sha256, d.created_at, d.capital_call_id, d.batch_id, ob.status as batch_status, ob.dealing_date::text as batch_dealing_date
+    from decisions d left join order_batches ob on ob.workspace_id = d.workspace_id and ob.id = d.batch_id where d.workspace_id = ${c.get('ws')} and d.id = ${decision_id}`;
   if (!dec) throw new ApiError(404, 'not_found', `No decision ${decision_id} in this organization.`);
-  const r = await executeSettlement(c, dec);
+  // A decision in an open batch settles with the batch after the cut-off, unless an operator forces it alone.
+  if (dec.batch_id && dec.batch_status === 'open' && !force) throw new ApiError(409, 'in_batch', `This decision deals on ${dec.batch_dealing_date} in batch ${dec.batch_id}, which is still open. Close and settle the batch, or send force: true to settle this order alone.`, { batch_id: dec.batch_id, dealing_date: dec.batch_dealing_date });
+  const r = await executeSettlement(c, dec, dec.batch_id ? { ignoreWindow: true } : {});
   return c.json(r.settlement, r.httpStatus);
 });
 const SETTLEMENT_STATES = ['pending', 'settled', 'reverted', 'cancelled'];
@@ -975,7 +1046,7 @@ function settlementActions(r: { status: string; job_status?: string | null; job_
   return { retryable, cancellable };
 }
 async function loadSettlement(c: C, stlId: string) {
-  const [row] = await c.get('sql')`select s.*, d.action, d.ticker, d.amount::float8 as amount, d.asset, d.units::float8 as units, d.investor_id, d.counterparty_id, d.outcome, d.what_ifs, d.inputs_sha256, d.created_at as decision_created_at,
+  const [row] = await c.get('sql')`select s.*, d.action, d.ticker, d.amount::float8 as amount, d.asset, d.units::float8 as units, d.investor_id, d.counterparty_id, d.outcome, d.what_ifs, d.inputs_sha256, d.created_at as decision_created_at, d.capital_call_id,
       j.id as job_id, j.status as job_status, j.attempts as job_attempts, j.error as job_error, j.tx_hashes as job_tx_hashes, j.updated_at as job_updated_at
     from settlements s join decisions d on d.workspace_id = s.workspace_id and d.id = s.decision_id
     left join lateral (select id, status, attempts, error, tx_hashes, updated_at from chain_jobs where kind = 'settle' and ref = s.id order by created_at desc limit 1) j on true
@@ -1000,9 +1071,9 @@ export async function retrySettlement(c: C, stlId: string): Promise<Record<strin
   const { retryable } = settlementActions(row);
   if (!retryable) throw new ApiError(409, 'not_retryable', row.status === 'settled' ? 'This settlement already settled.' : row.status === 'cancelled' ? 'This settlement was cancelled. Request a new decision.' : 'This settlement is still in progress. Wait for its chain job to finish.');
   if (row.outcome !== 'ALLOW' || (row.what_ifs as string[] | null)?.length) throw new ApiError(409, 'not_allowed', 'The decision behind this settlement is not an allowed, non-hypothetical decision.');
-  const dec = { id: row.decision_id, action: row.action, investor_id: row.investor_id, counterparty_id: row.counterparty_id, ticker: row.ticker, amount: Number(row.amount), asset: row.asset, outcome: row.outcome, what_ifs: row.what_ifs, units: row.units, created_at: row.decision_created_at };
+  const dec = { id: row.decision_id, action: row.action, investor_id: row.investor_id, counterparty_id: row.counterparty_id, ticker: row.ticker, amount: Number(row.amount), asset: row.asset, outcome: row.outcome, what_ifs: row.what_ifs, units: row.units, created_at: row.decision_created_at, capital_call_id: row.capital_call_id ?? null };
   const ids = [dec.investor_id, ...(dec.counterparty_id ? [dec.counterparty_id] : [])];
-  const { ctx } = await liveCtx(c, ids, dec.ticker);
+  const { ctx } = await liveCtx(c, ids, dec.ticker, dec.capital_call_id ?? null);
   if (!ctx.investors[dec.investor_id] || !ctx.funds[dec.ticker] || (dec.counterparty_id && !ctx.investors[dec.counterparty_id])) throw new ApiError(409, 'state_changed', 'The investor, counterparty or fund on this decision no longer exists.');
   const d = evaluate({ action: dec.action, investorId: dec.investor_id, fundId: dec.ticker, amount: dec.amount, asset: dec.asset, counterpartyId: dec.counterparty_id ?? undefined }, [], ctx);
   const recheck = { outcome: d.outcome, inputs_sha256: await inputsHash(d), checked_at: new Date().toISOString(), retry: true };
@@ -1032,6 +1103,7 @@ export async function retrySettlement(c: C, stlId: string): Promise<Record<strin
     bg(c, emit(sql, ws, 'settlement.pending', { id: stlId, decision: dec.id, units: u, fund: t, job_id: job.job_id, retry: true }));
     return settlementOut(await loadSettlement(c, stlId));
   }
+  const fullRedemption = dec.action === 'redeem' && (ctx.investors[dec.investor_id].holdings[t]?.units ?? 0) - u <= 0.0001;
   const q = await simulatedLegQueries(sql, ws, ctx, dec, u, t);
   const steps = stepsFor(dec.action);
   q.push(sql`update settlements set status = 'settled', chain = null,
@@ -1042,6 +1114,7 @@ export async function retrySettlement(c: C, stlId: string): Promise<Record<strin
   await sql.transaction(q);
   bg(c, emit(sql, ws, 'settlement.completed', { id: stlId, decision: dec.id, units: u, fund: t, retry: true }));
   if (dec.action === 'transfer') bg(c, travelRuleConfirm(c, dec.id, stlId));
+  if (fullRedemption) bg(c, releaseWaitlist(c, t));
   return settlementOut(await loadSettlement(c, stlId));
 }
 
@@ -1109,4 +1182,24 @@ routes.post('/eligibility/bulk', async (c) => {
   }));
   await audit(sql, ws, a, 'eligibility.bulk_checked', null, { rows: b.rows.length, funds: tickers, potential_matches: Object.values(matches).filter(Boolean).length });
   return c.json({ funds: tickers, data, note: 'Bulk results assume each declared classification is verified today. Required fund documents are not checked here.' });
+});
+
+// ---------- Approval executors for the actions this file owns ----------
+// credential.issue: the stored CredentialInput is issued under the approver's name; the request keeps the requester.
+registerExecutor('credential.issue', async (c, r) => issueCredential(c, r.payload.input as CredentialInput, c.get('actor')));
+// order.large: the stored order is decided (the approval already happened, so no second gate) and, when allowed and
+// not batched, settled at once by the approver.
+registerExecutor('order.large', async (c, r) => {
+  const d = await createDecision(c, r.payload.input as DecisionInput, { bypassApproval: true });
+  if (!d.persisted) return { decision: d };
+  const head = { id: d.id, outcome: d.outcome, headline: d.headline };
+  if (d.outcome !== 'ALLOW') return { decision: head, settlement: null, note: 'The order no longer passes, so nothing settled.' };
+  if (d.in_batch) return { decision: { ...head, batch_id: d.batch_id }, settlement: null, note: 'The order joined its dealing-date batch and settles with it.' };
+  const [dec] = await c.get('sql')`select id, action, investor_id, counterparty_id, ticker, amount::float8 as amount, asset, outcome, what_ifs, units::float8 as units, inputs_sha256, created_at, capital_call_id, batch_id from decisions where workspace_id = ${c.get('ws')} and id = ${d.id}`;
+  try {
+    const s = await executeSettlement(c, dec);
+    return { decision: head, settlement: s.settlement };
+  } catch (e: any) {
+    return { decision: head, settlement: null, settlement_error: e instanceof ApiError ? `${e.code}: ${e.message}` : String(e?.message ?? e), note: 'The decision is recorded; settle it from the decision page within 15 minutes.' };
+  }
 });

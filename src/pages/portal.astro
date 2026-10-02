@@ -19,6 +19,18 @@ import { url } from '../lib/url';
   <style is:global>
     html, body { margin: 0; background: #f7f5f0; }
   </style>
+  <script is:inline>
+    // White label: paint the distributor's brand color and name before the app hydrates, from the brand the
+    // portal cached on its last load in this tab (GET /v1/brand/portal). First visits get the defaults until the app loads.
+    try {
+      var b = JSON.parse(sessionStorage.getItem('laissez-portal-brand') || 'null');
+      if (b && /^#[0-9a-fA-F]{6}$/.test(b.brand_color || '')) {
+        document.documentElement.style.setProperty('--brand', b.brand_color);
+        var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', b.brand_color);
+        if (b.name) document.title = b.name + ': investor portal';
+      }
+    } catch (e) { /* storage blocked or empty */ }
+  </script>
 </head>
 <body>
   <Portal client:only="preact" />

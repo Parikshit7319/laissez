@@ -3,6 +3,7 @@ import { useState } from 'preact/hooks';
 import { api, API_BASE, API_VERSION, getKey, getSession, keyWorkspace, uuid, track, when } from '../api';
 import { useApi, Head, Btn, Chip, ErrorBox, Empty, Field, Card, Json, Copy, Reveal, ConfirmBtn } from '../ui';
 import { useMe, PermBtn, PermNote } from '../auth';
+import { usePaged, LoadMore } from '../paged';
 
 const EVENTS = ['decision.created', 'settlement.completed', 'settlement.reverted', 'credential.issued', 'holder.status_changed', 'policy.published', 'ping', '*'];
 const PRESETS: { label: string; method: string; path: string; body?: unknown }[] = [
@@ -102,7 +103,7 @@ export function Explorer() {
 export function Webhooks() {
   const { can } = useMe();
   const hooks = useApi('/v1/webhooks');
-  const del = useApi('/v1/webhook-deliveries');
+  const del = usePaged('/v1/webhook-deliveries?limit=50');
   const [url, setUrl] = useState('');
   const [events, setEvents] = useState<string[]>(['decision.created', 'settlement.completed']);
   const [created, setCreated] = useState<any>(null);
@@ -127,7 +128,7 @@ export function Webhooks() {
         {hooks.data?.data?.length ? <div class="tw"><table class="t"><thead><tr><th>URL</th><th>Events</th><th /></tr></thead><tbody>{hooks.data.data.map((h: any) => <tr><td class="mono small">{h.url}</td><td class="small">{h.events.join(', ')}</td><td><div class="row-inline tight acts"><PermBtn perm="developer" kind="ghost" onClick={() => test(h.id)}>Send test event</PermBtn>{can('developer') ? <ConfirmBtn confirm="Delete endpoint" onConfirm={() => remove(h.id)}>Delete</ConfirmBtn> : null}</div></td></tr>)}</tbody></table></div> : <Empty title="No endpoints yet" />}
       </Card>
       <Card title="Recent deliveries" actions={<Btn kind="ghost" onClick={del.reload}>Refresh</Btn>} pad={false}>
-        {del.data?.data?.length ? <div class="tw"><table class="t"><thead><tr><th>When</th><th>Event</th><th>Status</th><th>Attempts</th><th>Time</th></tr></thead><tbody>{del.data.data.map((d: any) => <tr><td class="muted">{when(d.created_at)}</td><td><code>{d.event}</code></td><td>{d.status >= 200 && d.status < 300 ? <Chip tone="ok">{d.status}</Chip> : <Chip tone="no">{d.status || 'No response'}</Chip>}</td><td>{d.attempts}</td><td>{d.response_ms} ms</td></tr>)}</tbody></table></div> : <Empty title="No deliveries yet" />}
+        {del.rows.length ? <><div class="tw"><table class="t"><thead><tr><th>When</th><th>Event</th><th>Status</th><th>Attempts</th><th>Time</th></tr></thead><tbody>{del.rows.map((d: any) => <tr><td class="muted">{when(d.created_at)}</td><td><code>{d.event}</code></td><td>{d.status >= 200 && d.status < 300 ? <Chip tone="ok">{d.status}</Chip> : <Chip tone="no">{d.status || 'No response'}</Chip>}</td><td>{d.attempts}</td><td>{d.response_ms} ms</td></tr>)}</tbody></table></div><LoadMore p={del} what="deliveries" /></> : del.error ? <ErrorBox error={del.error} onRetry={del.reload} /> : <Empty title="No deliveries yet" />}
       </Card>
     </>
   );

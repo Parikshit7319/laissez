@@ -115,7 +115,7 @@ routes.put('/sso/groups', async (c) => {
   const b = await body(c, groupsZ);
   const admin = c.get('admin'); const ws = c.get('ws');
   const [w] = await admin`select sso from workspaces where id = ${ws}`;
-  if (!w.sso) throw new ApiError(409, 'sso_not_configured', 'Connect an identity provider first. Group mapping applies to people who sign in through it.');
+  if (!w.sso) throw new ApiError(409, 'sso_required', 'Connect an identity provider first. Group mapping applies to people who sign in through it.');
   const seen = new Set<string>();
   for (const g of b.group_roles) { const k = g.group.toLowerCase(); if (seen.has(k)) throw new ApiError(422, 'duplicate_group', `${g.group} is listed twice. Each group maps to one role.`); seen.add(k); }
   await admin`update workspaces set sso = ${JSON.stringify({ ...w.sso, group_claim: b.group_claim, group_roles: b.group_roles })} where id = ${ws}`;

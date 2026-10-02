@@ -2,7 +2,7 @@
 // redemption notices and fund documents. Shared by the API routes, the seed and the daily job.
 // Nothing here touches Hono, so the Node job can import it directly.
 import type { Sql } from './db';
-import type { DocReq, Notice } from '../../src/proto/engine';
+import type { DocReq, Notice, CapitalCallCtx } from '../../src/proto/engine';
 import { dealingDateFor, fundClock, type Holidays } from '../../src/proto/engine';
 import { holidaysFor } from './calendars';
 import type { Investor, Fund } from '../../src/proto/data';
@@ -393,6 +393,24 @@ export function docApplies(inv: Investor, fund: Fund, d: DocLike, asOf: string =
   const retailOnly = !!dist?.accepts.includes('EU_RETAIL') && !proForFund;
   const professional = !retailOnly && inv.classifications.some((c) => c.code !== 'EU_RETAIL' && c.expires >= asOf);
   return d.audience === 'retail' ? retailOnly : d.audience === 'professional' ? professional : false;
+}
+
+// ---------- Closed-end funds ----------
+export type FundType = 'open_ended' | 'closed_end';
+/**
+ * Fund type and, when an order answers a capital call, the call context the engine reads. Open-ended funds
+ * return no call. The call's amount is the notice amount for the investor, so the engine can insist on it.
+ */
+export async function closedEndCtx(sql: Sql, ws: string, ticker: string, investorId: string | null, capitalCallId: string | null | undefined): Promise<{ fundType: FundType; capitalCall: CapitalCallCtx | null }> {
+  const [f] = await sql`select fund_type from funds where workspace_id = ${ws} and ticker = ${ticker}`;
+  const fundType: FundType = f?.fund_type === 'closed_end' ? 'closed_end' : 'open_ended';
+  if (!capitalCallId) return { fundType, capitalCall: null };
+  const [call] = await sql`select id, ticker, call_number, due_on::text as due_on, status from capital_calls where workspace_id = ${ws} and id = ${capitalCallId}`;
+  if (!call) throw new ApiError(404, 'not_found', `No capital call ${capitalCallId} in this organization.`);
+  const [n] = investorId
+    ? await sql`select amount::float8 as amount, status from call_notices where workspace_id = ${ws} and capital_call_id = ${capitalCallId} and investor_id = ${investorId}`
+    : [null];
+  return { fundType, capitalCall: { id: call.id, ticker: call.ticker, callNumber: Number(call.call_number), dueOn: call.due_on, status: call.status, amount: n ? Number(n.amount) : null } };
 }
 
 export const DOC_TYPES: Record<string, string> = {

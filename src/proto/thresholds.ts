@@ -368,6 +368,198 @@ export const TESTS: Test[] = [
       return { pass: false, reason: 'Needs 2 of 3 (US$20M balance sheet, US$40M turnover, US$2M own funds), or own funds of at least US$1M plus sufficient experience (FSRA COBS 2.4.2, 2.4.4).' };
     },
   },
+
+  // ---------- Australia (Corporations Act 2001 s761G, s9; Corporations Regulations 7.1.18, 7.1.28) ----------
+  // Wholesale client: product value of at least A$500,000 (reg 7.1.18); a business that is not a small business;
+  // an accountant's certificate given within the preceding 2 years showing net assets of at least A$2.5M or gross
+  // income of at least A$250,000 in each of the last 2 financial years (reg 7.1.28); or a professional investor.
+  ...(['individual', 'entity'] as const).map((subject): Test => ({
+    code: 'AU_WHOLESALE', subject,
+    fields: [
+      { key: 'product_value', label: 'Value of this investment (price of the product)', kind: 'money', unit: 'A$' },
+      { key: 'accountant_certificate', label: 'Qualified accountant\'s certificate given within the last 2 years', kind: 'bool' },
+      { key: 'net_assets', label: 'Net assets on the certificate', kind: 'money', unit: 'A$' },
+      { key: 'gross_income', label: 'Gross income in each of the last 2 financial years, on the certificate', kind: 'money', unit: 'A$' },
+      ...(subject === 'entity' ? [
+        { key: 'large_business', label: 'Acquired for a business that is not a small business (20 or more employees, 100 if manufacturing)', kind: 'bool' as const },
+        { key: 'controlled_by_wholesale', label: 'Company or trust controlled by a person who is a wholesale client', kind: 'bool' as const },
+      ] : []),
+    ],
+    check: (e) => {
+      if (n(e.product_value) >= 500_000) return { pass: true, reason: `Product value of ${fmt(n(e.product_value), 'A$')} is at least A$500,000 (s761G(7)(a); reg 7.1.18).` };
+      if (subject === 'entity' && e.large_business) return { pass: true, reason: 'Acquired for use in connection with a business that is not a small business (s761G(7)(b)).' };
+      if (subject === 'entity' && e.controlled_by_wholesale) return { pass: true, reason: 'Controlled by a wholesale client (s761G(7)(ca)).' };
+      const assets = n(e.net_assets) >= 2_500_000; const income = n(e.gross_income) >= 250_000;
+      if (assets || income) {
+        if (!e.accountant_certificate) return { pass: false, reason: `Meets the ${assets ? 'A$2.5M net assets' : 'A$250,000 gross income'} figure, but the net assets and gross income tests need a qualified accountant's certificate given within the preceding 2 years (s761G(7)(c)).` };
+        return { pass: true, reason: assets ? `Accountant's certificate: net assets of ${fmt(n(e.net_assets), 'A$')}, at least A$2.5M (s761G(7)(c)(i); reg 7.1.28).` : `Accountant's certificate: gross income of ${fmt(n(e.gross_income), 'A$')} in each of the last 2 financial years, at least A$250,000 (s761G(7)(c)(ii); reg 7.1.28).` };
+      }
+      return { pass: false, reason: 'None of the wholesale client tests is met: product value of at least A$500,000; a certified net assets figure of at least A$2.5M or gross income of at least A$250,000 for each of the last 2 financial years; a business that is not a small business; or control by a wholesale client (s761G(7)).' };
+    },
+  })),
+  ...(['individual', 'entity'] as const).map((subject): Test => ({
+    code: 'AU_PRO', subject,
+    fields: [
+      ...(subject === 'entity' ? [{ key: 'regulated_entity', label: 'AFS licensee, APRA-regulated body, trustee of a superannuation fund with net assets of at least A$10M, or listed entity', kind: 'bool' as const }] : []),
+      { key: 'gross_assets', label: 'Gross assets held or controlled, including assets of associates or a managed trust', kind: 'money', unit: 'A$' },
+    ],
+    check: (e) => {
+      if (subject === 'entity' && e.regulated_entity) return { pass: true, reason: 'Professional investor by status: AFS licensee, APRA-regulated body, large superannuation trustee or listed entity (Corporations Act s9).' };
+      return n(e.gross_assets) >= 10_000_000
+        ? { pass: true, reason: `Has or controls gross assets of ${fmt(n(e.gross_assets), 'A$')}, at least A$10M (Corporations Act s9, professional investor para (e)).` }
+        : { pass: false, reason: `Gross assets of ${fmt(n(e.gross_assets), 'A$')} are below the A$10M professional investor test (Corporations Act s9).` };
+    },
+  })),
+
+  // ---------- Canada (NI 45-106 s1.1 accredited investor; NI 31-103 s1.1 permitted client; NI 45-106 s2.10 minimum amount) ----------
+  {
+    code: 'CA_AI', subject: 'individual',
+    fields: [
+      { key: 'financial_assets', label: 'Net financial assets, alone or with a spouse (cash, securities, deposits, insurance), before taxes net of liabilities', kind: 'money', unit: 'C$' },
+      { key: 'net_income', label: 'Net income before taxes in each of the two most recent calendar years', kind: 'money', unit: 'C$' },
+      { key: 'joint', label: 'Income counted together with a spouse', kind: 'bool' },
+      { key: 'net_assets', label: 'Net assets, alone or with a spouse', kind: 'money', unit: 'C$' },
+      { key: 'risk_acknowledgement', label: 'Form 45-106F9 risk acknowledgement signed (paragraphs (j), (k) and (l))', kind: 'bool' },
+    ],
+    check: (e) => {
+      if (n(e.financial_assets) > 5_000_000) return { pass: true, reason: `Net financial assets of ${fmt(n(e.financial_assets), 'C$')} exceed C$5,000,000 (NI 45-106 s1.1(j.1)); no risk acknowledgement form needed.` };
+      const bar = e.joint ? 300_000 : 200_000;
+      const routes = [
+        n(e.financial_assets) > 1_000_000 && `net financial assets of ${fmt(n(e.financial_assets), 'C$')}, over C$1,000,000 (s1.1(j))`,
+        n(e.net_income) > bar && `net income of ${fmt(n(e.net_income), 'C$')}, over ${fmt(bar, 'C$')} ${e.joint ? 'with a spouse' : 'alone'} in each of the last two years (s1.1(k))`,
+        n(e.net_assets) >= 5_000_000 && `net assets of ${fmt(n(e.net_assets), 'C$')}, at least C$5,000,000 (s1.1(l))`,
+      ].filter(Boolean);
+      if (!routes.length) return { pass: false, reason: `None of the individual tests is met: net financial assets over C$1,000,000; net income over C$200,000 (C$300,000 with a spouse) in each of the two most recent calendar years; or net assets of at least C$5,000,000 (NI 45-106 s1.1).` };
+      if (!e.risk_acknowledgement) return { pass: false, reason: `Qualifies on ${routes[0]}, but an individual under paragraphs (j), (k) or (l) must sign Form 45-106F9 before the trade (NI 45-106 s2.3(6)).` };
+      return { pass: true, reason: `Accredited investor on ${routes.join(' and ')}; Form 45-106F9 signed.` };
+    },
+  },
+  {
+    code: 'CA_AI', subject: 'entity',
+    fields: [
+      { key: 'regulated_entity', label: 'Canadian financial institution, registered dealer or adviser, pension fund, government or other entity listed in paragraphs (a) to (i)', kind: 'bool' },
+      { key: 'net_assets', label: 'Net assets on the most recent financial statements', kind: 'money', unit: 'C$' },
+      { key: 'all_owners_ai', label: 'Every owner of interests, direct or indirect, is an accredited investor', kind: 'bool' },
+    ],
+    check: (e) => {
+      if (e.regulated_entity) return { pass: true, reason: 'Accredited investor by status (NI 45-106 s1.1(a) to (i)).' };
+      if (e.all_owners_ai) return { pass: true, reason: 'Entity owned entirely by accredited investors (NI 45-106 s1.1(t)).' };
+      return n(e.net_assets) >= 5_000_000
+        ? { pass: true, reason: `Net assets of ${fmt(n(e.net_assets), 'C$')}, at least C$5,000,000 on the most recent financial statements (NI 45-106 s1.1(m)).` }
+        : { pass: false, reason: `Net assets of ${fmt(n(e.net_assets), 'C$')} are below the C$5,000,000 test for a person other than an individual (NI 45-106 s1.1(m)).` };
+    },
+  },
+  {
+    code: 'CA_PC', subject: 'individual',
+    fields: [{ key: 'financial_assets', label: 'Financial assets beneficially owned, aggregate realizable value before taxes net of liabilities', kind: 'money', unit: 'C$' }],
+    check: (e) => n(e.financial_assets) > 5_000_000
+      ? { pass: true, reason: `Financial assets of ${fmt(n(e.financial_assets), 'C$')} exceed C$5 million (NI 31-103 s1.1 permitted client (n)).` }
+      : { pass: false, reason: `Financial assets of ${fmt(n(e.financial_assets), 'C$')} do not exceed C$5 million (NI 31-103 s1.1 permitted client (n)).` },
+  },
+  {
+    code: 'CA_PC', subject: 'entity',
+    fields: [
+      { key: 'regulated_entity', label: 'Canadian financial institution, registered dealer or adviser, pension fund, government or other listed institution', kind: 'bool' },
+      { key: 'net_assets', label: 'Net assets on the most recently prepared financial statements', kind: 'money', unit: 'C$' },
+    ],
+    check: (e) => {
+      if (e.regulated_entity) return { pass: true, reason: 'Permitted client by status (NI 31-103 s1.1).' };
+      return n(e.net_assets) >= 25_000_000
+        ? { pass: true, reason: `Net assets of ${fmt(n(e.net_assets), 'C$')}, at least C$25 million (NI 31-103 s1.1 permitted client (p)).` }
+        : { pass: false, reason: `Net assets of ${fmt(n(e.net_assets), 'C$')} are below the C$25 million permitted client test (NI 31-103 s1.1(p)).` };
+    },
+  },
+  {
+    code: 'CA_MIN', subject: 'entity',
+    fields: [
+      { key: 'acquisition_cost', label: 'Acquisition cost of this purchase, paid in cash at the time of the distribution', kind: 'money', unit: 'C$' },
+      { key: 'not_created_for_exemption', label: 'The purchaser was not created or used solely to buy securities under this exemption', kind: 'bool' },
+    ],
+    check: (e) => {
+      if (n(e.acquisition_cost) < 150_000) return { pass: false, reason: `Acquisition cost of ${fmt(n(e.acquisition_cost), 'C$')} is below the C$150,000 minimum amount (NI 45-106 s2.10(1)(b)).` };
+      if (!e.not_created_for_exemption) return { pass: false, reason: 'The minimum amount exemption is not available to a person created or used solely to purchase securities under it (NI 45-106 s2.10(2)).' };
+      return { pass: true, reason: `Acquisition cost of ${fmt(n(e.acquisition_cost), 'C$')} paid in cash, at least C$150,000 (NI 45-106 s2.10). Not available to individuals.` };
+    },
+  },
+
+  // ---------- Brazil (Resolução CVM 30/2021, arts 11 and 12) ----------
+  ...(['individual', 'entity'] as const).map((subject): Test => ({
+    code: 'BR_QUAL', subject,
+    fields: [
+      { key: 'financial_investments', label: 'Financial investments held', kind: 'money', unit: 'R$' },
+      ...(subject === 'individual' ? [{ key: 'certified_professional', label: 'Approved in a CVM-recognised technical qualification exam or holds a CVM-approved certification (art. 12 III)', kind: 'bool' as const }] : []),
+      { key: 'opt_in', label: 'Signed the written attestation of qualified investor status (termo de investidor qualificado)', kind: 'bool' },
+    ],
+    check: (e) => {
+      if (subject === 'individual' && e.certified_professional) return { pass: true, reason: 'Individual approved in a technical qualification exam or holding a CVM-approved certification (RCVM 30 art. 12 III).' };
+      if (!(n(e.financial_investments) > 1_000_000)) return { pass: false, reason: `Financial investments of ${fmt(n(e.financial_investments), 'R$')} do not exceed R$1,000,000.00 (RCVM 30 art. 12 II).` };
+      if (!e.opt_in) return { pass: false, reason: 'Meets the R$1,000,000.00 test, but the investor must also attest the status in writing (RCVM 30 art. 12 II).' };
+      return { pass: true, reason: `Financial investments of ${fmt(n(e.financial_investments), 'R$')} exceed R$1,000,000.00 and the written attestation is on file (RCVM 30 art. 12 II).` };
+    },
+  })),
+  ...(['individual', 'entity'] as const).map((subject): Test => ({
+    code: 'BR_PRO', subject,
+    fields: [
+      ...(subject === 'entity' ? [{ key: 'regulated_institution', label: 'Financial institution authorised by the Central Bank, insurer, pension entity, investment fund or authorised manager (art. 11 I to III, V to VII)', kind: 'bool' as const }] : []),
+      { key: 'non_resident', label: 'Non-resident investor (art. 11 VIII)', kind: 'bool' },
+      { key: 'financial_investments', label: 'Financial investments held', kind: 'money', unit: 'R$' },
+      { key: 'attestation', label: 'Signed the written attestation of professional investor status (art. 11 IV)', kind: 'bool' },
+    ],
+    check: (e) => {
+      if (subject === 'entity' && e.regulated_institution) return { pass: true, reason: 'Professional investor by status (RCVM 30 art. 11).' };
+      if (e.non_resident) return { pass: true, reason: 'Non-resident investor (RCVM 30 art. 11 VIII).' };
+      if (!(n(e.financial_investments) > 10_000_000)) return { pass: false, reason: `Financial investments of ${fmt(n(e.financial_investments), 'R$')} do not exceed R$10,000,000.00 (RCVM 30 art. 11 IV).` };
+      if (!e.attestation) return { pass: false, reason: 'Meets the R$10,000,000.00 test, but the investor must also attest the status in writing (RCVM 30 art. 11 IV).' };
+      return { pass: true, reason: `Financial investments of ${fmt(n(e.financial_investments), 'R$')} exceed R$10,000,000.00 and the written attestation is on file (RCVM 30 art. 11 IV).` };
+    },
+  })),
+
+  // ---------- South Korea (FSCMA Art. 9(5); Enforcement Decree Art. 10, as widened in 2019) ----------
+  {
+    code: 'KR_PRO', subject: 'individual',
+    fields: [
+      { key: 'balance', label: 'Balance of financial investment products, excluding ultra-low-risk products', kind: 'money', unit: 'KRW ' },
+      { key: 'balance_one_year', label: 'That balance has been held for at least one year', kind: 'bool' },
+      { key: 'annual_income', label: 'Annual income', kind: 'money', unit: 'KRW ' },
+      { key: 'joint', label: 'Income counted together with a spouse', kind: 'bool' },
+      { key: 'net_assets', label: 'Net assets, excluding the primary residence', kind: 'money', unit: 'KRW ' },
+      { key: 'professional_qualification', label: 'Holds a recognised financial profession qualification (for example accountant, lawyer, licensed investment professional)', kind: 'bool' },
+    ],
+    check: (e) => {
+      if (n(e.balance) < 50_000_000) return { pass: false, reason: `Financial investment product balance of ${fmt(n(e.balance), 'KRW ')} is below KRW 50 million (Enforcement Decree Art. 10).` };
+      if (!e.balance_one_year) return { pass: false, reason: 'The KRW 50 million balance must have been held for at least one year (Enforcement Decree Art. 10).' };
+      const bar = e.joint ? 150_000_000 : 100_000_000;
+      const routes = [
+        n(e.annual_income) >= bar && `annual income of ${fmt(n(e.annual_income), 'KRW ')}, at least ${fmt(bar, 'KRW ')} ${e.joint ? 'with a spouse' : 'alone'}`,
+        n(e.net_assets) >= 500_000_000 && `net assets of ${fmt(n(e.net_assets), 'KRW ')}, at least KRW 500 million`,
+        e.professional_qualification && 'a recognised financial profession qualification',
+      ].filter(Boolean);
+      if (!routes.length) return { pass: false, reason: 'Holds the KRW 50 million balance, but none of the second tests: annual income of at least KRW 100 million (KRW 150 million with a spouse), net assets of at least KRW 500 million excluding the primary residence, or a financial profession qualification (Enforcement Decree Art. 10).' };
+      return { pass: true, reason: `Professional investor: financial investment products of ${fmt(n(e.balance), 'KRW ')} held over a year, plus ${routes.join(' and ')} (FSCMA Art. 9(5); Enforcement Decree Art. 10). Register the status with the dealer; it runs for two years.` };
+    },
+  },
+  {
+    code: 'KR_PRO', subject: 'entity',
+    fields: [
+      { key: 'regulated_institution', label: 'Financial institution, the State, Bank of Korea, public fund or other institution listed in Art. 9(5) and Enforcement Decree Art. 10(2)', kind: 'bool' },
+      { key: 'listed_corporation', label: 'Corporation listed on a Korean exchange', kind: 'bool' },
+      { key: 'balance', label: 'Balance of financial investment products', kind: 'money', unit: 'KRW ' },
+    ],
+    check: (e) => {
+      if (e.regulated_institution) return { pass: true, reason: 'Professional investor by status (FSCMA Art. 9(5); Enforcement Decree Art. 10(2)).' };
+      if (e.listed_corporation) return { pass: true, reason: 'Listed corporation: professional investor (FSCMA Art. 9(5) 4).' };
+      return n(e.balance) >= 10_000_000_000
+        ? { pass: true, reason: `Corporation with financial investment products of ${fmt(n(e.balance), 'KRW ')}, at least KRW 10 billion (Enforcement Decree Art. 10(3); figure not yet verified against the Korean text).` }
+        : { pass: false, reason: `Financial investment products of ${fmt(n(e.balance), 'KRW ')} are below the KRW 10 billion corporate test (Enforcement Decree Art. 10(3); figure not yet verified against the Korean text).` };
+    },
+  },
+  {
+    code: 'KR_QPI', subject: 'entity',
+    fields: [{ key: 'qualified_institution', label: 'Qualified professional investor for foreign fund private placement: financial institution, pension fund, public fund or other institution named in Enforcement Decree Art. 301', kind: 'bool' }],
+    check: (e) => e.qualified_institution
+      ? { pass: true, reason: 'Qualified professional investor: a foreign collective investment scheme may be privately placed with it under the simplified registration route (FSCMA Art. 279; Enforcement Decree Art. 301).' }
+      : { pass: false, reason: 'Only the institutions named in Enforcement Decree Art. 301 count as qualified professional investors for a foreign fund private placement.' },
+  },
 ];
 
 export const subjectOf = (kind: string): 'individual' | 'entity' => (kind.toLowerCase() === 'individual' ? 'individual' : 'entity');

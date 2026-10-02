@@ -9,6 +9,18 @@ import '../styles/proto.css';
 import './portal.css';
 
 const KEY = 'laissez-portal-token';
+const BRAND_KEY = 'laissez-portal-brand';
+/** Branding of the distributor operating the portal (GET /v1/brand/portal). Cached per tab so the next load paints without a flash. */
+type Brand = { name: string; brand_color: string; logo_data_url: string | null; email_footer: string | null; support_email: string | null; support_phone: string | null; sandbox: boolean };
+const cachedBrand = (): Brand | null => { try { return JSON.parse(sessionStorage.getItem(BRAND_KEY) ?? 'null'); } catch { return null; } };
+const rememberBrand = (b: Brand) => { try { sessionStorage.setItem(BRAND_KEY, JSON.stringify(b)); } catch { /* storage blocked */ } };
+function applyBrandToDocument(b: Brand) {
+  try {
+    document.title = `${b.name}: investor portal`;
+    const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.setAttribute('content', b.brand_color);
+    document.documentElement.style.setProperty('--brand', b.brand_color); document.documentElement.style.setProperty('--on-brand', onColor(b.brand_color));
+  } catch { /* no document */ }
+}
 type Api = <T = any>(path: string, opts?: { method?: string; body?: unknown }) => Promise<T>;
 type Route = { name: 'overview' | 'fund' | 'requests' | 'evidence'; arg?: string };
 
@@ -63,11 +75,15 @@ function Gate({ title, children }: { title: string; children: ComponentChildren 
   );
 }
 
-function Footer({ sandbox }: { sandbox: boolean }) {
+function Footer({ sandbox, brand }: { sandbox: boolean; brand?: Brand | null }) {
+  const contact = brand && (brand.support_email || brand.support_phone)
+    ? <span class="pt-contact">Questions: {brand.support_email ? <a href={`mailto:${brand.support_email}`}>{brand.support_email}</a> : null}{brand.support_email && brand.support_phone ? ' or ' : ''}{brand.support_phone ? <a href={`tel:${brand.support_phone.replace(/[^+\d]/g, '')}`}>{brand.support_phone}</a> : null}</span>
+    : null;
   return (
     <footer class="pt-foot">
       <div class="pt-wrap">
-        <span>{sandbox ? 'Sandbox. The distributor, funds and people here are fictional.' : 'Your distributor operates this portal.'}</span>
+        <span>{sandbox ? 'Sandbox. The distributor, funds and people here are fictional.' : brand?.email_footer || `${brand?.name ?? 'Your distributor'} operates this portal.`}</span>
+        {contact}
         <span class="pt-powered">Powered by <b>Laissez</b></span>
       </div>
     </footer>
@@ -86,6 +102,11 @@ export default function Portal() {
   const api: Api = (path, opts = {}) => call(`/v1/portal${path}`, { ...opts, token });
   const me = useLoad<any>(token ? () => api('/me') : null, [token]);
   const funds = useLoad<any>(token ? () => api('/funds') : null, [token]);
+  const [brandInfo, setBrandInfo] = useState<Brand | null>(cachedBrand);
+  useEffect(() => {
+    if (!token) return;
+    call<Brand>('/v1/brand/portal', { token }).then((b) => { setBrandInfo(b); rememberBrand(b); applyBrandToDocument(b); }).catch(() => { /* the portal still works with the name and color from /me */ });
+  }, [token]);
   const refresh = () => { me.reload(); funds.reload(); };
 
   if (!token) {
@@ -106,7 +127,9 @@ export default function Portal() {
   }
 
   const d = me.data?.distributor;
-  const brand = d?.brand_color ?? '#1f3a33';
+  const brand = brandInfo?.brand_color ?? d?.brand_color ?? '#1f3a33';
+  const brandName = brandInfo?.name ?? d?.name;
+  const logo = brandInfo?.logo_data_url ?? null;
   const nav: [Route['name'], string, string][] = [['overview', '#/', 'Overview'], ['requests', '#/requests', 'Requests'], ['evidence', '#/evidence', 'Evidence']];
   const current = route.name === 'fund' ? 'overview' : route.name;
   const fund = route.name === 'fund' ? (funds.data?.data as any[] | undefined)?.find((f) => f.ticker === route.arg) : null;
@@ -115,7 +138,7 @@ export default function Portal() {
     <div class="pt" style={{ '--brand': brand, '--on-brand': onColor(brand) } as any}>
       <header class="pt-bar">
         <div class="pt-wrap">
-          <div class="pt-brand">{d ? <><span class="pt-mono" aria-hidden="true">{initials(d.name)}</span><b>{d.name}</b></> : <b>Investor portal</b>}</div>
+          <div class="pt-brand">{brandName ? <>{logo ? <img class="pt-logo" src={logo} alt="" /> : <span class="pt-mono" aria-hidden="true">{initials(brandName)}</span>}<b>{brandName}</b></> : <b>Investor portal</b>}</div>
           {me.data ? <span class="pt-who">{me.data.investor.name}</span> : null}
         </div>
       </header>
@@ -135,7 +158,7 @@ export default function Portal() {
           )}
         </div>
       </main>
-      <Footer sandbox={!!d?.sandbox} />
+      <Footer sandbox={!!d?.sandbox} brand={brandInfo} />
     </div>
   );
 }

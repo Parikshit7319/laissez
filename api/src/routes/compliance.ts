@@ -7,6 +7,7 @@ import { ApiError, id, rateLimit } from '../util';
 import { normName, MATCH_THRESHOLD } from '../sanctions';
 import { runMonitor } from '../monitor';
 import { regressionFor, thresholdWarnings } from './compliance2';
+import { pageParams, pageOut } from '../pagination';
 
 export const routes = router();
 
@@ -94,20 +95,23 @@ routes.get('/screening-list', async (c) => {
 // Screening hits
 // ---------------------------------------------------------------------------
 
+/** Screening hits, newest first. Filter: status. Cursor pagination (limit, cursor). */
 routes.get('/screening-hits', async (c) => {
   need(c, 'read');
   const sql = c.get('sql'); const ws = c.get('ws');
   const status = statusParam(c.req.query('status'), ['open', 'needs_information', 'false_positive', 'confirmed', 'all'], 'open');
+  const page = pageParams(c, 50, 200);
   const [rows, counts] = await Promise.all([
     sql`select h.*, i.name as investor_name, i.short_name as investor_short,
           (select count(*)::int from hit_notes n where n.workspace_id = h.workspace_id and n.hit_id = h.id) as notes
         from screening_hits h
         left join investors i on i.workspace_id = h.workspace_id and i.id = h.investor_id
         where h.workspace_id = ${ws} and (${status} = 'all' or h.status = ${status})
-        order by h.created_at desc limit 200`,
+          and (${page.at}::timestamptz is null or (h.created_at, h.id) < (${page.at}::timestamptz, ${page.id}))
+        order by h.created_at desc, h.id desc limit ${page.limit + 1}`,
     sql`select status, count(*)::int as n from screening_hits where workspace_id = ${ws} group by status`,
   ]);
-  return c.json({ data: rows, counts: Object.fromEntries(counts.map((r: any) => [r.status, r.n])), threshold: MATCH_THRESHOLD });
+  return c.json({ ...pageOut(rows as any[], page), counts: Object.fromEntries(counts.map((r: any) => [r.status, r.n])), threshold: MATCH_THRESHOLD });
 });
 
 /** One hit with everything a reviewer compares: every listed name under the same source entry and the client record. */
@@ -186,21 +190,26 @@ routes.post('/screening-hits/:id/decide', async (c) => {
 // Work queue
 // ---------------------------------------------------------------------------
 
+/**
+ * Work items, newest first. Filters: status, severity. Cursor pagination (limit, cursor). The page is in time
+ * order so the cursor stays stable; the app groups each page by severity.
+ */
 routes.get('/work-items', async (c) => {
   need(c, 'read');
   const sql = c.get('sql'); const ws = c.get('ws');
   const status = statusParam(c.req.query('status'), ['open', 'done', 'dismissed', 'all'], 'open');
+  const severity = statusParam(c.req.query('severity'), ['high', 'medium', 'low', 'all'], 'all');
+  const page = pageParams(c, 100, 500);
   const [rows, counts] = await Promise.all([
     sql`select w.id, w.kind, w.title, w.detail, w.severity, w.investor_id, w.ticker, w.link, w.status, w.due_on::text as due_on,
           w.created_at, w.resolved_at, w.resolved_by, i.name as investor_name
         from work_items w left join investors i on i.workspace_id = w.workspace_id and i.id = w.investor_id
-        where w.workspace_id = ${ws} and (${status} = 'all' or w.status = ${status})
-        order by (w.status <> 'open'), case w.severity when 'high' then 0 when 'medium' then 1 else 2 end,
-          case when w.status = 'open' then w.created_at end asc, w.resolved_at desc nulls last
-        limit 500`,
+        where w.workspace_id = ${ws} and (${status} = 'all' or w.status = ${status}) and (${severity} = 'all' or w.severity = ${severity})
+          and (${page.at}::timestamptz is null or (w.created_at, w.id) < (${page.at}::timestamptz, ${page.id}))
+        order by w.created_at desc, w.id desc limit ${page.limit + 1}`,
     sql`select severity, count(*)::int as n from work_items where workspace_id = ${ws} and status = 'open' group by severity`,
   ]);
-  return c.json({ data: rows, open_counts: Object.fromEntries(counts.map((r: any) => [r.severity, r.n])) });
+  return c.json({ ...pageOut(rows as any[], page), open_counts: Object.fromEntries(counts.map((r: any) => [r.severity, r.n])) });
 });
 
 routes.post('/work-items/:id/resolve', async (c) => {

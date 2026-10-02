@@ -1,7 +1,7 @@
 // Rule packs added after launch: jurisdictions, investor classes, booking centers and the law
 // rules an issuer gets when it adds a jurisdiction to a fund. Also the version history of every
 // pack and the golden regression cases that scripts/test-rulepacks.ts runs through the engine.
-// Every threshold and citation is listed on /sources (src/data/sources.ts). Research as of Oct 2026.
+// Every threshold and citation is listed on /sources (src/data/sources.ts). Research as of Oct 2026 (AU, CA, BR, KR added Oct 3, 2026).
 // Data only, plus two helpers (extendCtx, packsAsOf). Shared by the app, the API and the tests.
 
 import type { BookingCenter, Classification } from './data';
@@ -18,6 +18,11 @@ export const NEW_JURISDICTIONS: NewJurisdiction[] = [
   { code: 'LU', name: 'Luxembourg', iso3: 'LUX', iso_numeric: '442' },
   { code: 'IE', name: 'Ireland', iso3: 'IRL', iso_numeric: '372' },
   { code: 'IN', name: 'India', iso3: 'IND', iso_numeric: '356' },
+  // Added Oct 3, 2026 with the AU, CA, BR and KR packs.
+  { code: 'AU', name: 'Australia', iso3: 'AUS', iso_numeric: '036' },
+  { code: 'CA', name: 'Canada', iso3: 'CAN', iso_numeric: '124' },
+  { code: 'BR', name: 'Brazil', iso3: 'BRA', iso_numeric: '076' },
+  { code: 'KR', name: 'South Korea', iso3: 'KOR', iso_numeric: '410' },
 ];
 /** ISO 3166-1 numeric codes for the launch jurisdictions, backfilled by migration 005. */
 export const LAUNCH_ISO_NUMERIC: Record<string, string> = {
@@ -92,6 +97,55 @@ export const NEW_CLASSES: NewClass[] = [
     threshold: 'Individual: annual gross income of at least US$200,000, or net assets of at least US$1M with US$500,000 in financial assets. Body corporate or trust: net worth of at least US$5M, or every constituent an accredited investor.',
     requires_opt_in: false,
   },
+  // ---------- Australia ----------
+  {
+    code: 'AU_WHOLESALE', jurisdiction: 'AU', label: 'Wholesale client', stamp: 'Wholesale client', rule_ref: 'Corporations Act s761G(7); regs 7.1.18, 7.1.28', source_id: 'au-reg-7128',
+    threshold: 'Product value of at least A$500,000; or a qualified accountant\'s certificate given within 2 years showing net assets of at least A$2.5M or gross income of at least A$250,000 in each of the last 2 financial years; or a business that is not a small business; or control by a wholesale client.',
+    requires_opt_in: false,
+  },
+  {
+    code: 'AU_PRO', jurisdiction: 'AU', label: 'Professional investor', stamp: 'Professional investor', rule_ref: 'Corporations Act s9; s761G(7)(d)', source_id: 'au-wholesale-guide',
+    threshold: 'AFS licensee, APRA-regulated body, large superannuation trustee or listed entity, or a person who has or controls gross assets of at least A$10M.',
+    requires_opt_in: false,
+  },
+  // ---------- Canada ----------
+  {
+    code: 'CA_AI', jurisdiction: 'CA', label: 'Accredited investor', stamp: 'Accredited investor', rule_ref: 'NI 45-106 s1.1, s2.3', source_id: 'ca-ni45106',
+    threshold: 'Individual: net financial assets over C$1M (with Form 45-106F9), or over C$5M; net income over C$200,000 (C$300,000 with a spouse) in each of the last two years; or net assets of at least C$5M. Non-individual: net assets of at least C$5M, listed institutions, or every owner an accredited investor.',
+    requires_opt_in: false,
+  },
+  {
+    code: 'CA_PC', jurisdiction: 'CA', label: 'Permitted client', stamp: 'Permitted client', rule_ref: 'NI 31-103 s1.1', source_id: 'ca-ni31103',
+    threshold: 'Individual with financial assets over C$5M; a person other than an individual or investment fund with net assets of at least C$25M; listed institutions.',
+    requires_opt_in: false,
+  },
+  {
+    code: 'CA_MIN', jurisdiction: 'CA', label: 'Minimum amount purchaser', stamp: 'Minimum amount', rule_ref: 'NI 45-106 s2.10', source_id: 'ca-ni45106',
+    threshold: 'Non-individual paying an acquisition cost of at least C$150,000 in cash at the time of the distribution, not created solely to use the exemption. Not available to individuals.',
+    requires_opt_in: false,
+  },
+  // ---------- Brazil ----------
+  {
+    code: 'BR_QUAL', jurisdiction: 'BR', label: 'Investidor qualificado', stamp: 'Qualified investor', rule_ref: 'Resolução CVM 30 art. 12', source_id: 'br-rcvm30',
+    threshold: 'Financial investments over R$1,000,000.00 with a written attestation of qualified investor status; or an individual approved in a CVM-recognised exam or holding a CVM-approved certification; or a professional investor.',
+    requires_opt_in: true, opt_in_label: 'written attestation',
+  },
+  {
+    code: 'BR_PRO', jurisdiction: 'BR', label: 'Investidor profissional', stamp: 'Professional investor', rule_ref: 'Resolução CVM 30 art. 11', source_id: 'br-rcvm30',
+    threshold: 'Financial investments over R$10,000,000.00 with a written attestation; or a financial institution, insurer, pension entity, investment fund, authorised manager, or non-resident investor.',
+    requires_opt_in: false,
+  },
+  // ---------- South Korea ----------
+  {
+    code: 'KR_PRO', jurisdiction: 'KR', label: 'Professional investor', stamp: 'Professional investor', rule_ref: 'FSCMA Art. 9(5); Enforcement Decree Art. 10', source_id: 'kr-pro-2019',
+    threshold: 'Individual: financial investment products of at least KRW 50 million held for a year, plus annual income of at least KRW 100 million (KRW 150 million with a spouse), net assets of at least KRW 500 million excluding the primary residence, or a financial profession qualification. Corporations: listed, regulated, or (unverified figure) KRW 10 billion in financial investment products.',
+    requires_opt_in: false,
+  },
+  {
+    code: 'KR_QPI', jurisdiction: 'KR', label: 'Qualified professional investor', stamp: 'Qualified professional', rule_ref: 'FSCMA Art. 279; Enforcement Decree Art. 301', source_id: 'kr-decree-303',
+    threshold: 'Financial institutions, pension funds, public funds and the other institutions named in Enforcement Decree Art. 301, to whom a foreign collective investment scheme may be privately placed under the simplified registration route.',
+    requires_opt_in: false,
+  },
 ];
 
 // ---------- Law rules for a fund's distribution list ----------
@@ -136,6 +190,26 @@ export const NEW_LAW: Record<string, LawRule> = {
     lawText: 'A foreign fund is not offered to the Indian public. A resident individual may acquire units of a regulated overseas fund only as overseas portfolio investment within the Liberalised Remittance Scheme (OI Rules 2022 Sch. III; RBI MD 7/2015-16). An Indian entity may hold overseas portfolio investment up to 50% of its net worth per its last audited balance sheet (OI Rules 2022 Sch. II). Any offer to more than 200 persons in a financial year is a public offer (Companies Act 2013 s42).',
     lawRef: 'FEM (OI) Rules 2022 Sch. II, III; RBI MD 7/2015-16; Companies Act s42', lawSource: 'fema-oi-2022',
   },
+  AU: {
+    accepts: ['AU_PRO', 'AU_WHOLESALE'], basis: 'Foreign scheme offered to wholesale clients (Corporations Act s601ED(2), s761G)', lawRequires: 'AU_WHOLESALE', lawRequiresAny: ['AU_WHOLESALE', 'AU_PRO'],
+    lawText: 'A foreign managed investment scheme not registered under Chapter 5C may only be offered in Australia where no Product Disclosure Statement is required, that is to wholesale clients: product value of at least A$500,000, a certified net assets or gross income test, a large business, or a professional investor (s761G(7)). The foreign provider deals with wholesale clients under ASIC relief for foreign financial services providers, extended to 31 March 2027 (ASIC Instrument 2025/798).',
+    lawRef: 'Corporations Act s601ED(2), s761G(7), s9; ASIC Instrument 2025/798', lawSource: 'au-s601ed',
+  },
+  CA: {
+    accepts: ['CA_AI', 'CA_PC', 'CA_MIN'], basis: 'Prospectus-exempt distribution (NI 45-106 s2.3 accredited investor, s2.10 minimum amount)', lawRequires: 'CA_AI', lawRequiresAny: ['CA_AI', 'CA_PC', 'CA_MIN'],
+    lawText: 'A foreign fund distributed in Canada without a prospectus relies on the accredited investor exemption (NI 45-106 s2.3; individuals under paragraphs (j), (k) and (l) sign Form 45-106F9) or, for non-individuals, the C$150,000 minimum amount exemption (s2.10). A report of exempt distribution follows within 10 days. The seller is a registered dealer or relies on the international dealer exemption, which reaches permitted clients only (NI 31-103 s8.18).',
+    lawRef: 'NI 45-106 s1.1, s2.3, s2.10, s6.1; NI 31-103 s1.1, s8.18', lawSource: 'ca-ni45106',
+  },
+  BR: {
+    accepts: ['BR_PRO', 'BR_QUAL'], basis: 'Offshore fund reached through a CVM 175 feeder for qualified or professional investors', lawRequires: 'BR_QUAL', lawRequiresAny: ['BR_QUAL', 'BR_PRO'],
+    lawText: 'Units of a foreign fund are not offered to the Brazilian public without CVM registration. Resident investors reach an offshore fund through a Brazilian fund under Resolução CVM 175, whose classes for qualified or professional investors may hold their whole portfolio abroad; the investor is tested as investidor qualificado (financial investments over R$1,000,000.00 with a written attestation) or investidor profissional (over R$10,000,000.00) under Resolução CVM 30. Laissez records the Brazilian investor as the beneficial subscriber behind the feeder.',
+    lawRef: 'Resolução CVM 30 arts 11, 12; Resolução CVM 175', lawSource: 'br-rcvm30',
+  },
+  KR: {
+    accepts: ['KR_QPI', 'KR_PRO'], basis: 'Foreign collective investment scheme privately placed with professional investors (FSCMA Art. 279)', lawRequires: 'KR_PRO', lawRequiresAny: ['KR_PRO', 'KR_QPI'],
+    lawText: 'A foreign collective investment scheme must be registered with the Financial Services Commission before its securities are sold to residents of Korea (FSCMA Art. 279(1); Enforcement Decree Art. 303). Sale to general investors needs full registration; a private placement to professional investors uses the simplified route and, for qualified professional investors named in Enforcement Decree Art. 301, the lightest one. Sales go through a locally licensed distributor.',
+    lawRef: 'FSCMA Art. 9(5), Art. 279; Enforcement Decree Arts 10, 301, 303', lawSource: 'kr-decree-303',
+  },
 };
 
 // ---------- Booking centers ----------
@@ -149,6 +223,18 @@ export const NEW_BOOKING_CENTERS: BookingCenter[] = [
   { id: 'GIFT', name: 'GIFT City (IFSC)', jur: 'IN', licence: 'IFSCA-registered fund management entity (fictional licensee)', requires: 'IFSCA_PRO',
     ruleText: 'Foreign fund units distributed from GIFT City: accredited investors only (IFSCA or SEBI accredited).', ruleRef: 'IFSCA (Fund Management) Regulations 2025; IFSCA AI circular', source: 'ifsca-ai',
     requiresAny: ['IFSCA_PRO', 'IN_AI'] } as BookingCenter & { requiresAny: string[] },
+  { id: 'SYD', name: 'Sydney', jur: 'AU', licence: 'AFS licensee authorised for wholesale clients only (fictional licensee)', requires: 'AU_WHOLESALE',
+    ruleText: 'Dealing from Australia in a scheme with no Product Disclosure Statement: wholesale clients or professional investors only.', ruleRef: 'Corporations Act s761G, s1012; s601ED(2)', source: 'au-s601ed',
+    requiresAny: ['AU_WHOLESALE', 'AU_PRO'] } as BookingCenter & { requiresAny: string[] },
+  { id: 'TOR', name: 'Toronto', jur: 'CA', licence: 'Exempt market dealer registered in Ontario (fictional licensee)', requires: 'CA_AI',
+    ruleText: 'Exempt market dealer distributing a foreign fund in Canada: accredited investors, permitted clients, or non-individuals under the C$150,000 minimum amount exemption.', ruleRef: 'NI 31-103 s7.1(2)(d); NI 45-106 s2.3, s2.10', source: 'ca-ni31103',
+    requiresAny: ['CA_AI', 'CA_PC', 'CA_MIN'] } as BookingCenter & { requiresAny: string[] },
+  { id: 'SAO', name: 'São Paulo', jur: 'BR', licence: 'Distributor of securities authorised by the Central Bank and CVM (fictional licensee)', requires: 'BR_QUAL',
+    ruleText: 'Placing a feeder for an offshore fund from Brazil: investidores qualificados with a written attestation, or investidores profissionais.', ruleRef: 'Resolução CVM 30 arts 11, 12; Resolução CVM 175', source: 'br-rcvm30',
+    requiresAny: ['BR_QUAL', 'BR_PRO'] } as BookingCenter & { requiresAny: string[] },
+  { id: 'SEL', name: 'Seoul', jur: 'KR', licence: 'Investment broker licensed under the FSCMA (fictional licensee)', requires: 'KR_PRO',
+    ruleText: 'Selling a privately placed foreign collective investment scheme from Korea: professional investors or qualified professional investors only.', ruleRef: 'FSCMA Art. 279; Enforcement Decree Arts 301, 303', source: 'kr-offshore-guide',
+    requiresAny: ['KR_PRO', 'KR_QPI'] } as BookingCenter & { requiresAny: string[] },
 ];
 
 // ---------- Pack versions ----------
@@ -188,6 +274,14 @@ export const RULE_PACKS: RulePack[] = [
     summary: 'MiFID II per se professional clients; non-EU AIF marketing under Reg. 43 of S.I. No. 257 of 2013 after Central Bank notification.' },
   { id: 'IN/eligibility', version: '2026.10.0', jurisdiction: 'IN', status: 'active', effective_from: '2026-10-02', effective_to: null,
     summary: 'SEBI accredited investors (AIF Master Circular Ch. 12); resident individuals within the RBI Liberalised Remittance Scheme (USD 250,000 per financial year); IFSCA accredited investors for GIFT City; overseas portfolio investment under the FEM (Overseas Investment) Rules 2022; Companies Act s42 200-person private placement limit.' },
+  { id: 'AU/eligibility', version: '2026.10.1', jurisdiction: 'AU', status: 'active', effective_from: '2026-10-03', effective_to: null,
+    summary: 'Wholesale clients (Corporations Act s761G(7): A$500,000 product value, certified A$2.5M net assets or A$250,000 gross income, large business) and professional investors (s9: A$10M gross assets); foreign schemes offered without a PDS to wholesale clients only (s601ED(2)); ASIC foreign financial services provider relief to 31 March 2027.' },
+  { id: 'CA/eligibility', version: '2026.10.1', jurisdiction: 'CA', status: 'active', effective_from: '2026-10-03', effective_to: null,
+    summary: 'Accredited investors (NI 45-106 s1.1: C$1M financial assets with Form 45-106F9, C$5M financial assets, C$200,000 or C$300,000 income, C$5M net assets; non-individuals C$5M net assets), permitted clients (NI 31-103: C$5M financial assets, C$25M net assets), minimum amount C$150,000 for non-individuals (s2.10); international dealer exemption for permitted clients (s8.18).' },
+  { id: 'BR/eligibility', version: '2026.10.1', jurisdiction: 'BR', status: 'active', effective_from: '2026-10-03', effective_to: null,
+    summary: 'Investidor qualificado (Resolução CVM 30 art. 12: financial investments over R$1 million with written attestation, or CVM certification) and investidor profissional (art. 11: over R$10 million, institutions, non-residents); offshore funds reached through Resolução CVM 175 feeder classes that may invest fully abroad.' },
+  { id: 'KR/eligibility', version: '2026.10.1', jurisdiction: 'KR', status: 'active', effective_from: '2026-10-03', effective_to: null,
+    summary: 'Professional investors (FSCMA Art. 9(5); Enforcement Decree Art. 10: KRW 50 million in financial investment products for a year plus KRW 100 million income, KRW 150 million with a spouse, KRW 500 million net assets or a professional qualification) and qualified professional investors (Enforcement Decree Art. 301); foreign collective investment schemes registered with the FSC before sale (Art. 279), privately placed to professional investors through a licensed distributor.' },
   { id: 'global/sanctions', version: '2024-01-01', jurisdiction: 'GLOBAL', status: 'retired', effective_from: '2024-01-01', effective_to: '2025-08-25',
     summary: 'Comprehensive OFAC country programs: Cuba, Iran, North Korea, Syria, occupied regions of Ukraine.' },
   { id: 'global/sanctions', version: '2025-08-25', jurisdiction: 'GLOBAL', status: 'retired', effective_from: '2025-08-25', effective_to: '2026-10-01',
@@ -285,6 +379,10 @@ const US_AI_ENTITY = { US_AI: { assets: 6_000_000 } };
 const IN_AI_OK = { IN_AI: { annual_income: 25_000_000 } };
 const lrs = (remitted: number) => ({ IN_LRS: { resident_individual: true, pan: true, remitted_this_fy_usd: remitted } });
 const HOLDS_AGPC = { AGPC: { units: 1_000_000, since: '2025-01-15' } };
+/** The Oct 3, 2026 jurisdictions added to TWLF for their cases. */
+const DIST4 = { AU: NEW_LAW.AU, CA: NEW_LAW.CA, BR: NEW_LAW.BR, KR: NEW_LAW.KR };
+const AU_CERT = { accountant_certificate: true, net_assets: 3_000_000 };
+const KR_OK = { balance: 60_000_000, balance_one_year: true, annual_income: 120_000_000 };
 
 export const REGRESSION_CASES: RegressionCase[] = [
   // ---------- SG/eligibility ----------
@@ -462,6 +560,66 @@ export const REGRESSION_CASES: RegressionCase[] = [
     investor: corp('IE-03', 'IE', 'LDN', { GB_PRO: GB_BIG }, { classifications: [raw('EU_PRO', '2026-09-30')] }), expect: 'DENY', failing: ['fundClass', 'law'], issued: ['GB_PRO'] },
   { id: 'IE-04', pack: 'IE/eligibility', name: 'Eligible investor paying in an unaccepted asset', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000), whatIfs: ['badAsset'],
     investor: corp('IE-04', 'IE', 'LDN', { EU_PRO: EU_BIG, GB_PRO: GB_BIG }), expect: 'DENY', failing: ['asset'] },
+
+  // ---------- AU/eligibility ----------
+  { id: 'AU-01', pack: 'AU/eligibility', name: 'Company with a certified A$3M net assets figure, booked in Sydney', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: corp('AU-01', 'AU', 'SYD', { AU_WHOLESALE: AU_CERT }), expect: 'ALLOW', failing: [], issued: ['AU_WHOLESALE'] },
+  { id: 'AU-02', pack: 'AU/eligibility', name: 'Individual one dollar under both certificate figures', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('AU-02', 'AU', 'SYD', { AU_WHOLESALE: { accountant_certificate: true, net_assets: 2_499_999, gross_income: 249_999 } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
+  { id: 'AU-03', pack: 'AU/eligibility', name: 'Professional investor with exactly A$10M gross assets', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: corp('AU-03', 'AU', 'SYD', { AU_PRO: { gross_assets: 10_000_000 } }), expect: 'ALLOW', failing: [], issued: ['AU_PRO'] },
+  { id: 'AU-04', pack: 'AU/eligibility', name: 'Individual investing A$500,000 qualifies on product value without a certificate', fund: 'TWLF', distribution: DIST4, order: sub(500_000),
+    investor: person('AU-04', 'AU', 'SYD', { AU_WHOLESALE: { product_value: 500_000 } }), expect: 'ALLOW', failing: [], issued: ['AU_WHOLESALE'] },
+  { id: 'AU-05', pack: 'AU/eligibility', name: 'Gross income of A$250,000 without the accountant\'s certificate', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('AU-05', 'AU', 'SYD', { AU_WHOLESALE: { gross_income: 250_000 } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
+  { id: 'AU-06', pack: 'AU/eligibility', name: 'Wholesale client booked in Hong Kong without professional investor status', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: corp('AU-06', 'AU', 'HK', { AU_WHOLESALE: AU_CERT }), expect: 'DENY', failing: ['booking'], issued: ['AU_WHOLESALE'] },
+
+  // ---------- CA/eligibility ----------
+  { id: 'CA-01', pack: 'CA/eligibility', name: 'Individual with C$1.2M net financial assets and a signed Form 45-106F9', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('CA-01', 'CA', 'TOR', { CA_AI: { financial_assets: 1_200_000, risk_acknowledgement: true } }), expect: 'ALLOW', failing: [], issued: ['CA_AI'] },
+  { id: 'CA-02', pack: 'CA/eligibility', name: 'Same figures without the risk acknowledgement form', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('CA-02', 'CA', 'TOR', { CA_AI: { financial_assets: 1_200_000 } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
+  { id: 'CA-03', pack: 'CA/eligibility', name: 'Joint income of C$250,000 is under the C$300,000 spousal test', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('CA-03', 'CA', 'TOR', { CA_AI: { net_income: 250_000, joint: true, risk_acknowledgement: true } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
+  { id: 'CA-04', pack: 'CA/eligibility', name: 'Individual with over C$5M in financial assets needs no form and is also a permitted client', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('CA-04', 'CA', 'TOR', { CA_AI: { financial_assets: 5_000_001 }, CA_PC: { financial_assets: 5_000_001 } }), expect: 'ALLOW', failing: [], issued: ['CA_AI', 'CA_PC'] },
+  { id: 'CA-05', pack: 'CA/eligibility', name: 'Corporation paying C$150,000 under the minimum amount exemption', fund: 'TWLF', distribution: DIST4, order: sub(150_000),
+    investor: corp('CA-05', 'CA', 'TOR', { CA_MIN: { acquisition_cost: 150_000, not_created_for_exemption: true }, CA_AI: { net_assets: 4_000_000 } }), expect: 'ALLOW', failing: [], issued: ['CA_MIN'] },
+  { id: 'CA-06', pack: 'CA/eligibility', name: 'Corporation with C$25M net assets is an accredited investor and a permitted client', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: corp('CA-06', 'CA', 'TOR', { CA_AI: { net_assets: 25_000_000 }, CA_PC: { net_assets: 25_000_000 } }), expect: 'ALLOW', failing: [], issued: ['CA_AI', 'CA_PC'] },
+  { id: 'CA-07', pack: 'CA/eligibility', name: 'Accredited investor booked in London without UK status', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: corp('CA-07', 'CA', 'LDN', { CA_AI: { net_assets: 6_000_000 } }), expect: 'DENY', failing: ['booking'], issued: ['CA_AI'] },
+
+  // ---------- BR/eligibility ----------
+  { id: 'BR-01', pack: 'BR/eligibility', name: 'Individual with R$1.5M in financial investments and the written attestation', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('BR-01', 'BR', 'SAO', { BR_QUAL: { financial_investments: 1_500_000, opt_in: true } }), expect: 'ALLOW', failing: [], issued: ['BR_QUAL'], binding: ['law'] },
+  { id: 'BR-02', pack: 'BR/eligibility', name: 'Exactly R$1,000,000.00 does not exceed the qualified investor test', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('BR-02', 'BR', 'SAO', { BR_QUAL: { financial_investments: 1_000_000, opt_in: true } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
+  { id: 'BR-03', pack: 'BR/eligibility', name: 'Qualified investor figures without the written attestation', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('BR-03', 'BR', 'SAO', { BR_QUAL: { financial_investments: 1_500_000 } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
+  { id: 'BR-04', pack: 'BR/eligibility', name: 'Company with R$12M in financial investments and the professional investor attestation', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: corp('BR-04', 'BR', 'SAO', { BR_PRO: { financial_investments: 12_000_000, attestation: true } }), expect: 'ALLOW', failing: [], issued: ['BR_PRO'] },
+  { id: 'BR-05', pack: 'BR/eligibility', name: 'Legacy qualified investor record without the attestation fails the consent test', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('BR-05', 'BR', 'SAO', {}, { classifications: [raw('BR_QUAL', '2027-03-14')] }), expect: 'DENY', failing: ['law', 'booking'] },
+  { id: 'BR-06', pack: 'BR/eligibility', name: 'Professional investor booked in Singapore without accredited status', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: corp('BR-06', 'BR', 'SG', { BR_PRO: { financial_investments: 12_000_000, attestation: true } }), expect: 'DENY', failing: ['booking'], issued: ['BR_PRO'] },
+
+  // ---------- KR/eligibility ----------
+  { id: 'KR-01', pack: 'KR/eligibility', name: 'Individual with KRW 60M held a year and KRW 120M income, booked in Seoul', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('KR-01', 'KR', 'SEL', { KR_PRO: KR_OK }), expect: 'ALLOW', failing: [], issued: ['KR_PRO'] },
+  { id: 'KR-02', pack: 'KR/eligibility', name: 'Balance not yet held for a year', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('KR-02', 'KR', 'SEL', { KR_PRO: { ...KR_OK, balance_one_year: false } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
+  { id: 'KR-03', pack: 'KR/eligibility', name: 'One won under the KRW 50M balance', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('KR-03', 'KR', 'SEL', { KR_PRO: { ...KR_OK, balance: 49_999_999, annual_income: 200_000_000 } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
+  { id: 'KR-04', pack: 'KR/eligibility', name: 'Joint income of KRW 140M is under the KRW 150M spousal test', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('KR-04', 'KR', 'SEL', { KR_PRO: { ...KR_OK, annual_income: 140_000_000, joint: true } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
+  { id: 'KR-05', pack: 'KR/eligibility', name: 'Pension fund is a professional and a qualified professional investor', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: corp('KR-05', 'KR', 'SEL', { KR_PRO: { regulated_institution: true }, KR_QPI: { qualified_institution: true } }), expect: 'ALLOW', failing: [], issued: ['KR_PRO', 'KR_QPI'] },
+  { id: 'KR-06', pack: 'KR/eligibility', name: 'Individual qualifying on KRW 500M net assets', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('KR-06', 'KR', 'SEL', { KR_PRO: { balance: 50_000_000, balance_one_year: true, net_assets: 500_000_000 } }), expect: 'ALLOW', failing: [], issued: ['KR_PRO'] },
+  { id: 'KR-07', pack: 'KR/eligibility', name: 'Professional investor booked in Tokyo without QII status', fund: 'TWLF', distribution: DIST4, order: sub(250_000),
+    investor: person('KR-07', 'KR', 'TYO', { KR_PRO: KR_OK }), expect: 'DENY', failing: ['booking'], issued: ['KR_PRO'] },
 
   // ---------- global/sanctions ----------
   { id: 'GS-01', pack: 'global/sanctions', name: 'Resident of a comprehensively sanctioned country', fund: 'TWLF', order: sub(250_000),

@@ -3,6 +3,7 @@ import { useState } from 'preact/hooks';
 import { api, API_BASE, authHeaders, when, JUR } from '../api';
 import { useApi, Head, Btn, Chip, ErrorBox, Loading, Empty, Field, Card, Json, Hash, TxLink } from '../ui';
 import { PermBtn, PermNote } from '../auth';
+import { usePaged, LoadMore } from '../paged';
 
 export function RuleLibrary() {
   const packs = useApi('/v1/rule-packs');
@@ -86,7 +87,7 @@ export function RuleDrafts() {
       <PermNote perm="compliance:write" />
       <Card title="New draft">
         <form class="form-grid" onSubmit={submit}>
-          <Field label="Jurisdiction"><select value={f.jurisdiction} onChange={(e) => setF({ ...f, jurisdiction: (e.target as HTMLSelectElement).value })}>{['GB', 'SG', 'HK', 'CH', 'DE', 'LU', 'IE', 'AE-DIFC', 'AE-ADGM', 'JP', 'US'].map((j) => <option value={j}>{JUR[j]}</option>)}</select></Field>
+          <Field label="Jurisdiction"><select value={f.jurisdiction} onChange={(e) => setF({ ...f, jurisdiction: (e.target as HTMLSelectElement).value })}>{['GB', 'SG', 'HK', 'CH', 'DE', 'LU', 'IE', 'AE-DIFC', 'AE-ADGM', 'JP', 'IN', 'AU', 'CA', 'BR', 'KR', 'US'].map((j) => <option value={j}>{JUR[j]}</option>)}</select></Field>
           <Field label="Source link" hint="Optional"><input value={f.source_url} onInput={(e) => setF({ ...f, source_url: (e.target as HTMLInputElement).value })} placeholder="https://www.fca.org.uk/publication/consultation/cp25-36.pdf" /></Field>
           <div class="span2"><Field label="Regulator text"><textarea rows={6} value={f.source_text} onInput={(e) => setF({ ...f, source_text: (e.target as HTMLTextAreaElement).value })} placeholder="Paste the relevant section, at least a paragraph." /></Field></div>
           <div class="form-actions"><PermBtn perm="compliance:write" type="submit" kind="primary" busy={busy === 'new'} disabled={f.source_text.length < 40 || !enabled}>{busy === 'new' ? 'Drafting' : 'Draft rule change'}</PermBtn></div>
@@ -116,7 +117,7 @@ export function RuleDrafts() {
 
 export function AuditLog() {
   const [type, setType] = useState('');
-  const r = useApi(`/v1/audit-events${type ? `?type=${type}` : ''}`, [type]);
+  const r = usePaged(`/v1/audit-events?limit=100${type ? `&type=${type}` : ''}`, [type]);
   const [err, setErr] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const exportCsv = async () => {
@@ -134,10 +135,10 @@ export function AuditLog() {
       <VerifyChain />
       <div class="toolbar"><select value={type} onChange={(e) => setType((e.target as HTMLSelectElement).value)} aria-label="Filter by event type"><option value="">All events</option>{['decision', 'settlement', 'credential', 'policy', 'investor', 'fund', 'member', 'session', 'sso', 'organization', 'webhook', 'api_key', 'screening', 'rule_draft', 'eligibility'].map((t) => <option value={t}>{t}</option>)}</select></div>
       <ErrorBox error={err} />
-      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : (
+      {r.loading && !r.rows.length ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : (
         <div class="tw"><table class="t">
           <thead><tr><th class="r">Seq</th><th>When</th><th>Event</th><th>Actor</th><th>Subject</th><th>Details</th><th>Hash</th></tr></thead>
-          <tbody>{r.data.data.map((e: any) => (
+          <tbody>{r.rows.map((e: any) => (
             <tr>
               <td class="r mono small">{e.seq ?? ''}</td>
               <td class="muted nowrap">{when(e.created_at)}</td>
@@ -150,6 +151,7 @@ export function AuditLog() {
           ))}</tbody>
         </table></div>
       )}
+      {!r.error ? <LoadMore p={r} what="events" /> : null}
     </>
   );
 }

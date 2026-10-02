@@ -304,4 +304,108 @@ const doc = (over: Partial<DocReq>): DocReq => ({ id: 'doc_im', ticker: 'TWLF', 
   assert.deepEqual(failIds(c7(1999)), ['cap12g']); n++;
   assert.equal(c7(1999, true).outcome, 'ALLOW', 'an existing holder adds without changing the count'); n++;
 }
+// Closed-end funds: a subscription needs a capital call; the call travels with the snapshot
+{
+  const closed = (call?: Record<string, unknown> | null) => ctxWith(call === undefined ? {} : { capitalCall: call as any }, (c) => { (c.funds.TWLF as any).fundType = 'closed_end'; });
+  const free = evaluate(subLumen, [], closed());
+  assert.equal(free.outcome, 'DENY'); assert.deepEqual(failIds(free), ['closed_end']);
+  assert.ok(free.checks.find((c) => c.id === 'closed_end')!.detail.includes('free subscription is not accepted')); n++;
+  const call = { id: 'call_test1', ticker: 'TWLF', callNumber: 2, dueOn: '2026-10-20', status: 'issued', amount: 2_000_000 };
+  const paid = evaluate(subLumen, [], closed(call));
+  assert.equal(paid.outcome, 'ALLOW', paid.headline); assert.ok(paid.checks.find((c) => c.id === 'closed_end')!.detail.includes('capital call 2')); n++;
+  assert.deepEqual(failIds(evaluate({ ...subLumen, amount: 1_500_000 }, [], closed(call))), ['closed_end'], 'the paid-in amount must match the notice'); n++;
+  assert.deepEqual(failIds(evaluate(subLumen, [], closed({ ...call, status: 'settled' }))), ['closed_end'], 'a settled call takes no more money'); n++;
+  assert.deepEqual(failIds(evaluate(subLumen, [], closed({ ...call, ticker: 'AGPC' }))), ['closed_end'], 'a call for another fund does not count'); n++;
+  assert.equal(evaluate(redLumen, [], closed()).checks.some((c) => c.id === 'closed_end'), false, 'redemptions and open-ended funds never see the check'); n++;
+  const snap = snapshotFor(subLumen, closed(call));
+  assert.deepEqual(snap.capitalCall, call); assert.equal(replaySnapshot(snap).outcome, 'ALLOW'); n++;
+}
+
+// ---------- Property-based tests: random investors, funds and orders over every jurisdiction ----------
+{
+  const { extendCtx, NEW_LAW } = await import('../src/proto/rulepacks');
+  const base = extendCtx(defaultCtx);
+  let seed = 20261003;
+  const rnd = () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)];
+  const chance = (p: number) => rnd() < p;
+  const JURS = Object.keys(base.jurName).filter((j) => !['GLOBAL', 'US'].includes(j));
+  const BOOKINGS = Object.keys(base.bookingCenters);
+  const classesOf = (jur: string) => Object.entries(base.classInfo).filter(([, m]) => m.jur === jur).map(([k]) => k);
+  const lawFor = (jur: string): any => NEW_LAW[jur] ?? (defaultCtx.funds.TWLF.distribution as any)[jur] ?? (defaultCtx.funds.AGPC.distribution as any)[jur] ?? null;
+  const ASSETS = ['USDC', 'EURC', 'AVB-USD', 'USDT'];
+  const investor = (id: string): any => {
+    const jur = pick(JURS);
+    const codes = classesOf(jur);
+    const held = codes.filter(() => chance(0.6)).concat(chance(0.3) ? [pick(Object.keys(base.classInfo))] : []);
+    const expired = chance(0.15);
+    return {
+      id, name: `Random ${id}`, short: `Random ${id}`, kind: chance(0.5) ? 'Individual' : 'Corporate', residence: jur, city: base.jurName[jur], booking: pick(BOOKINGS),
+      usPerson: jur === 'US' || chance(0.05), wallet: '0x0000…rand', credentialId: chance(0.9) ? `LP-${id}` : '', issued: '2026-01-01', expires: expired ? '2026-09-01' : '2027-06-01',
+      classifications: held.map((code) => ({ code, basis: 'random', verified: '2026-01-01', expires: chance(0.1) ? '2026-09-01' : '2027-06-01', ...(chance(0.8) ? { optIn: '2026-01-01' } : {}) })),
+      holdings: {},
+    };
+  };
+  const fund = (id: string): any => {
+    const src = clone(pick([defaultCtx.funds.TWLF, defaultCtx.funds.NMEL, defaultCtx.funds.AGPC]));
+    const dist: Record<string, unknown> = {};
+    for (const j of JURS) if (chance(0.5)) { const l = lawFor(j); if (l) { const acc = l.accepts.filter(() => chance(0.8)); dist[j] = { ...l, accepts: acc.length ? acc : l.accepts }; } }
+    return {
+      ...src, id, ticker: id, distribution: dist, holders: Math.floor(rnd() * 120), holderCap: chance(0.3) ? 100 : null, lockupMonths: chance(0.3) ? 12 : null,
+      minSubscription: pick([0, 1000, 100_000]), gatePct: chance(0.3) ? 10 : null, noticeDays: chance(0.3) ? 5 : 0, cutoffTime: '16:00', cutoffTz: 'America/New_York', dealingFrequency: pick(['daily', 'monthly', 'quarterly']),
+      ...(chance(0.15) ? { fundType: 'closed_end' } : {}),
+    };
+  };
+  const ELIG_ONLY_REDEEM = new Set(['holding', 'lock', 'notice', 'gate']);
+  const SCREEN_IDS = new Set(['screen', 'cpScreen', 'sanc']);
+  const N = 600;
+  const t0 = Date.now();
+  const outcomes: Record<string, number> = { ALLOW: 0, DENY: 0, FREEZE: 0 };
+  for (let i = 0; i < N; i++) {
+    const f = fund(`RF${i % 7}`);
+    const a = investor(`a${i}`); const b = investor(`b${i}`);
+    if (chance(0.6)) a.holdings[f.id] = { units: Math.round(rnd() * 2_000_000), since: pick(['2024-01-10', '2026-01-10', '2026-09-20']) };
+    if (chance(0.3)) b.holdings[f.id] = { units: 1000, since: '2025-01-01' };
+    const hitName = chance(0.08) ? pick([a.name, b.name]) : null;
+    const action = pick(['subscribe', 'subscribe', 'transfer', 'redeem', 'redeem'] as const);
+    const amount = pick([500, 50_000, 250_000, 1_000_000]);
+    const asset = action === 'redeem' ? f.assets[0] : pick(ASSETS);
+    const order: Order = { action, investorId: a.id, fundId: f.id, amount, asset, ...(action === 'transfer' ? { counterpartyId: b.id } : {}) };
+    const ctx: Ctx = {
+      ...base, investors: { [a.id]: a, [b.id]: b }, funds: { [f.id]: f }, today: '2026-10-03',
+      now: chance(0.7) ? '2026-10-03T14:00:00Z' : undefined,
+      screen: (name) => (name === hitName ? { entry: name.toUpperCase(), program: 'TEST', source: 'TEST', score: 0.9 } : null),
+      aum: chance(0.5) ? { [f.id]: 4_000_000 } : undefined, redeemedInPeriod: chance(0.5) ? { [f.id]: 300_000 } : undefined,
+      notices: chance(0.5) ? { [`${a.id}:${f.id}`]: [{ units: 100_000, dealingDate: '2026-10-03' }] } : undefined,
+      rulePacks: { 'SG/eligibility': '2026.09.0', 'global/sanctions': '2026-10-01' },
+      capitalCall: chance(0.5) ? { id: 'call_rand', ticker: f.id, callNumber: 1, dueOn: '2026-10-20', status: 'issued', amount } : null,
+    };
+    const whatIfs = chance(0.1) ? [pick(['expired', 'sanctioned', 'capFull', 'badAsset', 'becameUS'] as const)] : [];
+    const d = evaluate(order, whatIfs, ctx);
+    outcomes[d.outcome]++;
+    const fails = d.checks.filter((c) => c.result === 'fail');
+    const label = `case ${i} (${action} ${a.residence}/${a.booking} on ${f.id}): ${d.headline}`;
+    // 1. A redemption is never denied for eligibility reasons alone.
+    if (action === 'redeem' && d.outcome === 'DENY') assert.ok(fails.every((c) => ELIG_ONLY_REDEEM.has(c.id) || (c.id === 'asset' && whatIfs.includes('badAsset'))), `${label} denied on ${fails.map((c) => c.id).join(', ')}`);
+    // 2. A freeze always carries a screening or sanctions failure.
+    if (d.outcome === 'FREEZE') assert.ok(fails.some((c) => SCREEN_IDS.has(c.id)), `${label} froze without a screening check`);
+    // 3. Allow means every check passed or was informational.
+    if (d.outcome === 'ALLOW') assert.ok(d.checks.every((c) => c.result === 'pass' || c.result === 'info' || c.result === 'na'), `${label} allowed with a failing check`);
+    // 4. Determinism: the same inputs give the same checks and hash.
+    const d2 = evaluate(order, whatIfs, ctx);
+    assert.deepEqual(d2.checks, d.checks, `${label} is not deterministic`);
+    assert.equal(await inputsHash(d2), await inputsHash(d), `${label} hash differs between runs`);
+    // 5. The snapshot reproduces the decision.
+    const snap = JSON.parse(JSON.stringify(snapshotFor(order, ctx, whatIfs)));
+    const r = replaySnapshot(snap);
+    assert.equal(r.outcome, d.outcome, `${label} replayed as ${r.outcome}`);
+    assert.deepEqual(r.checks, d.checks, `${label} replayed checks differ`);
+    assert.equal(await inputsHash(r), await inputsHash(d), `${label} replayed hash differs`);
+  }
+  const ms = Date.now() - t0;
+  assert.ok(ms < 5000, `${N} generated cases took ${ms} ms, over the 5 s budget`);
+  assert.ok(outcomes.ALLOW > 0 && outcomes.DENY > 0 && outcomes.FREEZE > 0, `generator covered every outcome: ${JSON.stringify(outcomes)}`);
+  console.log(`${N} generated cases in ${ms} ms: ${outcomes.ALLOW} allowed, ${outcomes.DENY} denied, ${outcomes.FREEZE} frozen`);
+  n++;
+}
 console.log(`${n} engine and threshold tests passed`);

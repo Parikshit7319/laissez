@@ -7,9 +7,26 @@ import { rpFor, verifyRegistration, verifyAssertion, type RegistrationResponse, 
 import { discover, pkce, verifyIdToken, exchangeCode, DEMO_IDP_CLIENT, DEMO_PEOPLE } from './oidc';
 import { seedQueries } from './seed';
 import { runMonitor } from './monitor';
+import { isProduction, fictionalOnly } from './mode';
 
 const ROLES = ['admin', 'ops', 'compliance', 'issuer', 'developer', 'auditor'] as const;
 const roleZ = z.enum(ROLES);
+const emailZ = z.string().trim().toLowerCase().email().max(160);
+
+// Request bodies, exported so api/src/openapi-gen.ts derives their JSON Schema for the OpenAPI document.
+export const sandboxIn = z.object({ name: z.string().max(80).optional() });
+export const registerOptionsIn = z.object({ email: emailZ, name: z.string().trim().min(2).max(80), org_name: z.string().trim().min(2).max(80).optional(), invite_token: z.string().optional(), demo_data: z.boolean().default(true) });
+export const registerVerifyIn = z.object({ challenge_id: z.string().uuid(), credential: z.any() });
+export const loginVerifyIn = z.object({ challenge_id: z.string().uuid(), credential: z.any(), workspace_id: z.string().uuid().optional() });
+export const ssoExchangeIn = z.object({ code: z.string().min(10) });
+export const profileIn = z.object({ name: z.string().trim().min(2).max(80).optional(), email: emailZ.optional(), title: z.string().trim().max(80).nullable().optional() });
+export const actAsIn = z.object({ user_id: z.string().uuid().nullable() });
+export const switchIn = z.object({ workspace_id: z.string().uuid() });
+export const passkeyVerifyIn = z.object({ challenge_id: z.string().uuid(), credential: z.any(), name: z.string().max(60).optional() });
+export const memberRoleIn = z.object({ role: roleZ });
+export const inviteIn = z.object({ email: emailZ, role: roleZ });
+export const organizationIn = z.object({ name: z.string().trim().min(2).max(80).optional(), brand_name: z.string().trim().min(2).max(80).optional(), brand_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() });
+export const ssoIn = z.object({ enabled: z.boolean(), issuer: z.string().url(), client_id: z.string().min(3).max(200), client_secret: z.string().min(8).max(500).optional(), email_domain: z.string().toLowerCase().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/), default_role: roleZ.default('auditor'), label: z.string().max(80).optional() });
 const allowedOrigins = (env: Env) => env.ALLOWED_ORIGINS.split(',').map((s) => s.trim());
 const ipHash = async (c: C) => sha256(c.req.header('cf-connecting-ip') ?? 'unknown');
 
@@ -128,11 +145,13 @@ const SANDBOX_TEAM = [
 export const pub = router();
 
 pub.post('/sandboxes', async (c) => {
+  // Sandboxes are fictional: a production deployment has none (api/src/mode.ts).
+  fictionalOnly(c.env, 'The sandbox');
   const admin = adminSql(c.env.DATABASE_URL);
   if (!(await rateLimit(admin, `sandbox:${await ipHash(c)}`, 10, 3600))) throw new ApiError(429, 'rate_limited', 'You have opened 10 sandboxes in the last hour. Use an existing one or try again later.');
   const [{ n }] = await admin`select count(*)::int as n from workspaces where kind = 'sandbox' and expires_at > now()`;
   if (n >= Number(c.env.MAX_ACTIVE_SANDBOXES)) throw new ApiError(503, 'capacity', 'All sandboxes are in use right now. Try again tomorrow.');
-  const { name } = await body(c, z.object({ name: z.string().max(80).optional() }));
+  const { name } = await body(c, sandboxIn);
   const ws = crypto.randomUUID();
   const key = `lz_test_${rand(32)}`;
   const guest = crypto.randomUUID();
@@ -156,10 +175,9 @@ pub.post('/sandboxes', async (c) => {
 });
 
 // ---------- Passkey registration and sign-in ----------
-const emailZ = z.string().trim().toLowerCase().email().max(160);
 pub.post('/auth/register/options', async (c) => {
   const admin = adminSql(c.env.DATABASE_URL);
-  const b = await body(c, z.object({ email: emailZ, name: z.string().trim().min(2).max(80), org_name: z.string().trim().min(2).max(80).optional(), invite_token: z.string().optional(), demo_data: z.boolean().default(true) }));
+  const b = await body(c, registerOptionsIn);
   if (!(await rateLimit(admin, `register:${await ipHash(c)}`, 8, 3600))) throw new ApiError(429, 'rate_limited', 'Too many sign-up attempts from this network. Try again in an hour.');
   const exists = await admin`select 1 from users where email = ${b.email} and sandbox_workspace is null`;
   if (exists.length) throw new ApiError(409, 'account_exists', 'An account with this email already exists. Sign in with your passkey instead.');
@@ -184,7 +202,9 @@ pub.post('/auth/register/options', async (c) => {
   });
 });
 
-async function createOrg(admin: Sql, name: string, userId: string, demo: boolean) {
+async function createOrg(admin: Sql, name: string, userId: string, demo: boolean, env?: Env) {
+  // Fictional seed data never lands in a production organization, whatever the sign-up form asked for.
+  if (env && isProduction(env)) demo = false;
   const ws = crypto.randomUUID();
   const slug = `${slugify(name)}-${rand(4)}`;
   await admin.transaction([
@@ -198,7 +218,7 @@ async function createOrg(admin: Sql, name: string, userId: string, demo: boolean
 
 pub.post('/auth/register/verify', async (c) => {
   const admin = adminSql(c.env.DATABASE_URL);
-  const b = await body(c, z.object({ challenge_id: z.string().uuid(), credential: z.any() }));
+  const b = await body(c, registerVerifyIn);
   const rows = await admin`delete from auth_challenges where id = ${b.challenge_id} and purpose = 'register' and expires_at > now() returning challenge, data`;
   if (!rows.length) throw new ApiError(400, 'challenge_expired', 'This sign-up request expired. Start again.');
   const { challenge, data } = rows[0];
@@ -217,7 +237,7 @@ pub.post('/auth/register/verify', async (c) => {
     await admin`insert into memberships (workspace_id, user_id, role) values (${ws}, ${data.user_id}, ${inv.role}) on conflict do nothing`;
     await audit(admin, ws, { kind: 'user', id: data.user_id, name: data.name }, 'member.joined', data.user_id, { email: data.email, role: inv.role, via: 'invite' });
   } else {
-    ws = await createOrg(admin, data.org_name, data.user_id, data.demo_data);
+    ws = await createOrg(admin, data.org_name, data.user_id, data.demo_data, c.env);
   }
   const token = await createSession(c as C, admin, data.user_id, ws, 'passkey', 24 * 7);
   return c.json({ session_token: token, workspace_id: ws }, 201);
@@ -233,7 +253,7 @@ pub.post('/auth/login/options', async (c) => {
 
 pub.post('/auth/login/verify', async (c) => {
   const admin = adminSql(c.env.DATABASE_URL);
-  const b = await body(c, z.object({ challenge_id: z.string().uuid(), credential: z.any(), workspace_id: z.string().uuid().optional() }));
+  const b = await body(c, loginVerifyIn);
   if (!(await rateLimit(admin, `login:${await ipHash(c)}`, 30, 600))) throw new ApiError(429, 'rate_limited', 'Too many sign-in attempts. Wait ten minutes.');
   const rows = await admin`delete from auth_challenges where id = ${b.challenge_id} and purpose = 'login' and expires_at > now() returning challenge`;
   if (!rows.length) throw new ApiError(400, 'challenge_expired', 'This sign-in request expired. Try again.');
@@ -333,7 +353,7 @@ pub.get('/auth/sso/callback', async (c) => {
 
 pub.post('/auth/sso/exchange', async (c) => {
   const admin = adminSql(c.env.DATABASE_URL);
-  const { code } = await body(c, z.object({ code: z.string().min(10) }));
+  const { code } = await body(c, ssoExchangeIn);
   const rows = await admin`delete from auth_challenges where challenge = ${code} and purpose = 'sso_code' and expires_at > now() returning data`;
   if (!rows.length) throw new ApiError(400, 'sso_code_expired', 'This sign-in link expired. Start single sign-on again.');
   const token = await createSession(c as C, admin, rows[0].data.user_id, rows[0].data.ws, 'sso', 12);
@@ -359,7 +379,7 @@ acct.patch('/me', async (c) => {
   const admin = c.get('admin'); const a = c.get('actor');
   if (a.kind !== 'user') throw new ApiError(403, 'human_required', 'Only a signed-in person has a profile to edit.');
   if (a.userId !== a.realUserId) throw new ApiError(403, 'acting_as', 'Switch back to yourself before editing your profile.');
-  const b = await body(c, z.object({ name: z.string().trim().min(2).max(80).optional(), email: emailZ.optional(), title: z.string().trim().max(80).nullable().optional() }));
+  const b = await body(c, profileIn);
   if (b.email) {
     if (b.email.endsWith('.sandbox') || b.email.endsWith('.example')) throw new ApiError(422, 'real_email_required', 'Use a real email address you can receive mail at.');
     const taken = await admin`select 1 from users where email = ${b.email} and sandbox_workspace is null and id <> ${a.realUserId}`;
@@ -374,8 +394,9 @@ acct.patch('/me', async (c) => {
 acct.post('/session/act-as', async (c) => {
   const admin = c.get('admin'); const a = c.get('actor'); const ws = c.get('ws');
   if (a.kind !== 'user' || !a.sessionId) throw new ApiError(403, 'human_required', 'Only a signed-in person can switch teammates.');
+  if (isProduction(c.env)) throw new ApiError(403, 'sandbox_only', 'Acting as a teammate exists only in sandboxes. This deployment runs in production mode.');
   if (c.get('wsKind') !== 'sandbox') throw new ApiError(403, 'sandbox_only', 'Acting as a teammate exists only in sandboxes, to try two-person approval alone.');
-  const { user_id } = await body(c, z.object({ user_id: z.string().uuid().nullable() }));
+  const { user_id } = await body(c, actAsIn);
   if (user_id) {
     const ok = await admin`select 1 from memberships m join users u on u.id = m.user_id where m.workspace_id = ${ws} and u.id = ${user_id} and u.fictional`;
     if (!ok.length) throw new ApiError(404, 'not_found', 'That teammate is not part of this sandbox.');
@@ -388,7 +409,7 @@ acct.post('/session/act-as', async (c) => {
 acct.post('/session/switch', async (c) => {
   const admin = c.get('admin'); const a = c.get('actor');
   if (a.kind !== 'user') throw new ApiError(403, 'human_required', 'Only a signed-in person can switch organizations.');
-  const { workspace_id } = await body(c, z.object({ workspace_id: z.string().uuid() }));
+  const { workspace_id } = await body(c, switchIn);
   const ok = await admin`select 1 from memberships m join workspaces w on w.id = m.workspace_id where m.user_id = ${a.realUserId} and m.workspace_id = ${workspace_id} and (w.expires_at is null or w.expires_at > now())`;
   if (!ok.length) throw new ApiError(403, 'not_a_member', 'You are not a member of that organization.');
   await admin`update sessions set revoked_at = now() where id = ${a.sessionId}`;
@@ -445,7 +466,7 @@ acct.post('/passkeys/options', async (c) => {
 });
 acct.post('/passkeys/verify', async (c) => {
   const admin = c.get('admin'); const a = c.get('actor');
-  const b = await body(c, z.object({ challenge_id: z.string().uuid(), credential: z.any(), name: z.string().max(60).optional() }));
+  const b = await body(c, passkeyVerifyIn);
   const rows = await admin`delete from auth_challenges where id = ${b.challenge_id} and purpose = 'add_passkey' and expires_at > now() returning challenge, data`;
   if (!rows.length || rows[0].data.user_id !== a.realUserId) throw new ApiError(400, 'challenge_expired', 'This request expired. Try again.');
   const pk = verifyRegistration(b.credential as RegistrationResponse, rows[0].challenge, allowedOrigins(c.env));
@@ -470,7 +491,7 @@ acct.get('/members', async (c) => {
 acct.patch('/members/:id', async (c) => {
   need(c, 'members:admin');
   const admin = c.get('admin'); const ws = c.get('ws');
-  const { role } = await body(c, z.object({ role: roleZ }));
+  const { role } = await body(c, memberRoleIn);
   if (role !== 'admin') {
     const [{ n }] = await admin`select count(*)::int as n from memberships where workspace_id = ${ws} and role = 'admin' and user_id <> ${c.req.param('id')}`;
     if (n === 0) throw new ApiError(422, 'last_admin', 'An organization needs at least one administrator.');
@@ -498,7 +519,7 @@ acct.get('/invites', async (c) => {
 acct.post('/invites', async (c) => {
   need(c, 'members:admin');
   const sql = c.get('sql'); const ws = c.get('ws'); const a = c.get('actor');
-  const b = await body(c, z.object({ email: emailZ, role: roleZ }));
+  const b = await body(c, inviteIn);
   const token = `inv_${rand(32)}`;
   const [row] = await sql`insert into invites (workspace_id, email, role, token_hash, created_by) values (${ws}, ${b.email}, ${b.role}, ${await sha256(token)}, ${a.realUserId ?? null}) returning id, expires_at`;
   await audit(sql, ws, a, 'member.invited', row.id, { email: b.email, role: b.role });
@@ -520,7 +541,7 @@ acct.delete('/invites/:id', async (c) => {
 // Organization settings and SSO
 acct.patch('/organization', async (c) => {
   need(c, 'members:admin');
-  const b = await body(c, z.object({ name: z.string().trim().min(2).max(80).optional(), brand_name: z.string().trim().min(2).max(80).optional(), brand_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() }));
+  const b = await body(c, organizationIn);
   const [w] = await c.get('sql')`update workspaces set name = coalesce(${b.name ?? null}, name), brand_name = coalesce(${b.brand_name ?? null}, brand_name), brand_color = coalesce(${b.brand_color ?? null}, brand_color) where id = ${c.get('ws')} returning id, name, brand_name, brand_color`;
   await audit(c.get('sql'), c.get('ws'), c.get('actor'), 'organization.updated', c.get('ws'), b);
   return c.json(w);
@@ -534,7 +555,7 @@ acct.get('/sso', async (c) => {
 acct.put('/sso', async (c) => {
   need(c, 'members:admin');
   if (c.get('wsKind') === 'sandbox') throw new ApiError(403, 'sandbox_only', 'Sandboxes use the demo identity provider. Create an organization to connect your own.');
-  const b = await body(c, z.object({ enabled: z.boolean(), issuer: z.string().url(), client_id: z.string().min(3).max(200), client_secret: z.string().min(8).max(500).optional(), email_domain: z.string().toLowerCase().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/), default_role: roleZ.default('auditor'), label: z.string().max(80).optional() }));
+  const b = await body(c, ssoIn);
   const admin = c.get('admin'); const ws = c.get('ws');
   const [w] = await admin`select sso from workspaces where id = ${ws}`;
   const secret = b.client_secret ? await seal(c.env, b.client_secret) : w.sso?.client_secret;

@@ -6,8 +6,10 @@ import { RecoverySignIn } from './views/settings2';
 import { AuthProvider, Gate, InviteScreen, NoAccess, ROLE_LABEL, ROLE_SHORT, SsoError, SsoExchange, useMe, type Role } from './auth';
 import { isActive, matchRoute, navGroups } from './registry';
 import { NotificationBell } from './views/notifications';
+import { SearchPalette, SearchButton } from './views/search';
 import { Search } from '../components/Search';
 import { Checklist, markTeammateSwitched } from '../components/Checklist';
+import { applyTheme, readTheme, setTheme, onThemeChange, THEMES, type Theme } from './theme';
 import '../styles/proto.css';
 import '../styles/app.css';
 
@@ -27,6 +29,8 @@ const parse = (): Route => {
 
 export default function App() {
   const [route, setRoute] = useState<Route>(parse);
+  // Apply the saved theme before the first paint of the shell; the Appearance setting and the account menu change it later.
+  useEffect(() => { applyTheme(readTheme()); }, []);
   const [ready, setReady] = useState<boolean>(hasCredential);
   const [notice, setNotice] = useState<string | null>(null);
   const [session, setSessionN] = useState(0);
@@ -130,6 +134,7 @@ function Shell({ route }: { route: Route }) {
           <span class="crumb">{ws.name}{isSandbox ? <span class="crumb-k">Sandbox</span> : null}</span>
           <span class="grow" />
           {isSandbox && me!.user ? <TeammateSwitcher /> : null}
+          <SearchButton />
           <NotificationBell />
           <AccountMenu />
         </div>
@@ -140,13 +145,14 @@ function Shell({ route }: { route: Route }) {
         </main>
       </div>
       {help ? <ShortcutsDialog onClose={() => setHelp(false)} /> : null}
+      <SearchPalette />
     </div>
   );
 }
 
 function ShortcutsDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => { const el = document.getElementById('sc-close'); el?.focus(); }, []);
-  const rows: [string, string][] = [['/', 'Search pages'], ['g then o', 'Overview'], ['g then n', 'New order'], ['g then c', 'Clients'], ['g then d', 'Decisions'], ['g then s', 'Settlements'], ['g then f', 'Funds'], ['g then w', 'Work queue'], ['g then a', 'Audit log'], ['?', 'This list'], ['Esc', 'Close menus']];
+  const rows: [string, string][] = [['/', 'Search pages'], ['Ctrl or Cmd + K', 'Search clients, decisions, funds and more'], ['g then o', 'Overview'], ['g then n', 'New order'], ['g then c', 'Clients'], ['g then d', 'Decisions'], ['g then s', 'Settlements'], ['g then f', 'Funds'], ['g then w', 'Work queue'], ['g then a', 'Audit log'], ['?', 'This list'], ['Esc', 'Close menus']];
   return (
     <div class="sc-wrap" role="presentation" onClick={onClose}>
       <div class="sc" role="dialog" aria-modal="true" aria-labelledby="sc-h" onClick={(e) => e.stopPropagation()}>
@@ -203,6 +209,19 @@ function ActingBanner() {
   );
 }
 
+function ThemeToggle() {
+  const [theme, setLocal] = useState<Theme>(readTheme);
+  useEffect(() => onThemeChange(setLocal), []);
+  return (
+    <div class="menu-sec">
+      <p class="menu-h">Appearance</p>
+      <div class="theme-seg" role="radiogroup" aria-label="Theme">
+        {THEMES.map((t) => <button type="button" role="radio" aria-checked={theme === t.id} class={theme === t.id ? 'on' : ''} title={t.hint} onClick={() => { setTheme(t.id); setLocal(t.id); }}>{t.label}</button>)}
+      </div>
+    </div>
+  );
+}
+
 function AccountMenu() {
   const { me, isSandbox, switchOrg, signOut } = useMe();
   const [err, setErr] = useState<any>(null);
@@ -237,6 +256,7 @@ function AccountMenu() {
               </ul>
             </div>
           ) : null}
+          <ThemeToggle />
           <div class="menu-sec">
             <a class="menu-a" href="#/settings/security" onClick={close}>Security settings</a>
             <button type="button" class="menu-a" onClick={() => { close(); signOut(); }}>{isSandbox ? 'Sign out of this sandbox' : 'Sign out'}</button>

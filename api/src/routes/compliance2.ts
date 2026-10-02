@@ -6,6 +6,7 @@ import type { Sql } from '../db';
 import { router, need, audit, auditQ, body, bg, type C } from '../http';
 import { ApiError, today, addDays } from '../util';
 import { notify, unreadCount } from '../notifications';
+import { pageParams, pageOut } from '../pagination';
 import { TRP_VERSION, confirmEndpoint, trpPost, safeCallback, beneficiaryName, originatingVaspName } from '../trp';
 import { limitFor } from './reports';
 import { PLACEMENT_WARN_AT } from '../monitor';
@@ -25,18 +26,20 @@ export const routes = router();
 /** API keys have no user, so they see organization-wide notifications only. */
 const viewerId = (c: C): string | null => c.get('actor').userId ?? null;
 
+/** Notifications, newest first. Filter: unread. Cursor pagination (limit, cursor). */
 routes.get('/notifications', async (c) => {
   need(c, 'read');
   const sql = c.get('sql'); const ws = c.get('ws'); const uid = viewerId(c);
   const unreadOnly = c.req.query('unread') === 'true';
-  const limit = Math.max(1, Math.min(200, Number(c.req.query('limit') ?? 50) || 50));
+  const page = pageParams(c, 50, 200);
   const [rows, unread] = await Promise.all([
     sql`select id, kind, title, body, link, created_at, read_at, (user_id is null) as organization_wide from notifications
         where workspace_id = ${ws} and (user_id is null or user_id = ${uid}::uuid) and (${unreadOnly} = false or read_at is null)
-        order by created_at desc limit ${limit}`,
+          and (${page.at}::timestamptz is null or (created_at, id) < (${page.at}::timestamptz, ${page.id}))
+        order by created_at desc, id desc limit ${page.limit + 1}`,
     unreadCount(sql, ws, uid),
   ]);
-  return c.json({ data: rows, unread, poll_seconds: 60 });
+  return c.json({ ...pageOut(rows as any[], page), unread, poll_seconds: 60 });
 });
 
 routes.post('/notifications/read-all', async (c) => {

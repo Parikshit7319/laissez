@@ -14,6 +14,8 @@ import { emit } from './ctx';
 import { auditQ, SYSTEM, type Actor } from './http';
 import { noticeExecutionQueries } from './fundops-core';
 import { travelRuleConfirmRaw } from './routes/travel';
+import { isProduction } from './mode';
+import { flag } from './flags';
 
 // ---------- Constants and ABIs ----------
 export const CLAIM_TOPIC = 10101n;
@@ -82,10 +84,15 @@ export type Deployment = {
 };
 
 let depCache: { at: number; value: Deployment | null } | null = null;
+/** The last env seen, so loadDeployment (which has no env parameter) can apply the deployment mode. */
+let currentEnv: Env | null = null;
+export const rememberEnv = (env: Env | null | undefined) => { if (env) currentEnv = env; };
 export async function loadDeployment(admin: Sql, fresh = false): Promise<Deployment | null> {
   if (!fresh && depCache && Date.now() - depCache.at < 60_000) return depCache.value;
   const rows = await admin`select value from chain_config where key = 'deployment'`;
   const value = (rows[0]?.value ?? null) as Deployment | null;
+  // Test cash auto-mint is a sandbox convenience: production never reports or relies on it, whatever the deployment says.
+  if (value && isProduction(currentEnv)) value.autoFundTestCash = false;
   depCache = { at: Date.now(), value };
   return value;
 }
@@ -317,9 +324,11 @@ function later(c: any, p: Promise<unknown>) {
 }
 const adminOf = (c: any): Sql => { try { const a = c.get('admin'); if (a) return a; } catch { /* not set */ } return adminSql(c.env.DATABASE_URL); };
 
-/** True only when the operator key is set and a deployment is recorded in chain_config. */
+/** True only when the operator key is set, the chain_settlement flag is on for the organization, and a deployment is recorded in chain_config. */
 export async function chainEnabled(c: any): Promise<boolean> {
   if (!c.env?.CHAIN_OPERATOR_KEY) return false;
+  rememberEnv(c.env);
+  if (!(await flag(c, 'chain_settlement'))) return false;
   try { return !!(await loadDeployment(adminOf(c))); } catch { return false; }
 }
 
@@ -386,6 +395,7 @@ export async function onPolicyPublished(c: any, ticker: string): Promise<void> {
  */
 export async function processPendingChainJobs(env: Env, limit: number, opts: { admin?: Sql; budget?: number } = {}): Promise<void> {
   if (!env.CHAIN_OPERATOR_KEY || !env.DATABASE_URL) return;
+  rememberEnv(env);
   const admin = opts.admin ?? adminSql(env.DATABASE_URL);
   const inWorker = typeof navigator !== 'undefined' && (navigator as any).userAgent === 'Cloudflare-Workers';
   const budget: Budget = { left: opts.budget ?? (inWorker ? 38 : Number.POSITIVE_INFINITY) };
@@ -400,6 +410,7 @@ export async function processPendingChainJobs(env: Env, limit: number, opts: { a
 
 /** Claims one job and runs it. Safe to call concurrently: only one caller wins the claim. */
 export async function processChainJob(admin: Sql, env: Env, jobId: string, budget: Budget = { left: Number.POSITIVE_INFINITY }): Promise<JobRow | null> {
+  rememberEnv(env);
   const [job] = (await admin`update chain_jobs set status = 'running', attempts = attempts + 1, updated_at = now()
     where id = ${jobId} and (status = 'queued' or (status = 'running' and updated_at < now() - interval '90 seconds')) returning *`) as JobRow[];
   if (!job) return null;
@@ -857,6 +868,8 @@ async function runBreakDemo(admin: Sql, ch: Chain, env: Env, job: JobRow) {
 
 /** Sandbox demo: the operator mints units straight to an investor's wallet without touching the register, which creates a real break. */
 export async function simulateBreak(admin: Sql, env: Env, ws: string, investorId: string, ticker: string, units = 1000) {
+  rememberEnv(env);
+  if (isProduction(env)) throw new ApiError(404, 'not_found', 'Simulated breaks exist only in sandbox mode. This deployment runs in production mode.');
   const dep = await loadDeployment(admin);
   if (!dep) throw new ApiError(409, 'chain_not_configured', 'On-chain settlement is not configured, so there is nothing to reconcile.');
   if (!dep.funds[ticker]) throw new ApiError(404, 'not_found', `${ticker} has no on-chain token suite.`);
@@ -1071,6 +1084,7 @@ export async function anchorAudit(admin: Sql, env: Env) {
 
 // ---------- Read models for the routes ----------
 export async function chainOverview(admin: Sql, env: Env) {
+  rememberEnv(env);
   const dep = await loadDeployment(admin);
   const enabled = !!env.CHAIN_OPERATOR_KEY && !!dep;
   if (!dep) return { enabled: false, configured: { operator_key: !!env.CHAIN_OPERATOR_KEY, deployment: false }, message: 'No contracts are deployed yet. Settlements run on the simulated register until they are.' };
