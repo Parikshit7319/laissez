@@ -2,14 +2,22 @@
 import Layout from '../layouts/Layout.astro';
 import { url } from '../lib/url';
 const endpoints = [
-  ['POST', '/v1/credentials', 'Issue or renew an eligibility credential from your KYC record'],
-  ['GET', '/v1/credentials/{id}', 'Read a credential, its classifications and expiry'],
+  ['POST', '/v1/sandboxes', 'Open a sandbox with fictional data and get a test key (no auth)'],
+  ['GET', '/v1/investors', 'List clients with credential status'],
+  ['POST', '/v1/investors', 'Add a client'],
+  ['POST', '/v1/credentials', 'Issue or renew a credential; every classification is checked against its threshold'],
+  ['POST', '/v1/credentials/{id}/revoke', 'Revoke a credential; holdings move to redemption-only'],
   ['POST', '/v1/decisions', 'Evaluate a subscription, transfer or redemption before execution'],
-  ['GET', '/v1/decisions/{id}', 'Fetch a decision with its full rule trace'],
-  ['POST', '/v1/settlements', 'Execute an allowed decision as an atomic swap'],
-  ['GET', '/v1/funds/{ticker}/policy', 'Read an issuer’s current distribution policy'],
+  ['GET', '/v1/decisions/{id}', 'A decision with its rule trace and signed receipt'],
+  ['POST', '/v1/settlements', 'Settle an allowed decision atomically; re-checks current state first'],
+  ['POST', '/v1/eligibility/bulk', 'Check up to 200 clients against every fund at once'],
+  ['GET', '/v1/funds/{ticker}/register', 'Holders and their status'],
   ['POST', '/v1/funds/{ticker}/policy/preview', 'Preview the effect of a policy change on existing holders'],
-  ['GET', '/v1/rule-packs', 'List rule packs and versions in force'],
+  ['POST', '/v1/funds/{ticker}/policy/changes', 'Propose a change; a different person must approve it'],
+  ['POST', '/v1/receipts/verify', 'Verify a decision receipt’s Ed25519 signature (no auth)'],
+  ['GET', '/v1/rule-packs', 'Rule packs and versions in force (no auth)'],
+  ['POST', '/v1/webhooks', 'Register a signed event endpoint'],
+  ['GET', '/v1/metrics', 'Decisions, allow rate, settled value and credential reuse'],
 ];
 const events = [
   ['decision.created', 'A pre-trade decision was evaluated'],
@@ -25,7 +33,8 @@ const events = [
     <div class="wrap">
       <p class="eyebrow">Developers</p>
       <h1>Compliance as one API call before every order.</h1>
-      <p class="lede">REST with JSON, idempotency keys on every write and signed webhooks. Sandbox access comes with the design partner program. The reference below is the planned v1 surface.</p>
+      <p class="lede">REST with JSON, signed webhooks and signed decision receipts. The sandbox API is live at <code class="base">https://laissez-api.laissez.workers.dev</code>. Open a sandbox to get a test key, or use the API explorer inside the app.</p>
+      <div class="hero-cta"><a class="btn brass" href={url('app/')}>Open the sandbox</a><a class="btn" href={url('app/#/explorer')}>API explorer</a></div>
     </div>
   </section>
 
@@ -82,7 +91,7 @@ const events = [
     <div class="wrap cols-2">
       <div><p class="eyebrow">Getting started</p><h2>From sandbox to first settlement.</h2></div>
       <ol class="steps">
-        <li><div><h4>Join the design partner program</h4><p>We issue sandbox keys and a test fund with fictional investors across six jurisdictions.</p></div></li>
+        <li><div><h4>Open a sandbox</h4><p><code>curl -X POST https://laissez-api.laissez.workers.dev/v1/sandboxes</code> returns a test key and a workspace with fictional investors across six jurisdictions.</p></div></li>
         <li><div><h4>Issue credentials from your KYC records</h4><p>Map your classifications once; the sandbox validates them against each rule pack.</p></div></li>
         <li><div><h4>Call decisions from your order flow</h4><p>Start in shadow mode: log Laissez’s answer next to your current process before you rely on it.</p></div></li>
         <li><div><h4>Settle on testnet, then mainnet</h4><p>Production access opens corridor by corridor, with counsel-approved rule packs.</p></div></li>
@@ -97,4 +106,5 @@ const events = [
   .m.post { color: #6d5222; background: rgba(201, 169, 110, 0.18); }
   .m.get { color: #0e6a50; background: rgba(14, 122, 91, 0.1); }
   .ev { color: var(--brass-2); }
+  .base { font-size: 0.9em; color: var(--brass-2); }
 </style>

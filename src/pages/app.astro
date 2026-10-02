@@ -1,0 +1,22 @@
+---
+import '../styles/global.css';
+import App from '../app/App';
+import { url } from '../lib/url';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Laissez app</title>
+  <meta name="description" content="The Laissez sandbox: issue credentials, run pre-trade decisions, settle atomically and manage fund distribution policy." />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" type="image/svg+xml" href={url('favicon.svg')} />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,300..600,0..100,0..1;1,9..144,300..600,0..100,0..1&family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body class="app-body">
+  <App client:only="preact" />
+</body>
+</html>

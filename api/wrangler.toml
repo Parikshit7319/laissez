@@ -1,0 +1,13 @@
+name = "laissez-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# Sandboxes expire after 7 days; this job removes them daily.
+[triggers]
+crons = ["17 6 * * *"]
+
+[vars]
+ALLOWED_ORIGINS = "https://parikshit7319.github.io,http://localhost:4321"
+MAX_ACTIVE_SANDBOXES = "500"
+
+# Secret, set with: wrangler secret put DATABASE_URL

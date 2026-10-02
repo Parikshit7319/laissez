@@ -4,9 +4,28 @@
 // stricter one binds and the trace says which.
 
 import {
-  SIM_DATE, type Jur, type ClassCode, type Fund, type Investor, type FundId, type InvestorId,
+  SIM_DATE, type Jur, type ClassCode, type Fund, type Investor, type BookingCenter,
   classInfo, bookingCenters, funds as FUNDS, investors as INVESTORS, jurName, sanctionedJurisdictions,
 } from './data';
+
+export type ClassMeta = { label: string; stamp: string; jur: Jur; rule: string; source: string; threshold: string };
+/** Everything the resolver reads. The demo uses the static defaults; the API loads it from the database. */
+export type Ctx = {
+  investors: Record<string, Investor>;
+  funds: Record<string, Fund>;
+  classInfo: Record<string, ClassMeta>;
+  bookingCenters: Record<string, BookingCenter>;
+  jurName: Record<string, string>;
+  sanctioned: Record<string, string>;
+  today: string;
+  /** Name screening against a watchlist. Returns the matching entry, or null. */
+  screen?: (name: string) => { entry: string; program: string } | null;
+};
+export const defaultCtx: Ctx = {
+  investors: INVESTORS, funds: FUNDS, classInfo, bookingCenters, jurName, sanctioned: sanctionedJurisdictions as Record<string, string>, today: SIM_DATE,
+};
+// evaluate() is synchronous, so a module-level context is safe even in a shared runtime.
+let C: Ctx = defaultCtx;
 
 export type Action = 'subscribe' | 'transfer' | 'redeem';
 export type WhatIf = 'expired' | 'sanctioned' | 'capFull' | 'dropUAE' | 'badAsset' | 'becameUS';
@@ -22,11 +41,11 @@ export const WHAT_IFS: { id: WhatIf; label: string; hint: string }[] = [
 
 export type Order = {
   action: Action;
-  investorId: InvestorId;
-  fundId: FundId;
+  investorId: string;
+  fundId: string;
   amount: number; // in fund currency
   asset: string;
-  counterpartyId?: InvestorId;
+  counterpartyId?: string;
 };
 
 export type Layer = 'Credential' | 'Fund policy' | 'Residence law' | 'Booking-center licence' | 'Counterparty' | 'Transfer controls' | 'Global screens';
@@ -76,15 +95,15 @@ function addMonths(date: string, m: number): string {
 }
 
 function validClass(inv: Investor, code: ClassCode) {
-  return inv.classifications.find((c) => c.code === code && c.expires >= SIM_DATE);
+  return inv.classifications.find((c) => c.code === code && c.expires >= C.today);
 }
 function anyClass(inv: Investor, code: ClassCode) {
   return inv.classifications.find((c) => c.code === code);
 }
 
 function applyWhatIfs(order: Order, whatIfs: WhatIf[]) {
-  const investor = clone(INVESTORS[order.investorId]);
-  const fund = clone(FUNDS[order.fundId]);
+  const investor = clone(C.investors[order.investorId]);
+  const fund = clone(C.funds[order.fundId]);
   const o = clone(order);
   const applied: WhatIf[] = [];
   for (const w of whatIfs) {
@@ -128,27 +147,27 @@ function eligibilityChecks(inv: Investor, fund: Fund, layerPrefix: '' | 'Counter
   // Fund policy: distribution list
   const dist = fund.distribution[inv.residence];
   if (!dist) {
-    checks.push({ id: 'dist', layer: L('Fund policy'), subject: who, label: `Offered in ${jurName[inv.residence]}`, result: 'fail',
-      detail: `The issuer has not approved ${fund.short} for investors resident in ${jurName[inv.residence]}.`,
-      remedy: `Ask ${fund.issuer.replace(' (fictional)', '')} to add ${jurName[inv.residence]} to the distribution list.` });
+    checks.push({ id: 'dist', layer: L('Fund policy'), subject: who, label: `Offered in ${C.jurName[inv.residence]}`, result: 'fail',
+      detail: `The issuer has not approved ${fund.short} for investors resident in ${C.jurName[inv.residence]}.`,
+      remedy: `Ask ${fund.issuer.replace(' (fictional)', '')} to add ${C.jurName[inv.residence]} to the distribution list.` });
     return { checks, reqs };
   }
-  checks.push({ id: 'dist', layer: L('Fund policy'), subject: who, label: `Offered in ${jurName[inv.residence]}`, result: 'pass', detail: `Approved by the issuer for ${jurName[inv.residence]}. Basis: ${dist.basis}.` });
+  checks.push({ id: 'dist', layer: L('Fund policy'), subject: who, label: `Offered in ${C.jurName[inv.residence]}`, result: 'pass', detail: `Approved by the issuer for ${C.jurName[inv.residence]}. Basis: ${dist.basis}.` });
 
   // Fund policy: accepted classification
   const okFund = dist.accepts.find((c) => c === 'EU_RETAIL' ? true : !!validClass(inv, c));
-  const fundNeed = dist.accepts.map((c) => `${classInfo[c].label}`).join(' or ');
+  const fundNeed = dist.accepts.map((c) => `${C.classInfo[c].label}`).join(' or ');
   if (okFund) {
-    const c = classInfo[okFund];
+    const c = C.classInfo[okFund];
     checks.push({ id: 'fundClass', layer: L('Fund policy'), subject: who, label: `Investor class: ${fundNeed}`, result: 'pass',
-      detail: okFund === 'EU_RETAIL' && !validClass(inv, 'EU_PRO') ? 'UCITS share class open to retail investors.' : `${who} holds ${c.label} status (${c.jur === inv.residence ? jurName[c.jur] : c.jur}).`,
+      detail: okFund === 'EU_RETAIL' && !validClass(inv, 'EU_PRO') ? 'UCITS share class open to retail investors.' : `${who} holds ${c.label} status (${c.jur === inv.residence ? C.jurName[c.jur] : c.jur}).`,
       ruleRef: c.rule, source: c.source });
   } else {
     const lapsed = dist.accepts.map((c) => anyClass(inv, c)).find(Boolean);
     checks.push({ id: 'fundClass', layer: L('Fund policy'), subject: who, label: `Investor class: ${fundNeed}`, result: 'fail',
-      detail: lapsed ? `${who}’s ${classInfo[lapsed.code].label} status expired on ${lapsed.expires}.` : `${who} has no ${fundNeed} status in ${jurName[inv.residence]}.`,
-      ruleRef: classInfo[dist.accepts[0]].rule, source: classInfo[dist.accepts[0]].source,
-      remedy: lapsed ? `Re-verify ${classInfo[lapsed.code].label} status with current evidence.` : `Only investors who qualify as ${fundNeed} can hold this fund in ${jurName[inv.residence]}.` });
+      detail: lapsed ? `${who}’s ${C.classInfo[lapsed.code].label} status expired on ${lapsed.expires}.` : `${who} has no ${fundNeed} status in ${C.jurName[inv.residence]}.`,
+      ruleRef: C.classInfo[dist.accepts[0]].rule, source: C.classInfo[dist.accepts[0]].source,
+      remedy: lapsed ? `Re-verify ${C.classInfo[lapsed.code].label} status with current evidence.` : `Only investors who qualify as ${fundNeed} can hold this fund in ${C.jurName[inv.residence]}.` });
   }
 
   // Residence law
@@ -158,25 +177,25 @@ function eligibilityChecks(inv: Investor, fund: Fund, layerPrefix: '' | 'Counter
     const cl = validClass(inv, code);
     const pass = !!cl && (!needOptIn || !!cl.optIn);
     reqs.push({ jur: inv.residence, code, optIn: needOptIn, layer: L('Residence law'), ruleRef: dist.lawRef, source: dist.lawSource, text: dist.lawText });
-    checks.push({ id: 'law', layer: L('Residence law'), subject: who, label: `${jurName[inv.residence]}: ${classInfo[code].label}${needOptIn ? ' with opt-in' : ''}`,
+    checks.push({ id: 'law', layer: L('Residence law'), subject: who, label: `${C.jurName[inv.residence]}: ${C.classInfo[code].label}${needOptIn ? ' with opt-in' : ''}`,
       result: pass ? 'pass' : 'fail',
       detail: pass ? `${dist.lawText} ${needOptIn ? `Opt-in recorded on ${cl!.optIn}.` : ''}`.trim() : dist.lawText,
       ruleRef: dist.lawRef, source: dist.lawSource,
-      remedy: pass ? undefined : `Investor must qualify as ${classInfo[code].label} in ${jurName[inv.residence]}.` });
+      remedy: pass ? undefined : `Investor must qualify as ${C.classInfo[code].label} in ${C.jurName[inv.residence]}.` });
   } else {
-    checks.push({ id: 'law', layer: L('Residence law'), subject: who, label: `${jurName[inv.residence]}: no investor-class restriction`, result: 'pass', detail: dist.lawText, ruleRef: dist.lawRef, source: dist.lawSource });
+    checks.push({ id: 'law', layer: L('Residence law'), subject: who, label: `${C.jurName[inv.residence]}: no investor-class restriction`, result: 'pass', detail: dist.lawText, ruleRef: dist.lawRef, source: dist.lawSource });
   }
 
   // Booking-center licence
-  const bc = bookingCenters[inv.booking];
+  const bc = C.bookingCenters[inv.booking];
   if (bc.requires) {
     const cl = validClass(inv, bc.requires);
     const optIn = bc.requires === 'SG_AI';
     const pass = !!cl && (!optIn || !!cl.optIn);
     reqs.push({ jur: bc.jur, code: bc.requires, optIn, layer: L('Booking-center licence'), ruleRef: bc.ruleRef, source: bc.source, text: bc.ruleText });
-    checks.push({ id: 'booking', layer: L('Booking-center licence'), subject: who, label: `Booked in ${bc.name}: ${classInfo[bc.requires].label}`, result: pass ? 'pass' : 'fail',
+    checks.push({ id: 'booking', layer: L('Booking-center licence'), subject: who, label: `Booked in ${bc.name}: ${C.classInfo[bc.requires].label}`, result: pass ? 'pass' : 'fail',
       detail: bc.ruleText, ruleRef: bc.ruleRef, source: bc.source,
-      remedy: pass ? undefined : `Classify the client as ${classInfo[bc.requires].label} under ${bc.ruleRef}, or book the order through a center whose rules the client meets.` });
+      remedy: pass ? undefined : `Classify the client as ${C.classInfo[bc.requires].label} under ${bc.ruleRef}, or book the order through a center whose rules the client meets.` });
   }
 
   // Holder cap applies to new holders only
@@ -202,39 +221,45 @@ function resolve(reqs: Requirement[], checks: Check[]) {
     if (!cur || (r.optIn && !cur.optIn)) byKey.set(key, r);
   }
   const resolved = [...byKey.values()].map((r) => ({
-    text: `${classInfo[r.code].label}${r.optIn ? ' with opt-in' : ''} in ${jurName[r.jur]}`,
+    text: `${C.classInfo[r.code].label}${r.optIn ? ' with opt-in' : ''} in ${C.jurName[r.jur]}`,
     layer: r.layer,
     ruleRef: r.ruleRef,
   }));
   // Mark the binding checks: the resolved requirement's source check
   for (const r of byKey.values()) {
-    const target = checks.find((c) => c.layer === r.layer && (c.id === 'law' || c.id === 'booking') && c.label.includes(classInfo[r.code].label));
+    const target = checks.find((c) => c.layer === r.layer && (c.id === 'law' || c.id === 'booking') && c.label.includes(C.classInfo[r.code].label));
     if (target) target.binding = true;
   }
   return resolved;
 }
 
-export function evaluate(order: Order, whatIfs: WhatIf[] = []): Decision {
+export function evaluate(order: Order, whatIfs: WhatIf[] = [], ctx: Ctx = defaultCtx): Decision {
+  C = ctx;
   const { investor: inv, fund, order: o, applied } = applyWhatIfs(order, whatIfs);
   const checks: Check[] = [];
   let reqs: Requirement[] = [];
-  const counterparty = o.counterpartyId ? clone(INVESTORS[o.counterpartyId]) : undefined;
+  const counterparty = o.counterpartyId ? clone(C.investors[o.counterpartyId]) : undefined;
   if (counterparty && applied.includes('dropUAE')) { /* fund already modified */ }
 
   const units = Math.round((o.amount / fund.nav) * 100) / 100;
   const holding = inv.holdings[fund.id];
 
   // ---------- Credential layer ----------
-  const credValid = inv.expires >= SIM_DATE;
+  const hasCred = !!inv.credentialId;
+  const credValid = hasCred && inv.expires >= C.today;
   const needsValid = o.action !== 'redeem';
   checks.push({ id: 'cred', layer: 'Credential', subject: inv.short, label: 'Laissez credential on file',
     result: credValid ? 'pass' : needsValid ? 'fail' : 'info',
-    detail: credValid ? `${inv.credentialId}, issued by Aster & Vale on ${inv.issued}, valid to ${inv.expires}.` : `${inv.credentialId} lapsed on ${inv.expires}. Credentials are valid for 12 months (Laissez policy).${needsValid ? '' : ' Not required to redeem.'}`,
-    remedy: credValid || !needsValid ? undefined : 'Renew the credential: the distributor re-attests KYC and refreshes each classification.' });
+    detail: credValid ? `${inv.credentialId}, issued by ${inv.issuer ?? 'Aster & Vale'} on ${inv.issued}, valid to ${inv.expires}.` : !hasCred ? `No Laissez credential has been issued to ${inv.short}.${needsValid ? '' : ' Not required to redeem.'}` : `${inv.credentialId} lapsed on ${inv.expires}. Credentials are valid for 12 months (Laissez policy).${needsValid ? '' : ' Not required to redeem.'}`,
+    remedy: credValid || !needsValid ? undefined : !hasCred ? 'Issue a credential: record the client’s classification in each relevant jurisdiction.' : 'Renew the credential: the distributor re-attests KYC and refreshes each classification.' });
 
-  checks.push({ id: 'screen', layer: 'Credential', subject: inv.short, label: 'Sanctions name screening', result: 'pass', detail: 'No match against OFAC SDN, UN and EU consolidated lists. Screened at order time.', ruleRef: 'OFAC', source: 'ofac' });
+  const hit = C.screen?.(inv.name) ?? null;
+  checks.push({ id: 'screen', layer: 'Credential', subject: inv.short, label: 'Sanctions name screening', result: hit ? 'fail' : 'pass',
+    detail: hit ? `Potential match with “${hit.entry}” (${hit.program}). Screened at order time.` : 'No match against the screening list. Screened at order time.', ruleRef: 'OFAC', source: 'ofac',
+    remedy: hit ? 'Units are frozen pending review. Compliance confirms or clears the match before anything settles.' : undefined });
+  if (hit) return finish('FREEZE');
 
-  const sanc = sanctionedJurisdictions[inv.residence];
+  const sanc = C.sanctioned[inv.residence];
   if (sanc) {
     checks.push({ id: 'sanc', layer: 'Global screens', subject: inv.short, label: 'Comprehensively sanctioned jurisdiction', result: 'fail', detail: sanc, ruleRef: 'OFAC country programs', source: 'ofac',
       remedy: 'Units are frozen in place. Compliance is alerted and files the required report. No settlement until a licence or legal determination exists.' });
@@ -257,7 +282,7 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = []): Decision {
       remedy: holding && holding.units >= units ? undefined : 'Reduce the transfer to the available balance.' });
     if (fund.lockupMonths && holding) {
       const ends = addMonths(holding.since, fund.lockupMonths);
-      const pass = ends <= SIM_DATE;
+      const pass = ends <= C.today;
       checks.push({ id: 'lock', layer: 'Transfer controls', subject: inv.short, label: `${fund.lockupMonths}-month lock-up`, result: pass ? 'pass' : 'fail',
         detail: pass ? `Lock-up ended ${ends}.` : `Units acquired ${holding.since}. Lock-up ends ${ends}.`, remedy: pass ? undefined : `Transfers open on ${ends}.` });
     }
@@ -269,7 +294,7 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = []): Decision {
     checks.push(...r.checks); reqs = r.reqs;
     if (o.amount >= 1000) {
       checks.push({ id: 'travel', layer: 'Global screens', label: 'Travel Rule data exchanged', result: 'pass',
-        detail: `Originator (${inv.short}, booked ${bookingCenters[inv.booking].name}) and beneficiary (${cp.short}, booked ${bookingCenters[cp.booking].name}) details sent in IVMS101 format before settlement.`,
+        detail: `Originator (${inv.short}, booked ${C.bookingCenters[inv.booking].name}) and beneficiary (${cp.short}, booked ${C.bookingCenters[cp.booking].name}) details sent in IVMS101 format before settlement.`,
         ruleRef: 'FATF R.16', source: 'fatf-r16' });
     }
     checks.push({ id: 'cpScreen', layer: 'Global screens', subject: cp.short, label: 'Counterparty sanctions screening', result: 'pass', detail: 'No match against OFAC SDN, UN and EU consolidated lists.', ruleRef: 'OFAC', source: 'ofac' });
@@ -281,7 +306,7 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = []): Decision {
       remedy: holding && holding.units >= units ? undefined : 'Reduce the redemption to the available balance.' });
     if (fund.lockupMonths && holding) {
       const ends = addMonths(holding.since, fund.lockupMonths);
-      const pass = ends <= SIM_DATE;
+      const pass = ends <= C.today;
       checks.push({ id: 'lock', layer: 'Transfer controls', subject: inv.short, label: `${fund.lockupMonths}-month lock-up`, result: pass ? 'pass' : 'fail',
         detail: pass ? `Lock-up ended ${ends}.` : `Units acquired ${holding.since}. Lock-up ends ${ends}.`, remedy: pass ? undefined : `Redemptions open on ${ends}.` });
     }
@@ -322,8 +347,8 @@ function buildRulePacks(fund: Fund, inv: Investor, cp?: Investor): string[] {
   const packs = new Set<string>();
   packs.add(`fund/${fund.ticker}@2026.09.1`);
   const add = (j: Jur) => { if (j === 'IR') return; packs.add(`${j}/eligibility@${j === 'SG' ? '2026.09.0' : j === 'HK' ? '2026.04.2' : '2026.07.0'}`); };
-  add(inv.residence); add(bookingCenters[inv.booking].jur);
-  if (cp) { add(cp.residence); add(bookingCenters[cp.booking].jur); }
+  add(inv.residence); add(C.bookingCenters[inv.booking].jur);
+  if (cp) { add(cp.residence); add(C.bookingCenters[cp.booking].jur); }
   packs.add('global/sanctions@2026-10-01');
   packs.add('global/travel-rule@2026.07');
   return [...packs];
@@ -380,4 +405,18 @@ export async function inputsHash(d: Decision): Promise<string> {
     for (let i = 0; i < payload.length; i++) { h ^= payload.charCodeAt(i); h = Math.imul(h, 16777619); }
     return (h >>> 0).toString(16).padStart(8, '0').repeat(8);
   }
+}
+
+
+/** Standing of an existing holder, independent of any order. */
+export function holderStatus(inv: Investor, fund: Fund, ctx: Ctx = defaultCtx): { status: 'eligible' | 'redemption-only' | 'frozen'; reason: string } {
+  if (ctx.sanctioned[inv.residence]) return { status: 'frozen', reason: ctx.sanctioned[inv.residence] };
+  const hit = ctx.screen?.(inv.name);
+  if (hit) return { status: 'frozen', reason: `Potential screening match: ${hit.entry}` };
+  if (inv.usPerson && (fund.regS || !fund.usAccepts)) return { status: 'redemption-only', reason: 'U.S. person in a Regulation S fund.' };
+  const dist = fund.distribution[inv.residence];
+  if (!dist) return { status: 'redemption-only', reason: `${ctx.jurName[inv.residence] ?? inv.residence} is not on the fund's distribution list.` };
+  const valid = (code: string) => inv.classifications.some((c) => c.code === code && c.expires >= ctx.today);
+  if (!dist.accepts.some((c) => c === 'EU_RETAIL' || valid(c))) return { status: 'redemption-only', reason: 'No current classification the fund accepts.' };
+  return { status: 'eligible', reason: 'Meets the fund policy for its jurisdiction.' };
 }

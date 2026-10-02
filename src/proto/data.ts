@@ -64,9 +64,9 @@ export const bookingCenters: Record<BookingId, BookingCenter> = {
 
 export type FundId = 'TWLF' | 'NMEL' | 'AGPC';
 export type Fund = {
-  id: FundId; name: string; short: string; ticker: string; domicile: string; structure: string;
+  id: string; name: string; short: string; ticker: string; domicile: string; structure: string;
   currency: 'USD' | 'EUR'; nav: number; regS: boolean; usAccepts: ClassCode[] | null;
-  distribution: Partial<Record<Jur, { accepts: ClassCode[]; basis: string; lawRequires: ClassCode | null; lawText: string; lawRef: string; lawSource: string }>>;
+  distribution: Partial<Record<string, { accepts: ClassCode[]; basis: string; lawRequires: ClassCode | null; lawText: string; lawRef: string; lawSource: string }>>;
   minSubscription: number; holderCap: number | null; holders: number; lockupMonths: number | null;
   assets: string[]; chains: string[]; issuer: string;
 };
@@ -119,9 +119,10 @@ export const funds: Record<FundId, Fund> = {
 export type Classification = { code: ClassCode; basis: string; verified: string; expires: string; optIn?: string };
 export type InvestorId = 'lumen' | 'kestrel' | 'qamar' | 'meitan' | 'reyes' | 'sorell';
 export type Investor = {
-  id: InvestorId; name: string; short: string; kind: string; residence: Jur; city: string; booking: BookingId;
+  id: string; name: string; short: string; kind: string; residence: Jur; city: string; booking: BookingId;
   usPerson: boolean; wallet: string; credentialId: string; issued: string; expires: string;
-  classifications: Classification[]; holdings: Partial<Record<FundId, { units: number; since: string }>>;
+  classifications: Classification[]; holdings: Partial<Record<string, { units: number; since: string }>>;
+  issuer?: string;
 };
 
 export const investors: Record<InvestorId, Investor> = {
