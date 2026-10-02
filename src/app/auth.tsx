@@ -7,29 +7,31 @@ import { Btn, ErrorBox, Field, Loading } from './ui';
 import { createPasskey, getPasskey } from './webauthn';
 
 // ---------- Roles and permissions (mirrors api/src/http.ts) ----------
-export type Role = 'admin' | 'ops' | 'compliance' | 'issuer' | 'developer' | 'auditor';
+export type Role = 'admin' | 'ops' | 'compliance' | 'legal' | 'issuer' | 'developer' | 'auditor';
 export const ROLE_LABEL: Record<Role, string> = {
-  admin: 'Administrator', ops: 'Operations analyst', compliance: 'Compliance officer', issuer: 'Issuer admin', developer: 'Developer', auditor: 'Auditor (read-only)',
+  admin: 'Administrator', ops: 'Operations analyst', compliance: 'Compliance officer', legal: 'Legal reviewer', issuer: 'Issuer admin', developer: 'Developer', auditor: 'Auditor (read-only)',
 };
 /** Short labels for the sandbox teammate switcher. */
-export const ROLE_SHORT: Record<Role, string> = { admin: 'Administrator', ops: 'Operations', compliance: 'Compliance', issuer: 'Issuer admin', developer: 'Developer', auditor: 'Auditor' };
+export const ROLE_SHORT: Record<Role, string> = { admin: 'Administrator', ops: 'Operations', compliance: 'Compliance', legal: 'Legal', issuer: 'Issuer admin', developer: 'Developer', auditor: 'Auditor' };
 const ROLE_PERMS: Record<Role, string[]> = {
   admin: ['*'],
   ops: ['read', 'clients:write', 'orders:write', 'work:write'],
-  compliance: ['read', 'clients:write', 'compliance:write', 'policy:approve', 'work:write', 'audit:export'],
+  compliance: ['read', 'clients:write', 'compliance:write', 'policy:approve', 'work:write', 'audit:export', 'rules:write', 'rules:approve'],
+  legal: ['read', 'compliance:write', 'rules:approve'],
   issuer: ['read', 'funds:write', 'policy:approve'],
   developer: ['read', 'developer', 'keys:admin'],
   auditor: ['read', 'audit:export'],
 };
 const SCOPE_PERMS: Record<string, string[]> = {
   read: ['read', 'audit:export'], orders: ['orders:write'], clients: ['clients:write'], funds: ['funds:write'],
-  compliance: ['compliance:write', 'work:write'], developer: ['developer'], admin: ['keys:admin'],
+  compliance: ['compliance:write', 'work:write', 'rules:write'], developer: ['developer'], admin: ['keys:admin'],
 };
-const HUMAN_ONLY = new Set(['policy:approve', 'members:admin']);
+const HUMAN_ONLY = new Set(['policy:approve', 'members:admin', 'rules:approve']);
 export const PERM_TEXT: Record<string, string> = {
   'read': 'read this organization', 'clients:write': 'manage clients and credentials', 'orders:write': 'place orders or settle',
   'funds:write': 'change funds or propose policy changes', 'policy:approve': 'approve policy changes', 'compliance:write': 'make compliance decisions',
   'work:write': 'resolve work items', 'developer': 'manage webhooks', 'keys:admin': 'manage API keys', 'members:admin': 'manage members, single sign-on and branding', 'audit:export': 'export the audit log',
+  'rules:write': 'author or edit custom rules', 'rules:approve': 'approve custom rules',
 };
 
 export type Me = {
@@ -130,7 +132,7 @@ export function NoAccess({ perm, title }: { perm: string; title: string }) {
     <div class="noaccess">
       <h1>{title}</h1>
       <p>{why(perm)}</p>
-      <a href="#/">Go to the overview</a>
+      <a href="#/">Go to Check</a>
     </div>
   );
 }

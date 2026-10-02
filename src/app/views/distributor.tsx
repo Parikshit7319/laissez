@@ -1,6 +1,6 @@
 /** @jsxImportSource preact */
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { api, money, compact, when, day, JUR, CLASS_LABEL, BOOKING, track, trackOnce } from '../api';
+import { api, money, when, day, JUR, CLASS_LABEL, BOOKING, track, trackOnce } from '../api';
 import { useApi, Head, Btn, Chip, outcomeChip, statusChip, ErrorBox, Loading, Empty, Field, Card, Json, go, Hash, TxLink, ConfirmBtn, Copy } from '../ui';
 import { PermBtn, PermNote, useMe } from '../auth';
 import { Credential } from '../../proto/Credential';
@@ -8,6 +8,7 @@ import { TESTS, findTest, subjectOf } from '../../proto/thresholds';
 import { WHAT_IFS } from '../../proto/engine';
 import { PortalInvite } from './portalAdmin';
 import { EditClient, RevisionHistory, SuitabilityCard, TaxCard } from './clients2';
+import { NetworkCard } from './network';
 
 // ---------- Cursor pagination ----------
 /** Loads a paginated list ({ data, next_cursor }) and appends further pages on demand. */
@@ -45,55 +46,8 @@ function useDebounced<T>(value: T, ms = 300): T {
 }
 
 // ---------- Overview ----------
-export function Overview() {
-  const m = useApi('/v1/metrics');
-  const a = useApi('/v1/audit-events');
-  if (m.loading && !m.data) return <Loading />;
-  if (m.error) return <ErrorBox error={m.error} onRetry={m.reload} />;
-  const d = m.data;
-  const days = [...new Set((d.daily as any[]).map((r) => r.day))];
-  const byDay = days.map((day) => ({ day, allow: d.daily.find((r: any) => r.day === day && r.outcome === 'ALLOW')?.n ?? 0, deny: d.daily.filter((r: any) => r.day === day && r.outcome !== 'ALLOW').reduce((s: number, r: any) => s + r.n, 0) }));
-  const max = Math.max(1, ...byDay.map((x) => x.allow + x.deny));
-  const settledUsd = (d.settled_value as any[]).find((x) => x.currency === 'USD');
-  const settledEur = (d.settled_value as any[]).find((x) => x.currency === 'EUR');
-  return (
-    <>
-      <Head title="Overview" sub="Live numbers from this workspace. Every order you place shows up here." actions={<><PermBtn perm="orders:write" kind="primary" onClick={() => go('/orders/new')}>New order</PermBtn><Btn onClick={() => go('/clients')}>Clients</Btn></>} />
-      <div class="kpis">
-        <div class="kpi"><span>Decisions</span><b>{d.totals.decisions}</b><em>{d.totals.allowed} allowed, {d.totals.denied} denied, {d.totals.frozen} frozen</em></div>
-        <div class="kpi"><span>Allow rate</span><b>{d.totals.allow_rate === null ? 'None yet' : `${Math.round(d.totals.allow_rate * 100)}%`}</b><em>share of pre-trade checks that passed</em></div>
-        <div class="kpi"><span>Value settled</span><b>{settledUsd ? compact(settledUsd.value) : '$0'}{settledEur ? ` + ${compact(settledEur.value, 'EUR')}` : ''}</b><em>{(() => { const n = (d.settled_value as any[]).reduce((s, x) => s + x.n, 0); return `${n} atomic settlement${n === 1 ? '' : 's'}`; })()}</em></div>
-        <div class="kpi"><span>Credential reuse</span><b>{d.credential_reuse.rate === null ? 'None yet' : `${Math.round(d.credential_reuse.rate * 100)}%`}</b><em>clients cleared for 2 or more funds on one credential</em></div>
-        <div class="kpi"><span>Expiring in 30 days</span><b>{d.credentials_expiring_30d}</b><em>{d.credentials_expiring_30d === 1 ? 'credential' : 'credentials'} to renew</em></div>
-      </div>
-      <div class="grid2">
-        <Card title="Decisions per day">
-          {byDay.length ? (
-            <div class="bars" role="img" aria-label="Decisions per day, allowed versus refused">
-              {byDay.map((x) => (
-                <div class="bar-col" title={`${x.day}: ${x.allow} allowed, ${x.deny} refused`}>
-                  <div class="bar-stack" style={{ height: `${((x.allow + x.deny) / max) * 100}%` }}>
-                    <span class="seg-deny" style={{ flex: x.deny }} /><span class="seg-allow" style={{ flex: x.allow }} />
-                  </div>
-                  <small>{x.day.slice(5)}</small>
-                </div>
-              ))}
-            </div>
-          ) : <Empty title="No decisions yet">Place an order to see it here.</Empty>}
-          <div class="legend"><span><i class="lg-allow" />Allowed</span><span><i class="lg-deny" />Denied or frozen</span></div>
-        </Card>
-        <Card title="Top refusal reasons">
-          {(d.top_refusal_reasons as any[]).length ? (
-            <ol class="reasons">{d.top_refusal_reasons.map((r: any) => <li><span>{r.label}</span><b>{r.n}</b></li>)}</ol>
-          ) : <Empty title="No refusals yet">Try an order that should fail, like Mei Tan buying Tidewell.</Empty>}
-        </Card>
-      </div>
-      <Card title="Recent activity" actions={<Btn kind="ghost" onClick={() => go('/audit')}>Audit log</Btn>}>
-        {a.data ? <ul class="feed">{(a.data.data as any[]).slice(0, 8).map((e) => <li><code>{e.type}</code><span>{e.subject}</span><time>{when(e.created_at)}</time></li>)}</ul> : <Loading />}
-      </Card>
-    </>
-  );
-}
+// The old Overview is now Home (views/home.tsx). The name stays exported for anything that imports it.
+export { Home as Overview } from './home';
 
 // ---------- Clients ----------
 const credChip = (s: string) => s === 'active' ? <Chip tone="ok">Active</Chip> : s === 'none' ? <Chip>None</Chip> : s === 'share_pending' ? <Chip tone="info">Consent pending</Chip> : s === 'relied_invalid' ? <Chip tone="no">Share ended</Chip> : <Chip tone="warn">{s === 'lapsed' ? 'Lapsed' : 'Partly lapsed'}</Chip>;
@@ -177,6 +131,8 @@ export function ClientDetail({ id }: { id: string }) {
       {msg ? <div class="note">{msg}</div> : null}
       <div class="grid2">
         <div class="app">{i.credentialId ? <Credential inv={i} /> : <Empty title="No credential yet">Issue a Laissez-passer to record this client’s classifications.</Empty>}</div>
+        <div>
+        <NetworkCard investorId={i.id} />
         <Card title="Holdings">
           {i.holdings_detail.length ? (
             <div class="tw"><table class="t">
@@ -185,6 +141,7 @@ export function ClientDetail({ id }: { id: string }) {
             </table></div>
           ) : <Empty title="No holdings">Subscribe to a fund to create one.</Empty>}
         </Card>
+        </div>
       </div>
       {i.reliedShare ? <div class="note">This client's credential was issued by {i.issuer}. Laissez reads it live from the issuing distributor, so a revocation there applies here at once.</div> : null}
       <Card title="Investor portal">

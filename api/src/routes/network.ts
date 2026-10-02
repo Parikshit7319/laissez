@@ -145,6 +145,40 @@ routes.post('/credential-shares/:id/revoke', async (c) => {
   });
 });
 
+/**
+ * One client's place in the network: the passport number on their active credential, every share of that
+ * credential to another distributor (recipient, status, consent date), and the share this client is relied
+ * on through when the credential was issued elsewhere.
+ */
+routes.get('/investors/:id/network', async (c) => {
+  need(c, 'read');
+  const sql = c.get('sql'); const admin = c.get('admin'); const ws = c.get('ws'); const invId = c.req.param('id');
+  const [inv] = await sql`select id, name, relied_share from investors where workspace_id = ${ws} and id = ${invId}`;
+  if (!inv) throw new ApiError(404, 'not_found', `No investor ${invId} in this organization.`);
+  const [[cred], out, relied] = await Promise.all([
+    sql`select id, lzid, issued_on::text as issued_on, expires_on::text as expires_on, status from credentials where workspace_id = ${ws} and investor_id = ${invId} and status = 'active' order by created_at desc limit 1`,
+    admin`select s.id, s.status, s.purpose, s.created_at, s.consent_at, s.consent_name, s.revoked_at, s.revoked_reason, s.lzid, coalesce(wt.brand_name, wt.name) as receiving_org
+      from credential_shares s join credentials c on c.workspace_id = s.from_workspace and c.id = s.credential_id join workspaces wt on wt.id = s.to_workspace
+      where s.from_workspace = ${ws} and c.investor_id = ${invId} order by s.created_at desc limit 50`,
+    inv.relied_share
+      ? admin`select s.id, s.status, s.lzid, s.consent_at, s.consent_name, s.created_at, s.revoked_at, s.revoked_reason, coalesce(wf.brand_name, wf.name) as issuing_org,
+          c.status as cred_status, c.expires_on::text as credential_expires_on
+        from credential_shares s join workspaces wf on wf.id = s.from_workspace left join credentials c on c.workspace_id = s.from_workspace and c.id = s.credential_id
+        where s.id = ${inv.relied_share} and s.to_workspace = ${ws}`
+      : Promise.resolve([] as any[]),
+  ]);
+  const r = relied[0];
+  const lzid = cred?.lzid ?? r?.lzid ?? null;
+  return c.json({
+    investor: { id: inv.id, name: inv.name },
+    lzid,
+    credential: cred ? { id: cred.id, issued_on: cred.issued_on, expires_on: cred.expires_on } : null,
+    shares_out: (out as any[]).map((s) => ({ id: s.id, receiving_org: s.receiving_org, status: s.status, purpose: s.purpose, requested_at: s.created_at, consent_at: s.consent_at, consent_name: s.consent_name, revoked_at: s.revoked_at, revoked_reason: s.revoked_reason })),
+    relied_on: r ? { id: r.id, issuing_org: r.issuing_org, status: r.status, consent_at: r.consent_at, consent_name: r.consent_name, requested_at: r.created_at, credential_live: r.cred_status === 'active' && (!r.credential_expires_on || r.credential_expires_on >= today()), credential_expires_on: r.credential_expires_on ?? null } : null,
+    note: lzid ? 'Another distributor relies on this client by requesting the passport number from their Network page. The client consents before anything is shared.' : 'This client has no active credential, so there is no passport number to share yet.',
+  });
+});
+
 routes.get('/network/demo-ids', async (c) => {
   need(c, 'read');
   if (c.get('wsKind') !== 'sandbox') return c.json({ data: [], note: 'Demo passport numbers are listed only in sandboxes.' });

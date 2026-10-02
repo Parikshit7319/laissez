@@ -29,6 +29,8 @@ import * as chainRoutes from './routes/chain';
 import * as leads from './routes/leads';
 import * as account2 from './routes/account2';
 import * as workflow from './routes/workflow';
+import * as rules from './routes/rules';
+import * as imports from './routes/import';
 import { scim } from './scim';
 import { sendDigests } from './email';
 import * as chainLib from './chain';
@@ -119,7 +121,7 @@ v1.route('/', core.routes);
 v1.route('/', platform.routes);
 v1.route('/', flags.routes);
 v1.route('/', integrations.routes);
-for (const m of [compliance, compliance2, fundops, network, reports, chainRoutes, travel, portal, account2, workflow]) {
+for (const m of [compliance, compliance2, fundops, network, reports, chainRoutes, travel, portal, account2, workflow, imports, rules]) {
   const r = opt(m, 'routes');
   if (r) v1.route('/', r);
 }

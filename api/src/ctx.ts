@@ -66,6 +66,7 @@ export async function loadInvestors(sql: Sql, ws: string, ids: string[] | null, 
       issuer: r.issuer_name ?? 'Aster & Vale Private Bank',
       lzid: r.lzid ?? undefined,
       reliedShare: r.relied_share ?? undefined,
+      external_id: r.external_id ?? null,
     } as Investor;
   }
   // Credentials relied on from another organization are read live from the issuing organization.

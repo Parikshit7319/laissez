@@ -80,7 +80,10 @@ export function Credential({ inv, compact = false }: { inv: Investor; compact?: 
       </svg>
       <header class="cred-head">
         <span class="cred-title">Laissez-passer</span>
-        <span class="cred-id">{inv.credentialId}</span>
+        <span class="cred-ids">
+          <span class="cred-id">{inv.credentialId}</span>
+          {inv.lzid ? <span class="cred-passport"><span class="cred-passport-l">Passport</span><span class="cred-passport-n">{inv.lzid}</span></span> : null}
+        </span>
       </header>
       <div class="cred-body">
         <dl class="cred-fields">

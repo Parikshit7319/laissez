@@ -15,6 +15,8 @@ import * as platform from './routes/platform';
 import * as flags from './flags';
 import * as errors from './errors';
 import * as integrations from './routes/integrations';
+import * as rules from './routes/rules';
+import * as imports from './routes/import';
 
 type S = Record<string, unknown>;
 
@@ -71,24 +73,28 @@ export const propertiesOf = (s: S | undefined): string[] | null => (s && s.type 
 export type ExtraOp = {
   method: string; path: string; tag: string; id: string; sum: string; desc?: string; perm: string;
   body?: z.ZodTypeAny | S; ex?: unknown; ok?: number; res?: S; err?: number[]; idd?: string; pathParam?: [string, string, string?];
+  /** Query parameters, as OpenAPI parameter objects. */
+  q?: S[];
+  /** Sessions only, even when the permission itself is not human-only. */
+  human?: boolean;
 };
-const SCOPE_PERMS: Record<string, string[]> = { read: ['read', 'audit:export'], orders: ['orders:write'], clients: ['clients:write'], funds: ['funds:write'], compliance: ['compliance:write', 'work:write'], developer: ['developer'], admin: ['keys:admin'] };
-const ROLE_PERMS: Record<string, string[]> = { admin: ['*'], ops: ['read', 'clients:write', 'orders:write', 'work:write'], compliance: ['read', 'clients:write', 'compliance:write', 'policy:approve', 'work:write', 'audit:export'], issuer: ['read', 'funds:write', 'policy:approve'], developer: ['read', 'developer', 'keys:admin'], auditor: ['read', 'audit:export'] };
-const HUMAN_ONLY = ['policy:approve', 'members:admin'];
+const SCOPE_PERMS: Record<string, string[]> = { read: ['read', 'audit:export'], orders: ['orders:write'], clients: ['clients:write'], funds: ['funds:write'], compliance: ['compliance:write', 'work:write', 'rules:write'], developer: ['developer'], admin: ['keys:admin'] };
+const ROLE_PERMS: Record<string, string[]> = { admin: ['*'], ops: ['read', 'clients:write', 'orders:write', 'work:write'], compliance: ['read', 'clients:write', 'compliance:write', 'policy:approve', 'work:write', 'audit:export', 'rules:write', 'rules:approve'], legal: ['read', 'compliance:write', 'rules:approve'], issuer: ['read', 'funds:write', 'policy:approve'], developer: ['read', 'developer', 'keys:admin'], auditor: ['read', 'audit:export'] };
+const HUMAN_ONLY = ['policy:approve', 'members:admin', 'rules:approve'];
 const ERR_NAME: Record<number, string> = { 400: 'BadRequest', 401: 'Unauthorized', 403: 'Forbidden', 404: 'NotFound', 409: 'Conflict', 410: 'Gone', 422: 'Unprocessable', 429: 'RateLimited', 501: 'NotConfigured', 502: 'BadGateway', 503: 'Unavailable' };
 const isZod = (x: unknown): x is z.ZodTypeAny => !!x && typeof x === 'object' && '_zod' in (x as object);
 
 function buildOp(op: ExtraOp): S {
   const write = op.method !== 'get';
   const bearer = op.perm !== 'public';
-  const human = HUMAN_ONLY.includes(op.perm);
+  const human = !!op.human || HUMAN_ONLY.includes(op.perm);
   const scopes = !bearer || human ? [] : Object.keys(SCOPE_PERMS).filter((s) => SCOPE_PERMS[s].includes(op.perm));
   const roles = !bearer ? [] : Object.keys(ROLE_PERMS).filter((r) => ROLE_PERMS[r].includes('*') || ROLE_PERMS[r].includes(op.perm));
   const params: S[] = [...op.path.matchAll(/\{([^}]+)\}/g)].map(([, n]) => {
     const [desc, ex] = op.pathParam && op.pathParam[0] === n ? [op.pathParam[1], op.pathParam[2]] : [op.idd ?? 'Resource id.', undefined];
     return { name: n, in: 'path', required: true, description: desc, schema: { type: 'string' }, ...(ex ? { example: ex } : {}) };
   });
-  params.push({ $ref: '#/components/parameters/LaissezVersion' });
+  params.push(...(op.q ?? []), { $ref: '#/components/parameters/LaissezVersion' });
   if (bearer && write) params.push({ $ref: '#/components/parameters/IdempotencyKey' });
   const ok = op.ok ?? 200;
   const headers: S = { 'Laissez-Version': { $ref: '#/components/headers/LaissezVersion' }, ...(bearer && write ? { 'Idempotent-Replayed': { $ref: '#/components/headers/IdempotentReplayed' } } : {}) };
@@ -104,7 +110,7 @@ function buildOp(op: ExtraOp): S {
   };
 }
 
-const EXTRA_MODULES: { OPENAPI_OPS: ExtraOp[]; OPENAPI_SCHEMAS?: Record<string, S> }[] = [flags as any, errors as any, integrations as any];
+const EXTRA_MODULES: { OPENAPI_OPS: ExtraOp[]; OPENAPI_SCHEMAS?: Record<string, S> }[] = [flags as any, errors as any, integrations as any, imports as any, rules as any];
 
 // ---------- Cursor pagination contract ----------
 /** Lists that page with limit and cursor and answer { data, next_cursor, limit }. */

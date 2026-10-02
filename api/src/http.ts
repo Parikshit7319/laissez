@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Sql } from './db';
 import { ApiError, type Env } from './util';
 
-export type Role = 'admin' | 'ops' | 'compliance' | 'issuer' | 'developer' | 'auditor';
+export type Role = 'admin' | 'ops' | 'compliance' | 'legal' | 'issuer' | 'developer' | 'auditor';
 export type Actor = {
   kind: 'user' | 'key' | 'system' | 'investor';
   id: string;
@@ -20,12 +20,13 @@ export type C = Context<{ Bindings: Env; Variables: Vars }>;
 export const router = () => new Hono<{ Bindings: Env; Variables: Vars }>();
 
 export const ROLE_LABEL: Record<Role, string> = {
-  admin: 'Administrator', ops: 'Operations analyst', compliance: 'Compliance officer', issuer: 'Issuer admin', developer: 'Developer', auditor: 'Auditor (read-only)',
+  admin: 'Administrator', ops: 'Operations analyst', compliance: 'Compliance officer', legal: 'Legal reviewer', issuer: 'Issuer admin', developer: 'Developer', auditor: 'Auditor (read-only)',
 };
 const ROLE_PERMS: Record<Role, string[]> = {
   admin: ['*'],
   ops: ['read', 'clients:write', 'orders:write', 'work:write'],
-  compliance: ['read', 'clients:write', 'compliance:write', 'policy:approve', 'work:write', 'audit:export'],
+  compliance: ['read', 'clients:write', 'compliance:write', 'policy:approve', 'work:write', 'audit:export', 'rules:write', 'rules:approve'],
+  legal: ['read', 'compliance:write', 'rules:approve'],
   issuer: ['read', 'funds:write', 'policy:approve'],
   developer: ['read', 'developer'],
   auditor: ['read', 'audit:export'],
@@ -35,17 +36,18 @@ export const SCOPES: Record<string, { label: string; perms: string[] }> = {
   orders: { label: 'Create decisions and settlements', perms: ['orders:write'] },
   clients: { label: 'Manage clients, credentials and shares', perms: ['clients:write'] },
   funds: { label: 'Manage funds, NAV, documents and policy proposals', perms: ['funds:write'] },
-  compliance: { label: 'Screening dispositions, monitoring, work items', perms: ['compliance:write', 'work:write'] },
+  compliance: { label: 'Screening dispositions, monitoring, work items, custom rule drafts', perms: ['compliance:write', 'work:write', 'rules:write'] },
   developer: { label: 'Webhooks', perms: ['developer'] },
   admin: { label: 'Manage API keys', perms: ['keys:admin'] },
 };
 /** Permissions that only a signed-in person can exercise, never an API key. */
-const HUMAN_ONLY = new Set(['policy:approve', 'members:admin']);
+const HUMAN_ONLY = new Set(['policy:approve', 'members:admin', 'rules:approve']);
 
 const PERM_TEXT: Record<string, string> = {
   'read': 'read this organization', 'clients:write': 'manage clients and credentials', 'orders:write': 'place orders or settle',
   'funds:write': 'change funds', 'policy:approve': 'approve or reject policy changes', 'compliance:write': 'make compliance decisions',
   'work:write': 'resolve work items', 'developer': 'manage webhooks', 'keys:admin': 'manage API keys', 'members:admin': 'manage members and SSO', 'audit:export': 'export the audit log',
+  'rules:write': 'author or edit custom rules', 'rules:approve': 'approve custom rules',
 };
 
 export function can(actor: Actor, perm: string): boolean {

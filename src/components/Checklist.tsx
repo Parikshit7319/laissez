@@ -1,5 +1,5 @@
 /** @jsxImportSource preact */
-// First-run checklist for the sandbox Overview. Progress is read from the API where it can be
+// First-run checklist for the sandbox Home page. Progress is read from the API where it can be
 // (orders, settlements, policy changes) and from a local flag for the teammate switch.
 import { useEffect, useState } from 'preact/hooks';
 import { api } from '../app/api';

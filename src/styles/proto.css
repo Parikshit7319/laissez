@@ -14,6 +14,10 @@
 .cred-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-top: 0.85rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--rule); }
 .cred-title { font-weight: 640; font-variation-settings: 'wdth' 118; font-size: 0.95rem; }
 .cred-id { font-family: var(--font-code); font-size: 0.75rem; color: var(--ink-3); }
+.cred-ids { display: grid; justify-items: end; gap: 0.15rem; text-align: right; }
+.cred-passport { display: inline-flex; align-items: baseline; gap: 0.4rem; font-family: var(--font-code); font-size: 0.78rem; color: var(--ink); }
+.cred-passport-l { font-family: var(--font-ui); font-size: 0.66rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+.cred-passport-n { font-weight: 500; letter-spacing: 0.02em; }
 .cred-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.75rem; padding: 0.8rem 0 0.4rem; align-items: start; }
 .cred-fields { margin: 0; display: grid; gap: 0.45rem; }
 .cred-fields div { display: grid; grid-template-columns: 5.6rem 1fr; gap: 0.5rem; }

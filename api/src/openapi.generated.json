@@ -2968,7 +2968,7 @@
     ],
     "operationId": "getMetrics",
     "summary": "Organization metrics",
-    "description": "Decision totals and allow rate, 14-day daily outcomes, top refusal reasons, settled value, credential reuse and credentials expiring in 30 days.",
+    "description": "Decision totals and allow rate, 14-day daily outcomes, top refusal reasons, settled value (all and cross-border), credential reuse, credentials expiring in 30 days, median hours from a client's credential to their first settlement, the organization's place in the credential network and the counts behind the Home page's Needs you list.",
     "security": [
      {
       "sessionToken": []
@@ -3072,6 +3072,24 @@
             }
            }
           },
+          "cross_border_settled_value": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "currency": {
+              "type": "string"
+             },
+             "value": {
+              "type": "number"
+             },
+             "n": {
+              "type": "integer"
+             }
+            }
+           },
+           "description": "Settled orders where the acquiring investor resides outside the fund domicile."
+          },
           "credential_reuse": {
            "type": "object",
            "properties": {
@@ -3094,6 +3112,50 @@
           },
           "credentials_expiring_30d": {
            "type": "integer"
+          },
+          "time_to_first_settlement_hours_median": {
+           "type": [
+            "number",
+            "null"
+           ],
+           "description": "Median hours from a client's first credential (own or relied on) to their first settled order. Null until one client has both."
+          },
+          "time_to_first_settlement_investors": {
+           "type": "integer"
+          },
+          "network": {
+           "type": "object",
+           "properties": {
+            "relied_on": {
+             "type": "integer",
+             "description": "Active shares you rely on from other distributors."
+            },
+            "shared_out": {
+             "type": "integer",
+             "description": "Active shares of your credentials that other distributors rely on."
+            },
+            "pending_shares": {
+             "type": "integer",
+             "description": "Shares waiting for client consent, either direction."
+            }
+           }
+          },
+          "needs_you": {
+           "type": "object",
+           "properties": {
+            "approvals": {
+             "type": "integer"
+            },
+            "work_items": {
+             "type": "integer"
+            },
+            "portal_requests": {
+             "type": "integer"
+            },
+            "shares": {
+             "type": "integer"
+            }
+           }
           }
          }
         }
@@ -5548,6 +5610,228 @@
      "admin",
      "ops",
      "compliance"
+    ]
+   }
+  },
+  "/v1/investors/{id}/network": {
+   "get": {
+    "tags": [
+     "Network"
+    ],
+    "operationId": "getInvestorNetwork",
+    "summary": "A client's place in the network",
+    "description": "The passport number on the client's active credential, every share of it to another distributor with status and consent date, and the share this client is relied on through when the credential was issued by another distributor.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Investor id.",
+      "schema": {
+       "type": "string"
+      },
+      "example": "lumen"
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "investor": {
+           "type": "object",
+           "properties": {
+            "id": {
+             "type": "string"
+            },
+            "name": {
+             "type": "string"
+            }
+           }
+          },
+          "lzid": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "credential": {
+           "type": [
+            "object",
+            "null"
+           ],
+           "properties": {
+            "id": {
+             "type": "string"
+            },
+            "issued_on": {
+             "type": "string",
+             "format": "date"
+            },
+            "expires_on": {
+             "type": "string",
+             "format": "date"
+            }
+           }
+          },
+          "shares_out": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "string"
+             },
+             "receiving_org": {
+              "type": "string"
+             },
+             "status": {
+              "type": "string",
+              "enum": [
+               "pending",
+               "active",
+               "declined",
+               "revoked"
+              ]
+             },
+             "purpose": {
+              "type": [
+               "string",
+               "null"
+              ]
+             },
+             "requested_at": {
+              "type": "string",
+              "format": "date-time"
+             },
+             "consent_at": {
+              "type": [
+               "string",
+               "null"
+              ],
+              "format": "date-time"
+             },
+             "consent_name": {
+              "type": [
+               "string",
+               "null"
+              ]
+             },
+             "revoked_at": {
+              "type": [
+               "string",
+               "null"
+              ],
+              "format": "date-time"
+             },
+             "revoked_reason": {
+              "type": [
+               "string",
+               "null"
+              ]
+             }
+            }
+           }
+          },
+          "relied_on": {
+           "type": [
+            "object",
+            "null"
+           ],
+           "properties": {
+            "id": {
+             "type": "string"
+            },
+            "issuing_org": {
+             "type": "string"
+            },
+            "status": {
+             "type": "string"
+            },
+            "consent_at": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "format": "date-time"
+            },
+            "consent_name": {
+             "type": [
+              "string",
+              "null"
+             ]
+            },
+            "requested_at": {
+             "type": "string",
+             "format": "date-time"
+            },
+            "credential_live": {
+             "type": "boolean"
+            },
+            "credential_expires_on": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "format": "date"
+            }
+           }
+          },
+          "note": {
+           "type": "string",
+           "description": "A plain-language note about the result."
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "issuer",
+     "developer",
+     "auditor"
     ]
    }
   },

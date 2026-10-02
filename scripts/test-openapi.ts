@@ -90,6 +90,7 @@ const MOUNTS: Record<string, Record<string, string>> = {
   'routes/leads.ts': { publicRoutes: '/v1' },
   'routes/integrations.ts': { routes: '/v1' },
   'routes/workflow.ts': { routes: '/v1' },
+  'routes/import.ts': { routes: '/v1' },
   // Mounted through routes/fundops.ts and routes/reports.ts, so they share the /v1 prefix.
   'routes/fundops2.ts': { routes: '/v1' },
   'routes/reports2.ts': { routes: '/v1' },

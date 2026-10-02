@@ -78,13 +78,13 @@ routes.get('/approval-policies', async (c) => {
   need(c, 'read');
   return c.json(policiesOut(await loadPolicies(c.get('sql'), c.get('ws'))));
 });
-const ROLES = ['admin', 'ops', 'compliance', 'issuer', 'developer', 'auditor'] as const;
+const ROLES = ['admin', 'ops', 'compliance', 'legal', 'issuer', 'developer', 'auditor'] as const;
 const policyIn = z.object({
   kind: z.enum(['credential.issue', 'order.large', 'settings.change', 'investor.update']),
   enabled: z.boolean().optional(),
   threshold: z.record(z.string(), z.unknown()).optional(),
   required_approvals: z.number().int().min(1).max(5).optional(),
-  roles: z.array(z.enum(ROLES)).min(1).max(6).optional(),
+  roles: z.array(z.enum(ROLES)).min(1).max(7).optional(),
 });
 /** Updates one or more policies. Administrators only, and the change itself is audited. */
 routes.put('/approval-policies', async (c) => {

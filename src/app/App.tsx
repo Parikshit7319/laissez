@@ -8,17 +8,20 @@ import { isActive, matchRoute, navGroups } from './registry';
 import { NotificationBell } from './views/notifications';
 import { SearchPalette, SearchButton } from './views/search';
 import { Search } from '../components/Search';
-import { Checklist, markTeammateSwitched } from '../components/Checklist';
+import { markTeammateSwitched } from '../components/Checklist';
 import { applyTheme, readTheme, setTheme, onThemeChange, THEMES, type Theme } from './theme';
 import '../styles/proto.css';
 import '../styles/app.css';
 
 const COLLAPSE_KEY = 'laissez-nav-collapsed';
+const MORE_KEY = 'laissez-nav-more';
 const readCollapsed = (): Record<string, boolean> => { try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}'); } catch { return {}; } };
 const writeCollapsed = (v: Record<string, boolean>) => { try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(v)); } catch { /* ignore */ } };
+const readMore = (): boolean => { try { return localStorage.getItem(MORE_KEY) === 'open'; } catch { return false; } };
+const writeMore = (open: boolean) => { try { localStorage.setItem(MORE_KEY, open ? 'open' : 'closed'); } catch { /* ignore */ } };
 const inField = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable); };
 /** Two-key shortcuts: g then a letter. */
-const GO: Record<string, string> = { o: '/', n: '/orders/new', c: '/clients', d: '/decisions', s: '/settlements', f: '/funds', w: '/work', a: '/audit' };
+const GO: Record<string, string> = { o: '/', h: '/home', n: '/orders/new', c: '/clients', d: '/decisions', s: '/settlements', f: '/funds', w: '/work', a: '/audit' };
 
 type Route = { path: string; parts: string[]; query: URLSearchParams };
 const parse = (): Route => {
@@ -63,6 +66,7 @@ function Shell({ route }: { route: Route }) {
   const { me, isSandbox, version, can } = useMe();
   const [menu, setMenu] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsed);
+  const [more, setMore] = useState<boolean>(readMore);
   const [help, setHelp] = useState(false);
   useEffect(() => setMenu(false), [route.path]);
   useEffect(() => { if (me?.acting_as) markTeammateSwitched(); }, [me?.acting_as?.id]);
@@ -88,11 +92,30 @@ function Shell({ route }: { route: Route }) {
   const groups = navGroups();
   const ws = me!.workspace;
   const toggle = (g: string) => { const next = { ...collapsed, [g]: !collapsed[g] }; setCollapsed(next); writeCollapsed(next); };
+  const topGroups = groups.filter((g) => g.top);
+  const moreGroups = groups.filter((g) => !g.top);
+  const moreActive = moreGroups.some((g) => g.items.some((r) => isActive(r.pattern, route.path)));
+  const moreOpen = more || moreActive;
+  const toggleMore = () => { const next = !moreOpen; setMore(next); writeMore(next); };
   let page;
-  if (!m) page = <div class="empty-state"><strong>That page does not exist.</strong><a href="#/">Go to the overview</a></div>;
+  if (!m) page = <div class="empty-state"><strong>That page does not exist.</strong><a href="#/">Go to Check</a></div>;
   else if (m.entry.perm && !can(m.entry.perm)) page = <NoAccess perm={m.entry.perm} title={m.entry.label ?? 'This page'} />;
   else { const C = m.entry.component; page = <C params={m.params} query={route.query} />; }
-  const showChecklist = route.path === '/' && isSandbox;
+  const renderGroup = (g: (typeof groups)[number]) => {
+    const open = !collapsed[g.group];
+    const active = g.items.some((r) => isActive(r.pattern, route.path));
+    const id = `nav-${g.group.toLowerCase().replace(/\s+/g, '-')}`;
+    return (
+      <div class={`nav-g ${open || active ? 'open' : ''}`}>
+        <button type="button" class="nav-h" aria-expanded={open || active} aria-controls={id} onClick={() => toggle(g.group)}>
+          <span>{g.group}</span><i class="nav-caret" aria-hidden="true" />
+        </button>
+        <div id={id} class="nav-items" hidden={!(open || active)}>
+          {g.items.map((r) => <a href={`#${r.pattern}`} aria-current={isActive(r.pattern, route.path) ? 'page' : undefined}>{r.label}</a>)}
+        </div>
+      </div>
+    );
+  };
   return (
     <div class="shell">
       <a class="skip" href="#app-main" onClick={(e) => { e.preventDefault(); document.getElementById('app-main')?.focus(); }}>Skip to content</a>
@@ -104,21 +127,15 @@ function Shell({ route }: { route: Route }) {
         </div>
         <Search groups={groups} onPick={() => setMenu(false)} />
         <nav aria-label="App">
-          {groups.map((g) => {
-            const open = !collapsed[g.group];
-            const active = g.items.some((r) => isActive(r.pattern, route.path));
-            const id = `nav-${g.group.toLowerCase().replace(/\s+/g, '-')}`;
-            return (
-              <div class={`nav-g ${open || active ? 'open' : ''}`}>
-                <button type="button" class="nav-h" aria-expanded={open || active} aria-controls={id} onClick={() => toggle(g.group)}>
-                  <span>{g.group}</span><i class="nav-caret" aria-hidden="true" />
-                </button>
-                <div id={id} class="nav-items" hidden={!(open || active)}>
-                  {g.items.map((r) => <a href={`#${r.pattern}`} aria-current={isActive(r.pattern, route.path) ? 'page' : undefined}>{r.label}</a>)}
-                </div>
-              </div>
-            );
-          })}
+          {topGroups.map(renderGroup)}
+          {moreGroups.length ? (
+            <div class={`nav-more ${moreOpen ? 'open' : ''}`}>
+              <button type="button" class="nav-h nav-more-h" aria-expanded={moreOpen} aria-controls="nav-more-body" onClick={toggleMore}>
+                <span>More</span><em>{moreOpen ? '' : `${moreGroups.reduce((n, g) => n + g.items.length, 0)} pages`}</em><i class="nav-caret" aria-hidden="true" />
+              </button>
+              <div id="nav-more-body" class="nav-more-body" hidden={!moreOpen}>{moreGroups.map(renderGroup)}</div>
+            </div>
+          ) : null}
         </nav>
         <div class="side-foot">
           <a class="side-help" href="../demo/"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.4" /><path d="M6.2 6.3a1.9 1.9 0 1 1 2.6 1.8c-.5.3-.8.6-.8 1.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /><circle cx="8" cy="11.6" r="0.8" fill="currentColor" /></svg>Help: guided demo</a>
@@ -140,7 +157,6 @@ function Shell({ route }: { route: Route }) {
         </div>
         <ActingBanner />
         <main class="content" id="app-main" tabIndex={-1} key={version}>
-          {showChecklist ? <Checklist workspaceId={ws.id} actingAs={!!me!.acting_as} canOrder={can('orders:write')} canPropose={can('funds:write')} /> : null}
           {page}
         </main>
       </div>
@@ -152,7 +168,7 @@ function Shell({ route }: { route: Route }) {
 
 function ShortcutsDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => { const el = document.getElementById('sc-close'); el?.focus(); }, []);
-  const rows: [string, string][] = [['/', 'Search pages'], ['Ctrl or Cmd + K', 'Search clients, decisions, funds and more'], ['g then o', 'Overview'], ['g then n', 'New order'], ['g then c', 'Clients'], ['g then d', 'Decisions'], ['g then s', 'Settlements'], ['g then f', 'Funds'], ['g then w', 'Work queue'], ['g then a', 'Audit log'], ['?', 'This list'], ['Esc', 'Close menus']];
+  const rows: [string, string][] = [['/', 'Search pages'], ['Ctrl or Cmd + K', 'Search clients, decisions, funds and more'], ['g then o', 'Check an order'], ['g then h', 'Home'], ['g then n', 'Full order ticket'], ['g then c', 'Clients'], ['g then d', 'Decisions'], ['g then s', 'Settlements'], ['g then f', 'Funds'], ['g then w', 'Work queue'], ['g then a', 'Audit log'], ['?', 'This list'], ['Esc', 'Close menus']];
   return (
     <div class="sc-wrap" role="presentation" onClick={onClose}>
       <div class="sc" role="dialog" aria-modal="true" aria-labelledby="sc-h" onClick={(e) => e.stopPropagation()}>

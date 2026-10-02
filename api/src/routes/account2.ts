@@ -10,7 +10,7 @@ import { createSession } from '../auth';
 export const routes = router();
 export const publicRoutes = router();
 
-const ROLES = ['admin', 'ops', 'compliance', 'issuer', 'developer', 'auditor'] as const;
+const ROLES = ['admin', 'ops', 'compliance', 'legal', 'issuer', 'developer', 'auditor'] as const;
 const roleZ = z.enum(ROLES);
 const slugify = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32) || 'org';
 const human = (c: C) => {

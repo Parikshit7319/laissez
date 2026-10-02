@@ -9,7 +9,7 @@ import { audit, type Actor, type Role } from './http';
 type ScimVars = { admin: Sql; ws: string; wsName: string; defaultRole: Role; groupRoles: { group: string; role: Role }[] };
 export const scim = new Hono<{ Bindings: Env; Variables: ScimVars }>();
 
-const ROLES = new Set(['admin', 'ops', 'compliance', 'issuer', 'developer', 'auditor']);
+const ROLES = new Set(['admin', 'ops', 'compliance', 'legal', 'issuer', 'developer', 'auditor']);
 const SCHEMA_USER = 'urn:ietf:params:scim:schemas:core:2.0:User';
 const SCHEMA_LIST = 'urn:ietf:params:scim:api:messages:2.0:ListResponse';
 const SCHEMA_ERROR = 'urn:ietf:params:scim:api:messages:2.0:Error';

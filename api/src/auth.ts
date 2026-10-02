@@ -9,7 +9,7 @@ import { seedQueries } from './seed';
 import { runMonitor } from './monitor';
 import { isProduction, fictionalOnly } from './mode';
 
-const ROLES = ['admin', 'ops', 'compliance', 'issuer', 'developer', 'auditor'] as const;
+const ROLES = ['admin', 'ops', 'compliance', 'legal', 'issuer', 'developer', 'auditor'] as const;
 const roleZ = z.enum(ROLES);
 const emailZ = z.string().trim().toLowerCase().email().max(160);
 

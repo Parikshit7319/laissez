@@ -88,7 +88,7 @@ function softAuthenticator() {
   // ---------- Receipts, settlement ----------
   const v = await post('/v1/receipts/verify', { receipt: dec0.json.receipt, signature: dec0.json.signature });
   ok('receipt verifies', v.json?.valid === true);
-  const st = await post('/v1/settlements', { decision_id: dec0.json.id }, { token: S });
+  const st = await post('/v1/settlements', { decision_id: dec0.json.id, force: true }, { token: S });
   ok('settles', [201, 202].includes(st.status), JSON.stringify(st.json));
   const replay = await get(`/v1/decisions/${dec0.json.id}/replay`, { token: S });
   ok('decision replays from snapshot', replay.json?.reproduced === true, JSON.stringify(replay.json)?.slice(0, 300));
@@ -180,7 +180,7 @@ function softAuthenticator() {
     approved = (msgs.json?.data ?? []).some((m) => m.decision_id === tr.json.id && m.status === 'approved');
   }
   ok('Travel Rule message approved by beneficiary VASP', approved);
-  const trs = await post('/v1/settlements', { decision_id: tr.json.id }, { token: S });
+  const trs = await post('/v1/settlements', { decision_id: tr.json.id, force: true }, { token: S });
   ok('transfer settles after Travel Rule', [201, 202].includes(trs.status), JSON.stringify(trs.json)?.slice(0, 200));
 
   // ---------- Reports, audit chain ----------

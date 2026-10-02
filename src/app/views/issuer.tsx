@@ -331,7 +331,6 @@ export function CreateFund() {
     e.preventDefault(); setErr(null); setBusy(true);
     try {
       const body = {
-        fund_type: f.fund_type,
         ...f, ticker: f.ticker.toUpperCase(), nav: Number(f.nav), min_subscription: Number(f.min_subscription), holder_cap: f.holder_cap ? Number(f.holder_cap) : null, lockup_months: f.lockup_months ? Number(f.lockup_months) : null,
         assets: f.assets.split(',').map((x) => x.trim()).filter(Boolean), chains: allChains,
         distribution: Object.entries(dist).filter(([, a]) => a.length).map(([jurisdiction, accepts]) => ({ jurisdiction, accepts })),

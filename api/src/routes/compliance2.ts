@@ -294,7 +294,8 @@ function materialize(p: CaseParty): { investor: Investor; issued: string[] } {
   return { investor, issued };
 }
 
-function ctxFor(cse: RegressionCase): { ctx: Ctx; issued: string[] } {
+/** Engine context for one golden case. Exported for the rule workbench, which runs the suite with a custom rule added. */
+export function ctxFor(cse: RegressionCase): { ctx: Ctx; issued: string[] } {
   const inv = materialize(cse.investor);
   const cp = cse.counterparty ? materialize(cse.counterparty) : null;
   const fund = clone(PROTO_FUNDS[cse.fund]);

@@ -1,7 +1,7 @@
 /** @jsxImportSource preact */
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, day, when, JUR, CLASS_LABEL, BOOKING } from '../api';
-import { useApi, Head, Btn, Chip, ErrorBox, Loading, Empty, Field, Card, Copy } from '../ui';
+import { useApi, Btn, Chip, ErrorBox, Loading, Empty, Field, Card, Copy } from '../ui';
 
 const DEFAULT_PURPOSE = 'Onboard the client for tokenized fund subscriptions booked with us';
 const classList = (codes: string[]) => (codes?.length ? codes.map((c) => CLASS_LABEL[c] ?? c).join(', ') : 'KYC only');
@@ -37,15 +37,88 @@ function RevokeShare({ share, issuer, onDone }: { share: any; issuer: boolean; o
   );
 }
 
+/**
+ * One client's place in the network: the passport number with Copy, who relies on it, and a Share button
+ * that explains how another distributor imports the client. Used on the client page and on Network.
+ */
+export function NetworkCard({ investorId, title = 'Credential network' }: { investorId: string; title?: string }) {
+  const r = useApi(`/v1/investors/${investorId}/network`, [investorId]);
+  const [sharing, setSharing] = useState(false);
+  if (r.loading && !r.data) return <Card title={title}><Loading /></Card>;
+  if (r.error) return <Card title={title}><ErrorBox error={r.error} onRetry={r.reload} /></Card>;
+  const d = r.data;
+  const out: any[] = d.shares_out ?? [];
+  const active = out.filter((s) => s.status === 'active');
+  const relied = d.relied_on;
+  return (
+    <Card title={title} class="netcard" actions={d.lzid ? <Btn kind={sharing ? 'default' : 'primary'} onClick={() => setSharing((x) => !x)}>{sharing ? 'Done' : 'Share'}</Btn> : null}>
+      {d.lzid ? (
+        <div class="netcard-pp">
+          <span class="f-l">Passport number</span>
+          <div class="netcard-pp-row"><code class="netcard-num">{d.lzid}</code><Copy text={d.lzid} /></div>
+          {d.credential ? <span class="small muted">Valid {d.credential.issued_on} to {d.credential.expires_on}.</span> : null}
+        </div>
+      ) : <p class="muted small">{d.note}</p>}
+      {sharing ? (
+        <div class="reveal" role="status">
+          <span class="f-l">How another distributor relies on this credential</span>
+          <ol class="netcard-steps">
+            <li>Give them the passport number <code>{d.lzid}</code>. It carries no personal data on its own.</li>
+            <li>They enter it under Network, Import a client, and choose where to book the client.</li>
+            <li>{d.investor.name} receives a consent request and approves or declines. On approval they appear in that distributor's client list, reading this credential live.</li>
+          </ol>
+          <p class="small muted">You can revoke any share from this card or from Network. Identity documents and evidence never leave you.</p>
+        </div>
+      ) : null}
+      {relied ? (
+        <p class="note small" style={{ marginTop: '0.9rem' }}>Relied on from <b>{relied.issuing_org}</b>{relied.consent_at ? <>, consent signed by {relied.consent_name} on {day(relied.consent_at)}</> : null}. {relied.credential_live ? 'Their credential is live, so it applies here at once.' : 'Their credential is no longer live, so this client is redemption-only until you issue your own.'} <a href="#/network">Manage on Network</a>.</p>
+      ) : null}
+      <div class="netcard-rel">
+        <span class="f-l">Who relies on it</span>
+        {out.length ? (
+          <ul class="netcard-list">
+            {out.map((s) => <li><span><b>{s.receiving_org}</b>{s.purpose ? <em class="clamp">{s.purpose}</em> : null}</span><span class="netcard-st">{shareChip(s)}<small class="muted">{s.consent_at ? `Consented ${day(s.consent_at)}` : s.status === 'pending' ? `Requested ${day(s.requested_at)}` : s.revoked_at ? `Ended ${day(s.revoked_at)}` : ''}</small></span></li>)}
+          </ul>
+        ) : <p class="small muted" style={{ margin: '0.3rem 0 0' }}>No other distributor relies on this credential yet.{active.length ? '' : d.lzid ? ' Share the passport number to change that.' : ''}</p>}
+      </div>
+    </Card>
+  );
+}
+
+/** Pick one of your clients, then see and share their passport number. */
+function SharePicker({ onClose }: { onClose: () => void }) {
+  const clients = useApi('/v1/investors?credential_status=active&limit=200');
+  const [id, setId] = useState('');
+  const rows: any[] = clients.data?.data ?? [];
+  useEffect(() => { if (!id && rows.length) setId(rows[0].id); }, [rows.length]);
+  return (
+    <Card title="Share a client's credential" actions={<Btn kind="ghost" onClick={onClose}>Close</Btn>}>
+      {clients.loading && !clients.data ? <Loading /> : clients.error ? <ErrorBox error={clients.error} onRetry={clients.reload} /> : !rows.length ? (
+        <Empty title="No client with an active credential">Issue a credential first; its passport number is what you share.</Empty>
+      ) : (
+        <>
+          <Field label="Client"><select value={id} onChange={(e) => setId((e.target as HTMLSelectElement).value)}>{rows.map((i) => <option value={i.id}>{i.name} ({i.residence_name})</option>)}</select></Field>
+          {id ? <div style={{ marginTop: '1rem' }}><NetworkCard investorId={id} title="Passport and shares" /></div> : null}
+        </>
+      )}
+    </Card>
+  );
+}
+
 export function Network() {
   const shares = useApi('/v1/credential-shares');
   const demo = useApi('/v1/network/demo-ids');
+  const metrics = useApi('/v1/metrics');
   const [f, setF] = useState({ lzid: '', booking_center: 'SG', purpose: DEFAULT_PURPOSE });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<any>(null);
   const [result, setResult] = useState<any>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  const net = metrics.data?.network ?? null;
+  const focusImport = () => { document.getElementById('net-import')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setTimeout(() => importRef.current?.focus(), 350); };
 
   const request = async (e: Event) => {
     e.preventDefault(); setBusy(true); setErr(null); setResult(null);
@@ -59,14 +132,29 @@ export function Network() {
 
   return (
     <>
-      <Head title="Network" sub="Rely on another distributor's KYC and investor classification instead of repeating it. The client consents, the issuing distributor keeps the records, and either side can revoke." />
+      <section class="net-hero" aria-labelledby="net-hero-h">
+        <div class="net-hero-copy">
+          <h1 id="net-hero-h">Verify once. Reuse everywhere.</h1>
+          <p>A client verified by one distributor can buy through another without a second onboarding. The client consents, the issuing distributor keeps the records, classifications are read live, and either side can revoke.</p>
+          <div class="net-hero-actions">
+            <Btn kind="primary" onClick={focusImport}>Import a client by passport number</Btn>
+            <Btn kind="primary" onClick={() => { setSharing(true); setTimeout(() => document.getElementById('net-share')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>Share a client's credential</Btn>
+          </div>
+        </div>
+        <dl class="net-hero-nums" aria-label="Network numbers">
+          <div><dt>Relied on</dt><dd>{net ? net.relied_on : metrics.error ? '0' : '…'}</dd><p>clients you serve on another distributor's credential</p></div>
+          <div><dt>Shared out</dt><dd>{net ? net.shared_out : metrics.error ? '0' : '…'}</dd><p>of your credentials other distributors rely on</p></div>
+          <div><dt>Pending</dt><dd>{net ? net.pending_shares : metrics.error ? '0' : '…'}</dd><p>shares waiting for the client to consent</p></div>
+        </dl>
+      </section>
       {msg ? <p class="note" role="status">{msg}</p> : null}
+      {sharing ? <div id="net-share"><SharePicker onClose={() => setSharing(false)} /></div> : null}
 
-      <div class="grid2">
+      <div class="grid2" id="net-import">
         <Card title="Import a client by passport number">
           <form onSubmit={request}>
             <Field label="Network passport number" hint="Printed on the client's Laissez-passer, for example LZ-7K2M-9QX4-PA3D.">
-              <input class="mono" required value={f.lzid} onInput={(e) => set('lzid', (e.target as HTMLInputElement).value.toUpperCase())} placeholder="LZ-XXXX-XXXX-XXXX" autocomplete="off" spellcheck={false} />
+              <input ref={importRef} class="mono" required value={f.lzid} onInput={(e) => set('lzid', (e.target as HTMLInputElement).value.toUpperCase())} placeholder="LZ-XXXX-XXXX-XXXX" autocomplete="off" spellcheck={false} />
             </Field>
             <Field label="Book the client in" hint="The booking center's licence rules apply to every order you place for this client.">
               <select value={f.booking_center} onChange={(e) => set('booking_center', (e.target as HTMLSelectElement).value)}>{Object.entries(BOOKING).map(([k, v]) => <option value={k}>{v}</option>)}</select>

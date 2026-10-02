@@ -2,7 +2,9 @@
 // Every page in the app, in one list. App.tsx builds the sidebar and the router from it,
 // so a new view is one line here: { pattern, group, label, component, perm? }.
 import type { ComponentType } from 'preact';
-import { Overview, Clients, ClientDetail, IssueCredential, NewOrder, DecisionDetail, Decisions, Settlements, SettlementDetail, Bulk } from './views/distributor';
+import { Clients, ClientDetail, IssueCredential, NewOrder, DecisionDetail, Decisions, Settlements, SettlementDetail, Bulk } from './views/distributor';
+import { Check } from './views/check';
+import { Home } from './views/home';
 import { Funds, FundDetail, PolicyChanges, CreateFund } from './views/issuer';
 import { RuleLibrary, Screening, RuleDrafts, AuditLog, ReceiptChecker } from './views/compliance';
 import { Explorer, Webhooks } from './views/developers';
@@ -20,12 +22,16 @@ import { Approvals, ApprovalPolicies, Waitlist, Batches } from './views/workflow
 import { Reports } from './views/reports';
 import { ReportBuilder } from './views/reports2';
 import { ChainOverview, ChainJobsPage, Reconciliation } from './views/chain';
+import { ImportPage } from './views/import';
+import { RuleWorkbench } from './views/rules';
 
 export type RouteProps = { params: Record<string, string>; query: URLSearchParams };
+/** Sidebar groups shown open at the top. Every other group sits under More, collapsed by default. */
+export const TOP_GROUPS = ['Start', 'Operate'] as const;
 export type RouteEntry = {
   /** Hash path, with :params, for example '/clients/:id'. */
   pattern: string;
-  /** Sidebar group. Groups appear in first-seen order; Organization is always last. */
+  /** Sidebar group. Start and Operate come first, then the rest under More in first-seen order; Organization is always last. */
   group: string;
   /** Sidebar label. Entries without a label, or with hidden: true, route but do not appear in the sidebar. */
   label?: string;
@@ -36,36 +42,48 @@ export type RouteEntry = {
 };
 
 export const ROUTES: RouteEntry[] = [
-  // Distributor
-  { pattern: '/', group: 'Distributor', label: 'Overview', component: Overview },
-  { pattern: '/clients', group: 'Distributor', label: 'Clients', component: Clients },
-  { pattern: '/clients/:id', group: 'Distributor', component: (r) => <ClientDetail id={r.params.id} /> },
-  { pattern: '/clients/:id/credential', group: 'Distributor', component: (r) => <IssueCredential id={r.params.id} /> },
-  { pattern: '/orders/new', group: 'Distributor', label: 'New order', component: (r) => <NewOrder params={r.query} /> },
-  { pattern: '/decisions', group: 'Distributor', label: 'Decisions', component: Decisions },
-  { pattern: '/decisions/:id', group: 'Distributor', component: (r) => <DecisionDetail id={r.params.id} /> },
-  { pattern: '/settlements', group: 'Distributor', label: 'Settlements', component: Settlements },
-  { pattern: '/settlements/:id', group: 'Distributor', component: (r) => <SettlementDetail id={r.params.id} /> },
+  // Start: the one job, then the thesis
+  { pattern: '/', group: 'Start', label: 'Check', component: Check },
+  { pattern: '/home', group: 'Start', label: 'Home', component: Home },
+  { pattern: '/overview', group: 'Start', component: Home, hidden: true },
+  { pattern: '/clients', group: 'Start', label: 'Clients', component: Clients },
+  { pattern: '/clients/:id', group: 'Start', component: (r) => <ClientDetail id={r.params.id} /> },
+  { pattern: '/clients/:id/credential', group: 'Start', component: (r) => <IssueCredential id={r.params.id} /> },
+  { pattern: '/import', group: 'Start', label: 'Import', component: () => <ImportPage /> },
+  { pattern: '/import/:id', group: 'Start', component: (r) => <ImportPage id={r.params.id} /> },
+  { pattern: '/network', group: 'Start', label: 'Network', component: Network },
+
+  // Operate: the daily queues
+  { pattern: '/decisions', group: 'Operate', label: 'Decisions', component: Decisions },
+  { pattern: '/decisions/:id', group: 'Operate', component: (r) => <DecisionDetail id={r.params.id} /> },
+  { pattern: '/settlements', group: 'Operate', label: 'Settlements', component: Settlements },
+  { pattern: '/settlements/:id', group: 'Operate', component: (r) => <SettlementDetail id={r.params.id} /> },
+  { pattern: '/funds', group: 'Operate', label: 'Funds', component: Funds },
+  { pattern: '/funds/new', group: 'Operate', component: CreateFund },
+  { pattern: '/funds/:ticker', group: 'Operate', component: (r) => <FundDetail ticker={r.params.ticker} /> },
+  { pattern: '/policy-changes', group: 'Operate', label: 'Policy changes', component: PolicyChanges },
+  { pattern: '/work', group: 'Operate', label: 'Work queue', component: WorkQueue },
+  { pattern: '/approvals', group: 'Operate', label: 'Approvals', component: () => <Approvals /> },
+  { pattern: '/approvals/:id', group: 'Operate', component: (r) => <Approvals id={r.params.id} /> },
+
+  // Distributor (under More)
+  { pattern: '/orders/new', group: 'Distributor', label: 'Full order ticket', component: (r) => <NewOrder params={r.query} /> },
   { pattern: '/bulk', group: 'Distributor', label: 'Bulk check', component: Bulk },
-  { pattern: '/work', group: 'Distributor', label: 'Work queue', component: WorkQueue },
-  { pattern: '/network', group: 'Distributor', label: 'Network', component: Network },
   { pattern: '/portal-requests', group: 'Distributor', label: 'Portal requests', component: PortalRequests },
   { pattern: '/redemption-notices', group: 'Distributor', label: 'Redemption notices', component: (r) => <RedemptionNotices query={r.query} /> },
   { pattern: '/waitlist', group: 'Distributor', label: 'Waitlist', component: Waitlist },
   { pattern: '/batches', group: 'Distributor', label: 'Order batches', component: () => <Batches /> },
   { pattern: '/batches/:id', group: 'Distributor', component: (r) => <Batches id={r.params.id} /> },
 
-  // Issuer
-  { pattern: '/funds', group: 'Issuer', label: 'Funds', component: Funds },
-  { pattern: '/funds/new', group: 'Issuer', component: CreateFund },
-  { pattern: '/funds/:ticker', group: 'Issuer', component: (r) => <FundDetail ticker={r.params.ticker} /> },
-  { pattern: '/policy-changes', group: 'Issuer', label: 'Policy changes', component: PolicyChanges },
+  // Issuer (under More)
   { pattern: '/reports', group: 'Issuer', label: 'Reports', component: Reports },
   { pattern: '/reports/builder', group: 'Issuer', label: 'Report builder', component: () => <ReportBuilder /> },
   { pattern: '/reports/builder/:id', group: 'Issuer', component: (r) => <ReportBuilder id={r.params.id} /> },
 
   // Compliance
   { pattern: '/rules', group: 'Compliance', label: 'Rule library', component: RuleLibrary },
+  { pattern: '/rule-workbench', group: 'Compliance', label: 'Rule workbench', component: () => <RuleWorkbench /> },
+  { pattern: '/rule-workbench/:id', group: 'Compliance', component: (r) => <RuleWorkbench id={r.params.id} /> },
   { pattern: '/screening-hits', group: 'Compliance', label: 'Screening hits', component: ScreeningHits },
   { pattern: '/screening-hits/:id', group: 'Compliance', component: (r) => <ScreeningHitDetail id={r.params.id} /> },
   { pattern: '/screening', group: 'Compliance', label: 'Name screening', component: Screening },
@@ -83,8 +101,6 @@ export const ROUTES: RouteEntry[] = [
   { pattern: '/anchors', group: 'Compliance', label: 'Audit anchors', component: Anchors },
   { pattern: '/notifications', group: 'Compliance', component: Notifications, hidden: true },
   { pattern: '/receipts', group: 'Compliance', label: 'Receipt checker', component: ReceiptChecker },
-  { pattern: '/approvals', group: 'Compliance', label: 'Approvals', component: () => <Approvals /> },
-  { pattern: '/approvals/:id', group: 'Compliance', component: (r) => <Approvals id={r.params.id} /> },
 
   // Settlement network
   { pattern: '/chain', group: 'Settlement', label: 'On-chain', component: ChainOverview },
@@ -131,7 +147,7 @@ export function matchRoute(path: string): { entry: RouteEntry; params: Record<st
   return best ? { entry: best.entry, params: best.params } : null;
 }
 
-export type NavGroup = { group: string; items: RouteEntry[] };
+export type NavGroup = { group: string; items: RouteEntry[]; /** True for Start and Operate, which sit above More. */ top: boolean };
 export function navGroups(): NavGroup[] {
   const order: string[] = [];
   const by: Record<string, RouteEntry[]> = {};
@@ -140,8 +156,10 @@ export function navGroups(): NavGroup[] {
     if (!by[r.group]) { by[r.group] = []; order.push(r.group); }
     by[r.group].push(r);
   }
-  const sorted = [...order.filter((g) => g !== 'Organization'), ...order.filter((g) => g === 'Organization')];
-  return sorted.map((group) => ({ group, items: by[group] }));
+  const top = (TOP_GROUPS as readonly string[]).filter((g) => by[g]);
+  const rest = order.filter((g) => !top.includes(g));
+  const sorted = [...top, ...rest.filter((g) => g !== 'Organization'), ...rest.filter((g) => g === 'Organization')];
+  return sorted.map((group) => ({ group, items: by[group], top: top.includes(group) }));
 }
 
 /** True when a sidebar entry should show as the current page. */

@@ -10,7 +10,8 @@ import { THEMES, readTheme, setTheme, onThemeChange, type Theme } from '../theme
 const ROLE_HELP: Record<Role, string> = {
   admin: 'Everything, including members, single sign-on and keys',
   ops: 'Clients, credentials, orders and settlement',
-  compliance: 'Clients, screening, rule drafts, policy approval and audit export',
+  compliance: 'Clients, screening, rule drafts, custom rules, policy approval and audit export',
+  legal: 'Read everything, approve custom rules and make compliance decisions',
   issuer: 'Funds, policy proposals and policy approval',
   developer: 'Webhooks and API keys, read access to the rest',
   auditor: 'Read everything and export the audit log',

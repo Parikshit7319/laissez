@@ -7,6 +7,7 @@ import {
   SIM_DATE, type Jur, type ClassCode, type Fund, type Investor, type BookingCenter, type Classification,
   classInfo, bookingCenters, funds as FUNDS, investors as INVESTORS, jurName, sanctionedJurisdictions,
 } from './data';
+import { evaluateCustomRules, factsFor, isFreezeCheck, type CustomRule } from './custom-rules';
 
 export type ClassMeta = {
   label: string; stamp: string; jur: Jur; rule: string; source: string; threshold: string;
@@ -71,6 +72,8 @@ export type Ctx = {
   lrsRemitted?: Record<string, number>;
   /** The capital call this order settles, for closed-end funds. Absent for a free subscription. */
   capitalCall?: CapitalCallCtx | null;
+  /** Rules the organization authored in the rule workbench (src/proto/custom-rules.ts). Evaluated after the built-in layers. */
+  customRules?: CustomRule[];
 };
 export const defaultCtx: Ctx = {
   investors: INVESTORS, funds: FUNDS, classInfo, bookingCenters, jurName, sanctioned: sanctionedJurisdictions as Record<string, string>, today: SIM_DATE,
@@ -690,6 +693,13 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = [], ctx: Ctx = defaul
     detail: assetOk ? `${o.asset} is on the fund’s accepted settlement list (${fund.assets.join(', ')}).` : `${fund.short} settles only in ${fund.assets.join(' or ')}.`,
     remedy: assetOk ? undefined : `Settle in ${fund.assets.join(' or ')}.` });
 
+  // ---------- Organization rules (authored as data, layered on the packs) ----------
+  if (C.customRules?.length) {
+    const custom = evaluateCustomRules(C.customRules, factsFor(o, inv, fund, counterparty, C.today));
+    checks.push(...custom);
+    if (custom.some(isFreezeCheck)) return finish('FREEZE');
+  }
+
   const failed = checks.some((c) => c.result === 'fail');
   return finish(failed ? 'DENY' : 'ALLOW');
 
@@ -762,9 +772,11 @@ export type Snapshot = {
   lrsRemitted?: Record<string, number> | null;
   /** The capital call the order answered, for closed-end funds. */
   capitalCall?: CapitalCallCtx | null;
+  /** The organization's custom rules in force at decision time, so replay re-evaluates the same ones. */
+  customRules?: CustomRule[] | null;
 };
 
-const pick = <T,>(src: Record<string, T> | undefined, keys: Iterable<string>): Record<string, T> => {
+const pick =<T,>(src: Record<string, T> | undefined, keys: Iterable<string>): Record<string, T> => {
   const out: Record<string, T> = {};
   if (!src) return out;
   for (const k of keys) if (k in src && src[k] !== undefined) out[k] = src[k];
@@ -812,6 +824,7 @@ export function snapshotFor(order: Order, ctx: Ctx, whatIfs: WhatIf[] = []): Sna
   if (ctx.calendars && tz && ctx.calendars[tz]) snap.calendars = { [tz]: [...ctx.calendars[tz]] };
   if (ctx.lrsRemitted) snap.lrsRemitted = pick(ctx.lrsRemitted, ids);
   if (ctx.capitalCall) snap.capitalCall = { ...ctx.capitalCall };
+  if (ctx.customRules?.length) snap.customRules = ctx.customRules.map((r) => ({ ...r }));
   return JSON.parse(JSON.stringify(snap));
 }
 
@@ -823,6 +836,7 @@ export function ctxFromSnapshot(snap: Snapshot): Ctx {
     now: snap.now ?? undefined, rulePacks: snap.rulePacks ?? undefined, documents: snap.documents ?? undefined, acks: snap.acks ?? undefined,
     aum: snap.aum ?? undefined, redeemedInPeriod: snap.redeemedInPeriod ?? undefined, notices: snap.notices ?? undefined,
     calendars: snap.calendars ?? undefined, lrsRemitted: snap.lrsRemitted ?? undefined, capitalCall: snap.capitalCall ?? undefined,
+    customRules: snap.customRules?.length ? snap.customRules : undefined,
     screen: (name: string) => screens[name] ?? null,
   };
 }

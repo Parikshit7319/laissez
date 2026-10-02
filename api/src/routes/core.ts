@@ -23,6 +23,7 @@ import { startTravelRule, travelRuleApproved, travelRuleConfirm } from './travel
 import { pageParams, pageOut } from '../pagination';
 import { requireApproval, registerExecutor, isPending } from '../approvals';
 import { waitlistEligible, releaseWaitlist, joinBatch, concentrationCheck, suitabilityCheck, taxCheck } from './workflow';
+import { loadActiveRules } from './rules';
 
 export const routes = router();
 /** Reference data the engine reads. Public: no organization data. */
@@ -37,7 +38,7 @@ publicRoutes.get('/jurisdictions', async (c) => c.json({ data: await adminSql(c.
 publicRoutes.get('/investor-classes', async (c) => c.json({ data: await adminSql(c.env.DATABASE_URL)`select * from investor_classes order by jurisdiction, code` }));
 publicRoutes.get('/booking-centers', async (c) => c.json({ data: await adminSql(c.env.DATABASE_URL)`select * from booking_centers order by name` }));
 publicRoutes.get('/rule-packs', async (c) => c.json({
-  data: await adminSql(c.env.DATABASE_URL)`select id, version, jurisdiction, status, summary, effective_from::text, effective_to::text, approved_by, created_at from rule_packs order by id, effective_from desc nulls last, created_at desc`,
+  data: await adminSql(c.env.DATABASE_URL)`select id, version, jurisdiction, status, summary, effective_from::text, effective_to::text, approved_by, reviewed_on::text, review_ref, created_at from rule_packs order by id, effective_from desc nulls last, created_at desc`,
 }));
 publicRoutes.get('/signing-key', async (c) => {
   try { return c.json({ alg: 'Ed25519', key: await publicKey(c.env) }); }
@@ -65,7 +66,7 @@ routes.get('/workspace', async (c) => {
 routes.get('/metrics', async (c) => {
   need(c, 'read');
   const sql = c.get('sql'); const ws = c.get('ws');
-  const [daily, totals, reasons, value, reuse, expiring, network] = await Promise.all([
+  const [daily, totals, reasons, value, reuse, expiring, network, ttfs, shares, needs, crossBorder] = await Promise.all([
     sql`select to_char(date_trunc('day', created_at), 'YYYY-MM-DD') as day, outcome, count(*)::int as n from decisions where workspace_id = ${ws} and created_at > now() - interval '14 days' group by 1, 2 order by 1`,
     sql`select count(*)::int as decisions, count(*) filter (where outcome = 'ALLOW')::int as allowed, count(*) filter (where outcome = 'DENY')::int as denied, count(*) filter (where outcome = 'FREEZE')::int as frozen from decisions where workspace_id = ${ws}`,
     sql`select ch->>'label' as label, count(*)::int as n from decisions d, jsonb_array_elements(d.checks) ch where d.workspace_id = ${ws} and ch->>'result' = 'fail' group by 1 order by 2 desc limit 6`,
@@ -74,14 +75,47 @@ routes.get('/metrics', async (c) => {
     sql`select count(*)::int as n from credentials where workspace_id = ${ws} and status = 'active' and expires_on between current_date and current_date + 30`,
     sql`select count(*)::int as n from investors i where i.workspace_id = ${ws} and i.relied_share is not null
       and exists (select 1 from decisions d where d.workspace_id = i.workspace_id and d.investor_id = i.id and d.outcome = 'ALLOW')`,
+    // Hours from a client's first credential (own, or a relied-on share once the client consented) to their first settled order.
+    sql`with first_cred as (
+        select investor_id, min(at) as at from (
+          select investor_id, created_at as at from credentials where workspace_id = ${ws}
+          union all
+          select to_investor_id, consent_at from credential_shares where to_workspace = ${ws} and to_investor_id is not null and consent_at is not null
+        ) x group by 1
+      ), first_stl as (
+        select d.investor_id, min(s.created_at) as at from settlements s join decisions d on d.workspace_id = s.workspace_id and d.id = s.decision_id
+        where s.workspace_id = ${ws} and s.status = 'settled' group by 1
+      )
+      select percentile_cont(0.5) within group (order by extract(epoch from fs.at - fc.at) / 3600.0)::float8 as hours, count(*)::int as investors
+      from first_cred fc join first_stl fs on fs.investor_id = fc.investor_id where fs.at >= fc.at`,
+    sql`select count(*) filter (where to_workspace = ${ws} and status = 'active')::int as relied_on,
+        count(*) filter (where from_workspace = ${ws} and status = 'active')::int as shared_out,
+        count(*) filter (where status = 'pending')::int as pending
+      from credential_shares where from_workspace = ${ws} or to_workspace = ${ws}`,
+    sql`select (select count(*)::int from approval_requests where workspace_id = ${ws} and status = 'pending') as approvals,
+        (select count(*)::int from work_items where workspace_id = ${ws} and status = 'open') as work_items,
+        (select count(*)::int from portal_requests where workspace_id = ${ws} and status = 'submitted') as portal_requests`,
+    // Cross-border: the acquiring (or exiting) investor resides outside the fund's domicile. Same definition as GET /v1/metrics/public.
+    sql`select f.currency, coalesce(sum(d.amount), 0)::float8 as value, count(*)::int as n
+      from settlements s join decisions d on d.workspace_id = s.workspace_id and d.id = s.decision_id
+      join funds f on f.workspace_id = d.workspace_id and f.ticker = d.ticker
+      join investors i on i.workspace_id = d.workspace_id and i.id = case when d.action = 'transfer' and d.counterparty_id is not null then d.counterparty_id else d.investor_id end
+      where s.workspace_id = ${ws} and s.status = 'settled' and d.outcome = 'ALLOW'
+        and i.residence is distinct from (case f.domicile when 'British Virgin Islands' then 'VG' when 'Ireland' then 'IE' when 'Delaware, United States' then 'US' when 'Luxembourg' then 'LU' when 'Singapore' then 'SG' when 'Cayman Islands' then 'KY' else null end)
+      group by 1 order by 1`,
   ]);
   const t = totals[0];
   return c.json({
     totals: { ...t, allow_rate: t.decisions ? t.allowed / t.decisions : null },
     daily, top_refusal_reasons: reasons, settled_value: value,
+    cross_border_settled_value: crossBorder,
     credential_reuse: { investors_with_two_or_more_funds: reuse[0].reused, investors_with_allowed_orders: reuse[0].total, rate: reuse[0].total ? reuse[0].reused / reuse[0].total : null },
     credential_reuse_network: network[0].n,
     credentials_expiring_30d: expiring[0].n,
+    time_to_first_settlement_hours_median: ttfs[0].hours == null ? null : Math.round(Number(ttfs[0].hours) * 10) / 10,
+    time_to_first_settlement_investors: ttfs[0].investors,
+    network: { relied_on: shares[0].relied_on, shared_out: shares[0].shared_out, pending_shares: shares[0].pending },
+    needs_you: { approvals: needs[0].approvals, work_items: needs[0].work_items, portal_requests: needs[0].portal_requests, shares: shares[0].pending },
   });
 });
 
@@ -487,14 +521,17 @@ export type DecisionInput = z.input<typeof decisionIn>;
 /** Builds the full engine context for live orders: register state, screening, documents, fund liquidity and the clock. */
 export async function liveCtx(c: C, ids: string[], ticker: string, capitalCallId: string | null = null): Promise<{ ctx: Ctx; matches: Record<string, Match | null> }> {
   const sql = c.get('sql'); const ws = c.get('ws');
-  const [ctx, docs, life, closed] = await Promise.all([
+  const [ctx, docs, life, closed, customRules] = await Promise.all([
     buildCtx(sql, ws, ids, ticker, adminOf(c)),
     docsCtx(sql, ws, [ticker], ids),
     lifecycleCtx(sql, ws, ticker, ids),
     closedEndCtx(sql, ws, ticker, ids[0] ?? null, capitalCallId),
+    loadActiveRules(sql, ws),
   ]);
   if (ctx.funds[ticker]) (ctx.funds[ticker] as FundExt).fundType = closed.fundType;
   ctx.capitalCall = closed.capitalCall;
+  // Rules the organization authored in the rule workbench, in force today. Evaluated after the built-in layers.
+  if (customRules.length) ctx.customRules = customRules;
   const names = ids.map((i) => ctx.investors[i]?.name).filter((n): n is string => !!n);
   const matches = names.length ? await screenNames(sql, ws, names) : {};
   ctx.screen = (n: string) => { const m = matches[n]; return m ? { entry: m.entry, program: m.program, score: m.score, source: m.source } : null; };
@@ -727,11 +764,15 @@ routes.get('/decisions/:id/receipt.pdf', async (c) => {
 routes.get('/decisions/:id/replay', async (c) => {
   need(c, 'read');
   const decId = c.req.param('id');
-  const [row] = await c.get('sql')`select id, outcome, inputs_sha256, rule_packs, snapshot, created_at from decisions where workspace_id = ${c.get('ws')} and id = ${decId}`;
+  const [row] = await c.get('sql')`select id, outcome, inputs_sha256, rule_packs, snapshot, checks, created_at from decisions where workspace_id = ${c.get('ws')} and id = ${decId}`;
   if (!row) throw new ApiError(404, 'not_found', `No decision ${decId} in this organization.`);
   if (!row.snapshot) throw new ApiError(409, 'no_snapshot', 'This decision was made before Laissez stored decision snapshots, so it cannot be replayed. Decisions made from now on can.');
   const snap = row.snapshot as Snapshot;
   const d = replaySnapshot(snap);
+  // Suitability, tax and concentration read organization tables, not the snapshot. Their stored results rejoin the trace so the hash can match.
+  for (const ch of ((row.checks as any[]) ?? [])) {
+    if (['suitability', 'tax', 'concentration'].includes(ch.id) && !d.checks.some((x) => x.id === ch.id)) d.checks.push(ch);
+  }
   const hash = await inputsHash(d);
   // Fresh evaluation of the same order against today's state, to show what has changed since the decision.
   const ids = [snap.order.investorId, ...(snap.order.counterpartyId ? [snap.order.counterpartyId] : [])];
