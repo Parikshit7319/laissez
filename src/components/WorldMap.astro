@@ -32,6 +32,15 @@ const cities: City[] = [
   { id: 'sg', name: 'Singapore', ll: [103.82, 1.35], label: 'b' },
   { id: 'hk', name: 'Hong Kong', ll: [114.17, 22.32], label: 'r' },
 ];
+const notes: Record<string, [string, string]> = {
+  dub: ['Dublin, Central Bank of Ireland', 'Fund domicile for ICAVs and UCITS. EU professional clients meet 2 of 3 size tests under MiFID II.'],
+  lux: ['Luxembourg, CSSF', 'Fund domicile for SICAVs and RAIFs. The AIFMD passport reaches professional investors across the EU.'],
+  zrh: ['Zurich, FINMA', 'Swiss professional clients under FinSA: 2 of 3 of CHF 20M balance sheet, CHF 40M turnover, CHF 2M equity.'],
+  fra: ['Frankfurt, BaFin', 'EU retail clients need a PRIIPs key information document. Professional clients meet 2 of 3 size tests.'],
+  dxb: ['Dubai, DFSA', 'DIFC professional clients: individuals with US$1M net assets and relevant experience (COB 2.3).'],
+  sg: ['Singapore, MAS', 'Accredited investors who opt in: S$2M net personal assets, S$1M net financial assets or S$300K income (SFA s4A).'],
+  hk: ['Hong Kong, SFC', 'Professional investors: a HK$8M portfolio for individuals, HK$40M total assets for corporations (Cap. 571D).'],
+};
 const P = Object.fromEntries(cities.map((c) => [c.id, proj(c.ll)!]));
 const routes: [string, string][] = [['nyc', 'sg'], ['dub', 'hk'], ['lux', 'dxb'], ['bvi', 'zrh'], ['nyc', 'fra'], ['dub', 'sg'], ['hk', 'dxb'], ['lux', 'sg']];
 const arcs = routes.map(([a, b], i) => {
@@ -40,7 +49,7 @@ const arcs = routes.map(([a, b], i) => {
   const dx = x2 - x1, dy = y2 - y1, dist = Math.hypot(dx, dy);
   const lift = Math.min(dist * 0.32, 190);
   const cx = mx + (dy / dist) * lift * (dx > 0 ? 1 : -1) * 0.0 , cy = my - lift;
-  return { d: `M${x1.toFixed(1)} ${y1.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`, i };
+  return { d: `M${x1.toFixed(1)} ${y1.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`, i, r: `${a} ${b}` };
 });
 // Crop to Europe, the Gulf and Asia; corridors from the Americas enter from the left edge.
 const X0 = proj([-28, 0])![0], X1 = proj([150, 0])![0];
@@ -57,7 +66,7 @@ const sg = pct('sg'), dxb = pct('dxb');
     </defs>
     <path d={dots} class="land" />
     {arcs.map((a) => (<>
-      <path d={a.d} class="arc-base" />
+      <path d={a.d} class="arc-base" data-r={a.r} />
       <path d={a.d} class="arc-pulse" pathLength="100" style={`animation-delay:${(a.i * 0.9).toFixed(1)}s`} />
     </>))}
     {cities.map((c) => {
@@ -65,14 +74,17 @@ const sg = pct('sg'), dxb = pct('dxb');
       const lx = c.label === 'l' ? x - 12 : c.label === 'r' ? x + 12 : x;
       const ly = c.label === 'b' ? y + 22 : c.label === 't' ? y - 14 : y + 4;
       const anchor = c.label === 'l' ? 'end' : c.label === 'r' ? 'start' : 'middle';
-      return (<g class="city">
+      const n = notes[c.id];
+      return (<g class="city" data-id={c.id} data-t={n?.[0]} data-n={n?.[1]} data-x={((x - X0) / CW * 100).toFixed(2)} data-y={((y - Y0) / CH * 100).toFixed(2)}>
         <circle cx={x} cy={y} r="22" fill="url(#glow)" />
+        <circle cx={x} cy={y} r="20" class="hit" />
         <circle cx={x} cy={y} r="3.6" class="node" />
         <circle cx={x} cy={y} r="3.6" class="ring" />
         {c.label ? <text x={lx} y={ly} text-anchor={anchor}>{c.name}</text> : null}
       </g>);
     })}
   </svg>
+  <div class="map-tip" hidden><strong></strong><span></span></div>
   <div class="map-card ok" style={`left:${sg.left};top:${sg.top}`}>
     <span class="mc-k">TWLF subscription</span>
     <strong>Lumen Family Office</strong>
@@ -88,8 +100,47 @@ const sg = pct('sg'), dxb = pct('dxb');
   </div>
 </div>
 
+<script>
+  for (const map of document.querySelectorAll<HTMLElement>('.map')) {
+    const tip = map.querySelector<HTMLElement>('.map-tip')!;
+    const arcs = [...map.querySelectorAll<SVGPathElement>('.arc-base')];
+    for (const g of map.querySelectorAll<SVGGElement>('.city[data-t]')) {
+      g.addEventListener('pointerenter', () => {
+        const id = g.dataset.id!;
+        map.classList.add('hovering');
+        g.classList.add('hot');
+        arcs.forEach((a) => a.classList.toggle('hot', a.dataset.r!.split(' ').includes(id)));
+        tip.querySelector('strong')!.textContent = g.dataset.t!;
+        tip.querySelector('span')!.textContent = g.dataset.n!;
+        tip.style.left = g.dataset.x + '%';
+        tip.style.top = g.dataset.y + '%';
+        tip.hidden = false;
+      });
+      g.addEventListener('pointerleave', () => {
+        map.classList.remove('hovering');
+        g.classList.remove('hot');
+        arcs.forEach((a) => a.classList.remove('hot'));
+        tip.hidden = true;
+      });
+    }
+  }
+</script>
+
 <style>
   .map { position: relative; width: 100%; max-width: 100%; }
+  .hit { fill: transparent; cursor: help; }
+  .arc-base { transition: stroke 200ms, opacity 200ms; }
+  .map.hovering .arc-base { opacity: 0.3; }
+  .map.hovering .arc-base.hot { opacity: 1; stroke: rgba(230, 210, 164, 0.85); stroke-width: 1.6; }
+  .map.hovering .map-card { opacity: 0.25; }
+  .map-card { transition: opacity 200ms; }
+  .city.hot text { fill: #ece8e1; }
+  .map-tip {
+    position: absolute; z-index: 3; transform: translate(-50%, calc(-100% - 1.1rem)); width: 17rem; pointer-events: none;
+    display: grid; gap: 0.25rem; background: #ece8e1; color: #2a2620; border-radius: 12px; padding: 0.75rem 0.9rem;
+    box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.8); font-size: 0.78rem; line-height: 1.45;
+  }
+  .map-tip strong { font-size: 0.86rem; font-weight: 620; color: #151412; }
   .map svg { width: 100%; height: 100%; overflow: hidden; }
   .land { stroke: rgba(205, 195, 178, 0.34); stroke-width: 2.6; stroke-linecap: round; fill: none; }
   .arc-base { fill: none; stroke: rgba(201, 169, 110, 0.22); stroke-width: 1.1; }
