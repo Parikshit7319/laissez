@@ -90,6 +90,7 @@ code { font-family: var(--f-mono); font-size: 0.82em; background: #f3f0ea; paddi
 .seg-c button + button { border-left: 1px solid #d6cfc2; }
 .seg-c button.on { background: #171512; color: #f3efe6; }
 .card .f + .f, .card .f + .form-grid { margin-top: 0.85rem; }
+.card .form-grid > .f + .f, .card .row-inline > .f + .f, .card .form-grid > .f + .form-grid { margin-top: 0; }
 .wis { border: 1px dashed #d6cfc2; border-radius: 10px; padding: 0.7rem 0.9rem; margin: 1rem 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem 1rem; font-size: 0.85rem; }
 .wis legend { font-size: 0.8rem; font-weight: 600; color: #5f584d; padding: 0 0.3rem; }
 .wis label { display: flex; gap: 0.4rem; align-items: center; }
