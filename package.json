@@ -9,7 +9,8 @@
     "preview": "astro preview",
     "test": "esbuild scripts/test-engine.ts --bundle --platform=node --format=esm --outfile=.astro/test-engine.mjs --log-level=warning && node .astro/test-engine.mjs",
     "test:api": "node api/test/smoke.mjs",
-    "test:rules": "esbuild scripts/test-rulepacks.ts --bundle --platform=node --format=esm --outfile=.astro/test-rules.mjs --log-level=warning && node .astro/test-rules.mjs"
+    "test:rules": "esbuild scripts/test-rulepacks.ts --bundle --platform=node --format=esm --outfile=.astro/test-rules.mjs --log-level=warning && node .astro/test-rules.mjs",
+    "test:openapi": "esbuild scripts/test-openapi.ts --bundle --platform=node --format=esm --outfile=.astro/test-openapi.mjs --log-level=warning --packages=external && node .astro/test-openapi.mjs"
   },
   "dependencies": {
     "@astrojs/preact": "^4.1.3",
@@ -20,6 +21,7 @@
     "world-atlas": "^2.0.2"
   },
   "devDependencies": {
+    "@seriousme/openapi-schema-validator": "^2.11.0",
     "esbuild": "^0.25.12"
   }
 }

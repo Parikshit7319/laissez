@@ -5,6 +5,7 @@ import { type C, type Actor, type Role, router, body, bg, need, audit, auditQ, R
 import { rpFor, verifyRegistration, verifyAssertion, type RegistrationResponse, type AssertionResponse } from './webauthn';
 import { discover, pkce, verifyIdToken, exchangeCode, DEMO_IDP_CLIENT, DEMO_PEOPLE } from './oidc';
 import { seedQueries } from './seed';
+import { runMonitor } from './monitor';
 
 const ROLES = ['admin', 'ops', 'compliance', 'issuer', 'developer', 'auditor'] as const;
 const roleZ = z.enum(ROLES);
@@ -92,6 +93,8 @@ pub.post('/sandboxes', async (c) => {
     admin`insert into audit_events (workspace_id, type, subject, data, actor, actor_name) values (${ws}, 'workspace.created', ${ws}, ${JSON.stringify({ seeded: { investors: 6, funds: 3, teammates: 3 } })}, ${`user:${guest}`}, 'You (guest)')`,
   ]);
   const session = await createSession(c as C, admin, guest, ws, 'sandbox', 24 * 7);
+  // First monitoring pass, so the work queue reflects the seeded book from the start.
+  bg(c, runMonitor(tenantSql(c.env.DATABASE_URL_TENANT, ws), ws, 'sandbox_created', { admin }));
   const [w] = await admin`select id, name, kind, slug, created_at, expires_at from workspaces where id = ${ws}`;
   return c.json({ workspace: w, api_key: key, session_token: session, note: 'Store the API key now. It is shown once. Everything in this sandbox is fictional and is deleted when it expires.' }, 201);
 });

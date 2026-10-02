@@ -312,11 +312,20 @@ const COMPONENTS: { id: string; name: string }[] = [
   { id: 'sanctions_data', name: 'Sanctions lists' }, { id: 'monitoring', name: 'Holder monitoring' },
 ];
 const pct = (x: unknown) => (x == null ? null : Math.round(Number(x) * 100_000) / 1000);
+const DAY_MS = 86_400_000;
+/** The last n UTC calendar days, oldest first, as YYYY-MM-DD. The last entry is today (UTC). */
+function utcDays(n: number, now = Date.now()): string[] {
+  const today = Math.floor(now / DAY_MS) * DAY_MS;
+  return Array.from({ length: n }, (_, i) => new Date(today - (n - 1 - i) * DAY_MS).toISOString().slice(0, 10));
+}
+const STATUS_DAYS = 90;
+const INCIDENT_DAYS = 30;
 let statusCache: { at: number; data: unknown } | null = null;
 publicRoutes.get('/status', async (c) => {
   if (statusCache && Date.now() - statusCache.at < 30_000) { c.header('Cache-Control', 'public, max-age=30'); return c.json(statusCache.data as any); }
   const admin = adminSql(c.env.DATABASE_URL);
-  const [checks, sources, [mon]] = await Promise.all([
+  const days = utcDays(STATUS_DAYS);
+  const [checks, sources, [mon], dailyRows, incidentRows] = await Promise.all([
     admin`select component,
         (array_agg(ok order by checked_at desc))[1] as ok, max(checked_at) as last_checked_at,
         (array_agg(latency_ms order by checked_at desc))[1] as latency_ms, (array_agg(detail order by checked_at desc))[1] as detail,
@@ -328,6 +337,21 @@ publicRoutes.get('/status', async (c) => {
     admin`select source, name, last_fetched_at, last_published, entries, status, error,
         round(extract(epoch from now() - last_fetched_at) / 3600.0, 1)::float8 as age_hours from sanctions_sources order by source`,
     admin`select max(finished_at) as last_finished_at, count(*) filter (where started_at > now() - interval '24 hours')::int as runs_24h from monitor_runs`,
+    // One row per component per UTC day that has checks. Days without checks are filled in below.
+    admin`select component, to_char((checked_at at time zone 'UTC')::date, 'YYYY-MM-DD') as date,
+        count(*)::int as checks, count(*) filter (where ok)::int as ok_checks
+      from uptime_checks where checked_at >= (${days[0]}::date)::timestamp at time zone 'UTC'
+      group by 1, 2`,
+    // Incidents: runs of consecutive failed checks per component (gaps and islands). A run ends at the first passing check after it.
+    admin`with c as (
+        select component, checked_at, ok, detail,
+          lead(checked_at) over (partition by component order by checked_at) as next_at,
+          row_number() over (partition by component order by checked_at) - row_number() over (partition by component, ok order by checked_at) as grp
+        from uptime_checks where checked_at > now() - make_interval(days => ${INCIDENT_DAYS})
+      )
+      select component, min(checked_at) as started_at, max(checked_at) as last_failed_at, count(*)::int as failed_checks,
+        (array_agg(next_at order by checked_at desc))[1] as resolved_at, (array_agg(detail order by checked_at))[1] as detail
+      from c where not ok group by component, grp order by started_at desc limit 50`,
   ]);
   const components = COMPONENTS.map((k) => {
     const r = checks.find((x: any) => x.component === k.id);
@@ -339,11 +363,28 @@ publicRoutes.get('/status', async (c) => {
     };
   });
   const overall = components.some((x) => x.status === 'degraded') ? 'degraded' : components.every((x) => x.status === 'operational') ? 'operational' : 'partial_data';
+  const byDay = new Map<string, { checks: number; ok_checks: number }>(dailyRows.map((r: any) => [`${r.component}|${r.date}`, { checks: r.checks, ok_checks: r.ok_checks }]));
+  const daily = Object.fromEntries(COMPONENTS.map((k) => [k.id, days.map((date) => {
+    const r = byDay.get(`${k.id}|${date}`);
+    return { date, checks: r?.checks ?? 0, ok_checks: r?.ok_checks ?? 0, uptime: r?.checks ? pct(r.ok_checks / r.checks) : null };
+  })]));
+  const nowMs = Date.now();
+  const incidents = incidentRows.map((r: any) => {
+    const start = new Date(r.started_at).getTime();
+    const end = r.resolved_at ? new Date(r.resolved_at).getTime() : null;
+    return {
+      component: r.component, name: COMPONENTS.find((k) => k.id === r.component)?.name ?? r.component,
+      started_at: r.started_at, last_failed_at: r.last_failed_at, ended_at: r.resolved_at ?? null, ongoing: end == null,
+      duration_seconds: Math.round(((end ?? nowMs) - start) / 1000), failed_checks: r.failed_checks, detail: r.detail ?? null,
+    };
+  });
   const data = {
     status: overall, checked_at: new Date().toISOString(), components,
     sanctions: { sources, oldest_list_hours: sources.filter((s: any) => s.source !== 'LAISSEZ-TEST' && s.age_hours != null).reduce((m: number | null, s: any) => (m == null || s.age_hours > m ? s.age_hours : m), null) },
     monitoring: { last_run_finished_at: mon?.last_finished_at ?? null, runs_24h: mon?.runs_24h ?? 0 },
-    note: 'Checks run every 10 minutes from the API itself. Uptime is the share of passing checks in each window.',
+    daily_window_days: STATUS_DAYS, daily,
+    incident_window_days: INCIDENT_DAYS, incidents,
+    note: 'Checks run every 10 minutes from the API itself. Uptime is the share of passing checks in each window. Daily figures use UTC days. An incident is a run of consecutive failed checks; it starts at the first failed check and ends at the next passing one.',
   };
   statusCache = { at: Date.now(), data };
   c.header('Cache-Control', 'public, max-age=30');
@@ -352,11 +393,14 @@ publicRoutes.get('/status', async (c) => {
 
 // ---------- Public: product metrics (aggregated across all organizations, no per-organization data) ----------
 const FUNNEL = ['sandbox_opened', 'order_placed', 'settlement_completed', 'policy_published'];
+const SERIES_DAYS = 30;
 let metricsCache: { at: number; data: unknown } | null = null;
 publicRoutes.get('/metrics/public', async (c) => {
   if (metricsCache && Date.now() - metricsCache.at < 60_000) { c.header('Cache-Control', 'public, max-age=60'); return c.json(metricsCache.data as any); }
   const admin = adminSql(c.env.DATABASE_URL);
-  const [funnel, northStar, [guard], [ttv], [reuse]] = await Promise.all([
+  const days = utcDays(SERIES_DAYS);
+  const since = days[0];
+  const [funnel, northStar, [guard], [ttv], [reuse], eventDaily, valueDaily] = await Promise.all([
     admin`select event, count(distinct coalesce(anon_id, workspace_id::text))::int as subjects, count(*)::int as events from product_events
       where created_at > now() - interval '30 days' and event = any(${FUNNEL}) group by event`,
     // Cross-border: the acquiring (or exiting) investor resides outside the fund's domicile.
@@ -390,9 +434,31 @@ publicRoutes.get('/metrics/public', async (c) => {
       select count(*)::int as investors, count(*) filter (where a.funds >= 2)::int as multi_fund,
         count(*) filter (where i.relied_share is not null)::int as relied
       from allowed a join investors i on i.workspace_id = a.workspace_id and i.id = a.investor_id`,
+    // Daily series, UTC days. Uses the (event, created_at) index.
+    admin`select event, to_char((created_at at time zone 'UTC')::date, 'YYYY-MM-DD') as date, count(*)::int as n from product_events
+      where event = any(${FUNNEL}) and created_at >= (${since}::date)::timestamp at time zone 'UTC' group by 1, 2`,
+    // Same definition as the north star above, bucketed by the UTC day the settlement was recorded.
+    admin`select f.currency, to_char((s.created_at at time zone 'UTC')::date, 'YYYY-MM-DD') as date, coalesce(sum(d.amount), 0)::float8 as value, count(*)::int as n
+      from settlements s
+      join decisions d on d.workspace_id = s.workspace_id and d.id = s.decision_id
+      join funds f on f.workspace_id = d.workspace_id and f.ticker = d.ticker
+      join investors i on i.workspace_id = d.workspace_id and i.id = case when d.action = 'transfer' and d.counterparty_id is not null then d.counterparty_id else d.investor_id end
+      where s.status = 'settled' and d.outcome = 'ALLOW' and s.created_at >= (${since}::date)::timestamp at time zone 'UTC'
+        and i.residence is distinct from (case f.domicile when 'British Virgin Islands' then 'VG' when 'Ireland' then 'IE' when 'Delaware, United States' then 'US' else null end)
+      group by 1, 2`,
   ]);
   const step = (e: string) => funnel.find((x: any) => x.event === e)?.subjects ?? 0;
   const top = step(FUNNEL[0]);
+  const dayIndex = new Map(days.map((d, i) => [d, i]));
+  const eventSeries = Object.fromEntries(FUNNEL.map((e) => [e, days.map(() => 0)])) as Record<string, number[]>;
+  for (const r of eventDaily as any[]) { const i = dayIndex.get(r.date); if (i != null && eventSeries[r.event]) eventSeries[r.event][i] = r.n; }
+  const valueSeries: Record<string, number[]> = {};
+  const settledCount = days.map(() => 0);
+  for (const r of valueDaily as any[]) {
+    const i = dayIndex.get(r.date); if (i == null) continue;
+    (valueSeries[r.currency] ??= days.map(() => 0))[i] = Math.round(Number(r.value) * 100) / 100;
+    settledCount[i] += r.n;
+  }
   const data = {
     generated_at: new Date().toISOString(), window_days: 30,
     funnel: FUNNEL.map((e) => ({ event: e, subjects: step(e), conversion_from_start: top ? Math.round((step(e) / top) * 1000) / 1000 : null })),
@@ -408,6 +474,11 @@ publicRoutes.get('/metrics/public', async (c) => {
     credential_reuse: {
       investors_with_allowed_orders: reuse.investors, multi_fund: reuse.multi_fund, multi_fund_rate: reuse.investors ? Math.round((reuse.multi_fund / reuse.investors) * 1000) / 1000 : null,
       relied_on_network: reuse.relied, network_rate: reuse.investors ? Math.round((reuse.relied / reuse.investors) * 1000) / 1000 : null,
+    },
+    series: {
+      window_days: SERIES_DAYS, days, events: eventSeries,
+      cross_border_settled_value: valueSeries, cross_border_settlements: settledCount,
+      note: 'UTC days, oldest first; every array lines up with days. Event series count events, not distinct visitors.',
     },
     note: 'Aggregated across every live sandbox and organization. Sandboxes are deleted after 7 days, so all-time figures cover live data only.',
   };

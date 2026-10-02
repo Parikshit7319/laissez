@@ -147,7 +147,7 @@ function Frame({ children }: { children: ComponentChildren }) {
           <dl class="gate-facts">
             <div><dt>7</dt><dd>rule layers checked on every order</dd></div>
             <div><dt>2</dt><dd>people to approve any policy change</dd></div>
-            <div><dt>1</dt><dd>hash-chained audit log, anchored on-chain</dd></div>
+            <div><dt>1</dt><dd>hash-chained audit log you can verify</dd></div>
           </dl>
           <p class="gate-foot">Institutions and people in the app are fictional. Thresholds and legal references are real.</p>
         </div>

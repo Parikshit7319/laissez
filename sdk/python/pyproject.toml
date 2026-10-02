@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "laissez"
+version = "0.1.0"
+description = "Laissez API client: compliance decisions, atomic settlement, credentials and signed webhooks for tokenized funds. Standard library only."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "Laissez" }]
+keywords = ["laissez", "tokenized funds", "compliance", "settlement", "travel rule", "api client"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Office/Business :: Financial",
+  "Topic :: Software Development :: Libraries",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://parikshit7319.github.io/laissez/developers/sdks/"
+Documentation = "https://parikshit7319.github.io/laissez/developers/reference/"
+Source = "https://github.com/parikshit7319/laissez/tree/main/sdk/python"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+laissez = ["py.typed"]

@@ -1,0 +1,67 @@
+---
+import Layout from '../layouts/Layout.astro';
+import StatusBoard from '../components/live/StatusBoard';
+import { url } from '../lib/url';
+import '../components/live/live.css';
+
+const components = [
+  ['API', 'Request handling on Cloudflare Workers. The check calls GET /v1/health through the same path a client would.'],
+  ['Database', 'Neon Postgres, the system of record for every organization. The check runs a query over the admin connection.'],
+  ['Chain RPC', 'The Base Sepolia testnet node used for on-chain settlement. The check asks for the latest block number.'],
+  ['Sanctions data', 'OFAC SDN, UN, EU and UK lists, refreshed daily. The check fails if any list is older than 36 hours or its last load failed.'],
+  ['Monitoring', 'The nightly re-check of every holder against current rules. The check fails if no run has finished in 48 hours.'],
+];
+---
+<Layout title="Status" description="Live status of the Laissez API, database, chain RPC, sanctions data and holder monitoring, with 90 days of uptime and recent incidents." path="status/">
+  <section class="page-hero">
+    <div class="wrap">
+      <h1>System status</h1>
+      <p class="lede">Every ten minutes the API checks itself, its database, the chain node it settles on, the age of its sanctions lists and whether holder monitoring ran. The results are published here as they are recorded, with nothing summarized by hand.</p>
+    </div>
+  </section>
+
+  <section class="band tight">
+    <div class="wrap">
+      <StatusBoard client:load />
+    </div>
+  </section>
+
+  <section class="band light">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><h2>What each check covers</h2></div>
+        <p class="lede">The checks run inside the API worker itself, on a schedule, and are stored in the same database they report on. That is a deliberate limit: if the whole platform is down, this page says so by failing to load rather than by reporting green.</p>
+      </div>
+      <div class="cols-2 checks">
+        {components.map(([name, desc]) => <div class="item"><h4>{name}</h4><p>{desc}</p></div>)}
+        <div class="item"><h4>How uptime is counted</h4><p>Uptime in each window is the share of checks that passed. A day on the strip is green when every check passed, brass when 95% or more passed, coral below that, and grey when no checks were recorded. Days are UTC. An incident starts at the first failed check and ends at the next passing one, so its duration is accurate to within ten minutes.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band tight">
+    <div class="wrap cols-2">
+      <div>
+        <h2>Read the same data yourself.</h2>
+        <p class="lede">The status page is a client of the public endpoint and nothing more. Checks are kept for 120 days; the endpoint returns the last 90.</p>
+      </div>
+      <div class="code-col">
+<pre class="codeblock"><code><span class="c"># No authentication, cached for 30 seconds</span>
+curl https://laissez-api.laissez.workers.dev/v1/status
+
+<span class="c"># Fields</span>
+<span class="k">status</span>            operational | degraded | partial_data
+<span class="k">components[]</span>      id, status, latency_ms, uptime.24h / 7d / 90d
+<span class="k">daily</span>             90 UTC days per component: checks, ok_checks, uptime
+<span class="k">incidents[]</span>       runs of failed checks in the last 30 days
+<span class="k">sanctions</span>         per-list entries, publisher date, age in hours
+<span class="k">monitoring</span>        last finished run, runs in the last 24 hours</code></pre>
+        <p class="fine" style="margin-top:1rem">This is pre-launch infrastructure serving sandboxes. There is no service-level commitment yet. See <a class="text-link" href={url('trust/')}>Trust and security</a> for what is built and what is still planned, and <a class="text-link" href={url('metrics/')}>Live metrics</a> for product usage from the same API.</p>
+      </div>
+    </div>
+  </section>
+</Layout>
+<style>
+  .code-col { min-width: 0; }
+  .checks { gap: clamp(1.5rem, 3vw, 2.5rem) clamp(2rem, 5vw, 5rem); }
+</style>

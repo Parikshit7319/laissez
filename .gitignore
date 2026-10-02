@@ -11,3 +11,5 @@ api/chain/.e2e/
 api/chain/.hardhat-cache/
 api/chain/.hardhat-artifacts/
 api/chain/deployment.local.json
+__pycache__/
+sdk/python/*.egg-info/

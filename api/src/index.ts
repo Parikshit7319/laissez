@@ -9,6 +9,7 @@ import { type Vars, router } from './http';
 import { authenticate, pub, acct } from './auth';
 import { idp, setSelfFetch } from './oidc';
 import { versionMiddleware, LATEST_VERSION, SUPPORTED_VERSIONS } from './version';
+import { OPENAPI } from './openapi';
 import * as core from './routes/core';
 import * as platform from './routes/platform';
 import * as compliance from './routes/compliance';
@@ -58,6 +59,7 @@ app.get('/v1/health', async (c) => {
   await adminSql(c.env.DATABASE_URL)`select 1`;
   return c.json({ ok: true, version: LATEST_VERSION });
 });
+app.get('/v1/openapi.json', (c) => c.json(OPENAPI));
 app.route('/idp', idp);
 
 /** Reads an optional export: modules are written in parallel and some start as stubs. */

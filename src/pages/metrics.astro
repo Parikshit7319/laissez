@@ -1,0 +1,94 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { MetricsStamp, NorthStar, Funnel, Guardrails, Adoption, SeriesGrid } from '../components/live/Metrics';
+import { url } from '../lib/url';
+import '../components/live/live.css';
+---
+<Layout title="Live metrics" description="Laissez product metrics, live from the API: cross-border compliant settled value, the activation funnel, guardrails, credential reuse and time to first settlement." path="metrics/">
+  <section class="page-hero">
+    <div class="wrap">
+      <h1>Live product metrics</h1>
+      <p class="lede">The numbers a product team would run Laissez by, read straight from the API with no dashboard in between. They move as people use the sandbox. Nothing here is projected or typed in.</p>
+      <div class="hero-stamp"><MetricsStamp client:load /></div>
+    </div>
+  </section>
+
+  <section class="band tight" id="north-star">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><h2>North star: cross-border compliant settled value</h2></div>
+        <p class="lede">The value of settled orders that passed every check, where the investor lives outside the fund's domicile. Shown per currency, for the last 30 days and all time.</p>
+      </div>
+      <NorthStar client:load />
+      <div class="cols-3 why">
+        <div class="item"><h4>Why this and not wallets verified</h4><p>A verified investor who never buys a fund abroad is a cost, not an outcome. Credentials exist so that money can move. Counting them would reward onboarding theatre.</p></div>
+        <div class="item"><h4>Why this and not revenue</h4><p>Pricing is a platform fee plus 1.5 basis points of value settled, so revenue is a lagging multiple of this figure with contract terms in the way. Settled value is what customers are paying for, and it is visible in the sandbox long before anyone pays.</p></div>
+        <div class="item"><h4>Why cross-border only</h4><p>A domestic settlement needs no Laissez. The product earns its place only when a Singapore investor settles an Irish fund sold by a Swiss bank. Domestic volume is excluded so the figure cannot be flattered by the easy case.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band raised" id="funnel">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><h2>Activation funnel, last 30 days</h2></div>
+        <p class="lede">Four steps from first contact to the moment a team has changed something real. Each step counts distinct visitors or workspaces, and each conversion is measured against the step before it.</p>
+      </div>
+      <Funnel client:load />
+    </div>
+  </section>
+
+  <section class="band" id="guardrails">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><h2>Guardrails</h2></div>
+        <p class="lede">Metrics that are not allowed to move the wrong way while the north star grows. The first one is the product's whole promise: no token moves without a passing decision at the moment it moves.</p>
+      </div>
+      <Guardrails client:load />
+    </div>
+  </section>
+
+  <section class="band raised" id="adoption">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><h2>Reuse and time to value</h2></div>
+        <p class="lede">Credential reuse is the leading indicator that the network effect is real. Time to first settlement is the sandbox's job: how fast a developer gets from an empty workspace to a settled cross-border order.</p>
+      </div>
+      <Adoption client:load />
+    </div>
+  </section>
+
+  <section class="band" id="series">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><h2>Thirty days, day by day</h2></div>
+        <p class="lede">Daily counts for each funnel event and for cross-border settlements, drawn to a shared scale per chart with a zero baseline. Hover or use the arrow keys to read a day.</p>
+      </div>
+      <SeriesGrid client:load />
+    </div>
+  </section>
+
+  <section class="band light" id="method">
+    <div class="wrap cols-2">
+      <div>
+        <h2>Where the numbers come from</h2>
+        <p class="lede">Real usage, fictional money. Every sandbox is seeded with fictional institutions, investors and funds, and every order that settles in it is a real run through the same decision and settlement code that a production organization would use.</p>
+      </div>
+      <div>
+        <ul class="ticks">
+          <li><span>Events are first-party. The sandbox app posts them to <code>POST /v1/events</code> on the Laissez API. There are no cookies, no pixels and no third-party analytics scripts on this site or in the app.</span></li>
+          <li>Visitors are told apart by a random identifier stored in the browser's local storage for the sandbox app, never linked to an email or a name. The API strips any property that looks like personal data before storing an event, and keeps only a hash of the network address, for rate limiting.</li>
+          <li>Settled value, the guardrail and credential reuse come from the settlement, decision and credential tables themselves, not from events, so they cannot be inflated by a client that fires the wrong event.</li>
+          <li>Sandboxes are deleted after seven days, so all-time figures cover data that still exists. Figures are aggregated across every workspace; nothing on this page can be traced to one organization.</li>
+          <li>Days are UTC. The API caches this response for 60 seconds and the page refreshes once a minute while it is visible.</li>
+        </ul>
+        <p class="fine" style="margin-top:1.5rem">Run the same flow yourself: <a class="text-link" href={url('developers/')}>Developers</a> explains how to open a sandbox and settle an order in a few calls. Platform health is on the <a class="text-link" href={url('status/')}>status page</a>.</p>
+      </div>
+    </div>
+  </section>
+</Layout>
+<style>
+  .hero-stamp { margin-top: 2rem; display: flex; }
+  .why { margin-top: clamp(2.5rem, 5vw, 4rem); }
+  .band.light code { color: var(--ink); font-size: 0.9em; }
+</style>

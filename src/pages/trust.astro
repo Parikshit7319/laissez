@@ -1,40 +1,244 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import { url } from '../lib/url';
+
+// Mirrors ROLE_PERMS and HUMAN_ONLY in api/src/http.ts.
+const roles = ['Administrator', 'Operations analyst', 'Compliance officer', 'Issuer admin', 'Developer', 'Auditor'];
+const matrix: [string, string, boolean[]][] = [
+  ['Read the organization', 'read', [true, true, true, true, true, true]],
+  ['Manage clients and credentials', 'clients:write', [true, true, true, false, false, false]],
+  ['Place orders and settle', 'orders:write', [true, true, false, false, false, false]],
+  ['Change funds, NAV and documents', 'funds:write', [true, false, false, true, false, false]],
+  ['Screening dispositions and monitoring', 'compliance:write', [true, false, true, false, false, false]],
+  ['Resolve work items', 'work:write', [true, true, true, false, false, false]],
+  ['Approve policy changes (people only)', 'policy:approve', [true, false, true, true, false, false]],
+  ['Export the audit log', 'audit:export', [true, false, true, false, false, true]],
+  ['Manage webhooks', 'developer', [true, false, false, false, true, false]],
+  ['Manage API keys', 'keys:admin', [true, false, false, false, true, false]],
+  ['Manage members and SSO (people only)', 'members:admin', [true, false, false, false, false, false]],
+];
+
+type State = 'Implemented' | 'Partial' | 'Planned';
+const controls: { id: string; name: string; state: State; evidence: string; gap: string }[] = [
+  { id: 'CC6.1', name: 'Logical access to systems and data', state: 'Implemented', evidence: 'Passkeys only, no passwords. Row-level security in Postgres on every tenant table. API keys are scoped, hashed at rest and can carry IP allowlists and expiry.', gap: 'No scheduled access review yet.' },
+  { id: 'CC6.2', name: 'Registering, authorizing and removing users', state: 'Partial', evidence: 'Members join by invitation with a role and an expiring token. Removal revokes membership and sessions. Every change is in the audit log.', gap: 'No automatic deprovisioning from the identity provider (no SCIM).' },
+  { id: 'CC6.3', name: 'Role-based access and least privilege', state: 'Implemented', evidence: 'Six roles with the permission matrix above. Seven API key scopes. Approvals and membership changes are refused to keys and require a signed-in person.', gap: 'Role changes are audited but not periodically re-certified.' },
+  { id: 'CC6.6', name: 'Protection against external threats', state: 'Partial', evidence: 'TLS with a one-year HSTS header, security headers on every response, per-network rate limits on sign-up, events, consent and portal access, IP allowlists on keys.', gap: 'No independent penetration test. Cloudflare defaults only, no tuned WAF rules.' },
+  { id: 'CC6.7', name: 'Restricting transmission and removal of data', state: 'Partial', evidence: 'Webhooks are HMAC-signed. Audit exports are themselves audited. Credential sharing between organizations needs the investor’s consent and is visible to both sides.', gap: 'No data residency options. No data loss prevention on exports.' },
+  { id: 'CC7.2', name: 'Monitoring for anomalies and failures', state: 'Partial', evidence: 'Five components are checked every ten minutes and published on the status page. Holder monitoring re-checks every holder nightly and opens work items.', gap: 'No paging or on-call. No anomaly detection on authentication events.' },
+  { id: 'CC7.3', name: 'Evaluating and responding to security incidents', state: 'Planned', evidence: 'Incidents on the status page are derived from failed checks. Security reports go to a named person.', gap: 'No formal incident response program, severity scale or customer notification procedure.' },
+  { id: 'CC8.1', name: 'Change management', state: 'Partial', evidence: 'Rule packs are versioned with effective dates, approved by name and covered by a regression suite. Issuer policy changes need a second approver and show their effect on holders first.', gap: 'Code changes to the API are not yet gated by a second reviewer or a separate staging environment.' },
+  { id: 'A1.2', name: 'Backup, recovery and environmental protection', state: 'Partial', evidence: 'The database is managed Postgres on Neon with provider-level history retention. Cloudflare Workers run in every Cloudflare location.', gap: 'Single-region database. No tested restore procedure or recovery time objective.' },
+  { id: 'PI1.4', name: 'Complete, accurate and timely processing', state: 'Implemented', evidence: 'Decisions are deterministic and re-checked at settlement. Writes can carry idempotency keys and replay safely. Receipts are signed. Token balances are reconciled against the register. The guardrail on the metrics page publishes the count of settlements without a passing re-check.', gap: 'None known. The guardrail is the live evidence.' },
+  { id: 'C1.1', name: 'Identifying and protecting confidential information', state: 'Partial', evidence: 'Tenant isolation by row-level security. Product events are stripped of anything that looks personal before storage. SSO client secrets are sealed with AES-GCM.', gap: 'No written data classification or retention schedule beyond the seven-day sandbox limit.' },
+];
+const counts = { Implemented: controls.filter((c) => c.state === 'Implemented').length, Partial: controls.filter((c) => c.state === 'Partial').length, Planned: controls.filter((c) => c.state === 'Planned').length };
 ---
-<Layout title="Trust" description="How Laissez handles personal data, rule governance, keys, failure modes and audit evidence." path="trust/">
+<Layout title="Trust" description="How Laissez is secured today: passkeys and SSO, six roles, row-level tenant isolation, a hash-chained audit log, signed receipts, sanctions data handling and an honest SOC 2 controls map." path="trust/">
   <section class="page-hero">
     <div class="wrap">
-      <p class="eyebrow">Trust and security</p>
       <h1>A compliance product has to be the most careful system in the room.</h1>
-      <p class="lede">These are the design commitments Laissez is built on. We are pre-launch, so where something is planned rather than done, this page says so.</p>
+      <p class="lede">This page describes what is actually built in the Laissez API and sandbox, and what is not. Laissez is pre-launch. It has no certifications, no external audit and no production customers, and this page does not pretend otherwise.</p>
+      <div class="hero-cta"><a class="btn brass" href="#controls">SOC 2 controls map</a><a class="btn" href={url('status/')}>Live status</a></div>
     </div>
   </section>
-  <section class="band">
-    <div class="wrap cols-2">
-      <div class="item"><span class="k">Personal data</span><h4>Identity stays with the institution that verified it</h4><p>Credentials hold classifications, evidence references and hashes. Documents and personal details remain in the distributor’s systems. The chain sees an outcome, an input hash and rule-pack versions.</p></div>
-      <div class="item"><span class="k">Rule governance</span><h4>No rule binds an order without counsel</h4><p>A regulatory change agent drafts rule-pack diffs from regulator publications, with citations. Counsel reviews and approves each one. Proposals stay inactive until they become law.</p></div>
-      <div class="item"><span class="k">Failure modes</span><h4>Fail closed in, never block the exit</h4><p>If a check cannot complete, subscriptions and inbound transfers do not settle. Redemptions remain available through any outage, subject only to sanctions.</p></div>
-      <div class="item"><span class="k">Change control</span><h4>Two people on every policy change</h4><p>Issuer policy changes and rule-pack releases require a second approver and show their effect on existing holders before release.</p></div>
-      <div class="item"><span class="k">Keys</span><h4>Decision signing keys isolated from operators</h4><p>Resolver signing keys will live in hardware security modules with role separation. Planned for production launch.</p></div>
-      <div class="item"><span class="k">Audit</span><h4>Evidence that survives the vendor</h4><p>Receipts are verifiable from the inputs and the on-chain hash, so a regulator can check a decision years later without relying on Laissez’s word.</p></div>
+
+  <section class="band" id="identity">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><h2>Identity</h2></div>
+        <p class="lede">Nobody has a password to lose. People sign in with a passkey or through their employer's identity provider, and sessions end on their own.</p>
+      </div>
+      <div class="cols-3">
+        <div class="item"><h4>Passkeys, not passwords</h4><p>Accounts are created and used with WebAuthn passkeys only. The API checks the challenge, the origin and the relying party, and tracks the signature counter so a cloned authenticator is refused. Challenges expire and can be used once.</p></div>
+        <div class="item"><h4>SSO through OpenID Connect</h4><p>Organizations can require sign-in through their own identity provider. The flow is authorization code with PKCE (S256), state and nonce are bound to the request, and the ID token signature is verified against the provider's published keys before anyone is signed in. Provider client secrets are sealed with AES-GCM before they are stored.</p></div>
+        <div class="item"><h4>Sessions that expire</h4><p>A session lasts at most seven days and, in a real organization, ends after twelve hours without activity. Only a hash of the session token is stored. People can see every active session and revoke any of them. Switching organizations issues a new session and revokes the old one.</p></div>
+      </div>
     </div>
   </section>
-  <section class="band light">
-    <div class="wrap cols-2">
-      <div><p class="eyebrow">Roadmap</p><h2>Assurance, in the order we will earn it.</h2></div>
+
+  <section class="band light" id="authorization">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><h2>Authorization</h2></div>
+        <p class="lede">Six roles for people, seven scopes for API keys, and a short list of actions that no key can perform no matter what it is granted.</p>
+      </div>
+      <p class="scroll-hint fine">The table scrolls sideways. The first column stays in place.</p>
       <div class="table-wrap">
-        <table class="grid"><thead><tr><th>Milestone</th><th>Status</th></tr></thead>
+        <table class="grid matrix" aria-label="Permission matrix: which of the six roles holds each permission">
+          <thead><tr><th scope="col">Permission</th>{roles.map((r) => <th scope="col">{r}</th>)}</tr></thead>
           <tbody>
-            <tr><td>Counsel review of launch rule packs</td><td>With design partners</td></tr>
-            <tr><td>Independent penetration test</td><td>Before production access</td></tr>
-            <tr><td>SOC 2 Type I</td><td>Planned</td></tr>
-            <tr><td>SOC 2 Type II</td><td>Planned, 12 months after Type I</td></tr>
+            {matrix.map(([label, perm, cells]) => (
+              <tr>
+                <th scope="row"><span>{label}</span><code>{perm}</code></th>
+                {cells.map((v) => <td class={v ? 'y' : 'n'}>{v ? <span class="mark" aria-hidden="true"></span> : null}<span class="sr">{v ? 'Yes' : 'No'}</span></td>)}
+              </tr>
+            ))}
           </tbody>
         </table>
-        <p class="fine" style="margin-top:1.25rem">Report a security concern: <span class="sel">parikshit.ambhore@rice.edu</span></p>
+      </div>
+      <div class="cols-3 auth-notes">
+        <div class="item"><h4>Scoped API keys</h4><p>A key carries only the scopes it was created with: read, orders, clients, funds, compliance, developer or admin. Keys can be limited to up to 20 IP ranges, given an expiry of up to a year, rotated so the old key is linked to the new one, and are stored only as a hash. An organization holds at most ten.</p></div>
+        <div class="item"><h4>Human-only actions</h4><p>Approving a policy change and managing members or SSO are refused to every API key with a specific error, whatever its scopes. A key can propose; only a signed-in person can approve.</p></div>
+        <div class="item"><h4>Two-person rule</h4><p>The person who proposes a fund policy change cannot approve it. In a sandbox you can act as a fictional teammate to try both sides alone. In a real organization that switch does not exist, so the second approval must come from a second person.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="isolation">
+    <div class="wrap cols-2">
+      <div>
+        <h2>Tenant isolation</h2>
+        <p class="lede">Isolation is enforced by the database, not by remembering to add a where clause.</p>
+        <ul class="ticks">
+          <li>Every tenant table has Postgres row-level security enabled, with a policy that compares the row's organization to the one set for the current transaction.</li>
+          <li>The API's tenant connection uses a database role that cannot bypass row-level security. The role has no such privilege to misuse.</li>
+          <li>Every authenticated request runs inside a transaction that first sets the organization, so a query can only ever see the rows of the organization that made the request.</li>
+          <li>The audit log is insert and read only for that role. Nothing the API does can update or delete an audit event.</li>
+          <li>Credential shares between two organizations are the one deliberate exception: visible to both sides of the share and to nobody else.</li>
+        </ul>
+      </div>
+      <div class="code-col">
+<pre class="codeblock"><code><span class="c">-- api/db/migrate-003-rls.sql, abridged</span>
+<span class="k">alter table</span> decisions <span class="k">enable row level security</span>;
+<span class="k">create policy</span> tenant <span class="k">on</span> decisions
+  <span class="k">using</span> (workspace_id = app_ws())
+  <span class="k">with check</span> (workspace_id = app_ws());
+
+<span class="c">-- the API role: no BYPASSRLS, no superuser</span>
+<span class="k">grant select, insert on</span> audit_events <span class="k">to</span> laissez_rt;
+
+<span class="c">-- every request</span>
+<span class="k">begin</span>;
+<span class="k">select</span> set_config(<span class="s">'app.ws'</span>, <span class="s">$organization</span>, <span class="k">true</span>);
+<span class="c">-- ... queries ...</span>
+<span class="k">commit</span>;</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="band raised" id="integrity">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><h2>Integrity and evidence</h2></div>
+        <p class="lede">A regulator should be able to check a decision years later without taking Laissez's word for it. Three mechanisms, two of them live today.</p>
+      </div>
+      <div class="cols-3">
+        <div class="item"><span class="k">Live</span><h4>Hash-chained audit log</h4><p>A database trigger gives every audit event a sequence number and a hash over its content and the previous event's hash, under a per-organization lock. <code>GET /v1/audit-events/verify</code> recomputes every hash in one pass and reports the first broken link, if any. Exports are CSV and are themselves logged.</p></div>
+        <div class="item"><span class="k">Live</span><h4>Ed25519-signed receipts</h4><p>Every decision receipt is signed over a canonical form of its fields. The public key is published at <code>GET /v1/signing-key</code> and anyone can check a receipt at <code>POST /v1/receipts/verify</code> without an account. A receipt verifies from the inputs and the key alone.</p></div>
+        <div class="item"><span class="k">Built, not yet scheduled</span><h4>Daily Merkle anchoring</h4><p>Once a day, the head hash of every organization's audit log becomes a leaf in one Merkle tree, and the root is written to an anchor contract on the Base Sepolia testnet. Each organization gets its proof. The code and contract exist; the daily job turns on once the chain deployment is live, and this page will say so when it does.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band light" id="data">
+    <div class="wrap cols-2">
+      <div>
+        <h2>Data protection</h2>
+        <p class="lede">The sandbox holds fictional people and fictional money by design. The real data Laissez keeps is small, and most of it is hashed.</p>
+      </div>
+      <div>
+        <ul class="ticks">
+          <li>TLS everywhere, with a one-year Strict-Transport-Security header, no-referrer and nosniff on every response, and a restrictive content security policy on JSON responses.</li>
+          <li>Signing keys, the encryption key and database credentials live in Cloudflare Workers secret storage. They are never in the repository or in a response.</li>
+          <li>SSO client secrets are encrypted with AES-GCM under a dedicated key before they reach the database.</li>
+          <li>Sessions, API keys, invitations and sign-in challenges are stored as SHA-256 hashes. A database copy does not contain a usable credential.</li>
+          <li>Sandbox investors, teammates, funds and institutions are fictional and are deleted with the sandbox after seven days. A real account stores a name and an email address, and nothing else about a person.</li>
+          <li>Product events never carry personal data: the API drops any property whose key or value looks like a name, address, email, wallet or identifier before storing the event, and keeps only a hash of the network address for rate limiting.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="compliance-data">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><h2>Compliance data</h2></div>
+        <p class="lede">A decision is only as good as the lists and rules behind it, so both are versioned, dated and checked by machine before anyone relies on them.</p>
+      </div>
+      <div class="cols-2">
+        <div class="item"><h4>Sanctions lists</h4><p>Four official lists are loaded daily: the OFAC Specially Designated Nationals list, the UN Security Council consolidated list, the EU consolidated financial sanctions list and the UK sanctions list. A load that returns fewer than half the names of the last good one is refused rather than swapped in. The status page shows each list's publisher date and age, and the sanctions component turns degraded when any list is older than 36 hours. Matching uses trigram similarity with a review threshold, so near-matches are held for a person instead of silently passed. A short list of fictional names exists for demos and is marked as such.</p></div>
+        <div class="item"><h4>Rule packs</h4><p>Each jurisdiction's rules are a versioned pack with an effective-from date, an effective-to date when superseded, a summary of the change and the name of the approver. Decisions cite the pack versions they used. Every pack carries golden regression cases, at least four per jurisdiction, that run with the build; a change that flips a case fails the build. Regulator feeds from the SFC, FCA, FINMA, DFSA, ESMA, SEC and Japan's FSA are read for proposed changes, which stay drafts until counsel approves them. Counsel sign-off on launch packs is a condition of production access and is still in progress.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band raised" id="controls">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><h2>SOC 2 controls map</h2></div>
+        <p class="lede">Laissez is not SOC 2 compliant and has not been audited. This is a map of the Trust Services Criteria that matter most for this product, with the current state of each: {counts.Implemented} implemented, {counts.Partial} partial, {counts.Planned} planned.</p>
+      </div>
+      <div class="table-wrap">
+        <table class="grid controls">
+          <thead><tr><th scope="col">Criterion</th><th scope="col">State</th><th scope="col">What exists</th><th scope="col">Gap</th></tr></thead>
+          <tbody>
+            {controls.map((c) => (
+              <tr>
+                <th scope="row"><code>{c.id}</code><span>{c.name}</span></th>
+                <td><span class={`state ${c.state.toLowerCase()}`}>{c.state}</span></td>
+                <td>{c.evidence}</td>
+                <td class="gap">{c.gap}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div class="cols-2 gaps">
+        <div>
+          <h3>What is missing, in plain terms</h3>
+          <ul class="ticks">
+            <li>No external audit of any kind. SOC 2 Type I is planned after the first design partner is in production, Type II twelve months after that.</li>
+            <li>No independent penetration test. One is a condition of opening production access.</li>
+            <li>No formal incident response program: no severity scale, no on-call rotation, no written customer notification procedure.</li>
+            <li>A single-region database with provider-level history retention and no tested restore drill.</li>
+            <li>No data residency options. Everything is stored in one region, and that region is not selectable.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Failure modes, as designed</h3>
+          <ul class="ticks">
+            <li>Fail closed on the way in: if a check cannot complete, subscriptions and inbound transfers do not settle.</li>
+            <li>Never block the exit: redemptions stay available through any outage, subject only to sanctions screening.</li>
+            <li>Settlement re-checks the decision at the moment it executes. A decision older than five minutes is not honored.</li>
+            <li>Writes accept an Idempotency-Key. A retry with the same key and body gets the stored response, so a settlement cannot run twice; the same key with a different body is refused.</li>
+          </ul>
+          <p class="fine" style="margin-top:1.5rem">Report a security concern to <span class="sel">parikshit.ambhore@rice.edu</span>. Source for every claim on this page is the API code itself; the <a class="text-link" href={url('developers/')}>developer page</a> lists the public verification endpoints.</p>
+        </div>
       </div>
     </div>
   </section>
 </Layout>
-<style>.sel { user-select: all; color: var(--ink); font-weight: 500; }</style>
+<style>
+  .code-col { min-width: 0; }
+  .table-wrap { position: relative; }
+  .sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .sel { user-select: all; color: var(--brass-2); font-weight: 500; }
+  .band.light code { color: var(--ink); }
+  .scroll-hint { display: none; margin: 0 0 0.75rem; }
+  .matrix { min-width: 52rem; }
+  .matrix th:first-child { position: sticky; left: 0; background: var(--porcelain); z-index: 1; }
+  @media (max-width: 900px) { .scroll-hint { display: block; } .matrix tbody th { max-width: 11rem; padding-right: 1rem; } }
+  .matrix thead th { text-align: center; font-size: 0.78rem; }
+  .matrix thead th:first-child { text-align: left; }
+  .matrix tbody th { text-align: left; font-weight: 500; color: var(--ink); }
+  .matrix tbody th span, .matrix tbody th code { display: block; }
+  .matrix tbody th code { font-size: 0.74rem; color: var(--ink-3); font-weight: 400; margin-top: 0.2rem; }
+  .matrix td { text-align: center; vertical-align: middle; }
+  .matrix td.n { background: rgba(21, 20, 18, 0.025); }
+  .mark { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 999px; background: #8a6a2f; box-shadow: 0 0 0 4px rgba(138, 106, 47, 0.16); }
+  .auth-notes { margin-top: clamp(2.5rem, 5vw, 4rem); }
+  .controls th[scope='row'] { font-weight: 500; min-width: 12rem; }
+  .controls th[scope='row'] code, .controls th[scope='row'] span { display: block; }
+  .controls th[scope='row'] code { color: var(--brass); font-size: 0.82rem; margin-bottom: 0.25rem; }
+  .controls td { font-size: 0.92rem; color: var(--text-2); line-height: 1.55; }
+  .controls td.gap { color: var(--text-3); min-width: 14rem; }
+  .controls td:nth-child(3) { min-width: 20rem; }
+  .state { display: inline-block; font: 500 0.78rem/1 var(--f-ui); padding: 0.4rem 0.7rem; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+  .state.implemented { color: var(--verdigris); background: rgba(108, 196, 168, 0.1); border-color: rgba(108, 196, 168, 0.25); }
+  .state.partial { color: var(--brass-2); background: var(--brass-wash); border-color: rgba(201, 169, 110, 0.3); }
+  .state.planned { color: var(--text-2); background: rgba(236, 232, 225, 0.05); border-color: var(--hair-2); }
+  .gaps { margin-top: clamp(2.5rem, 5vw, 4rem); }
+  .gaps h3 { margin-bottom: 0.5rem; }
+  .item code { font-size: 0.86em; color: var(--brass-2); }
+</style>

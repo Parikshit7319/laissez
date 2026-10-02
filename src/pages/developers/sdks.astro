@@ -1,0 +1,231 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { url } from '../../lib/url';
+
+const namespaces = [
+  ['decisions', 'create, retrieve, list, replay, evaluateAsOf, bulkEligibility, backtest', 'create, retrieve, list, replay, evaluate_as_of, bulk_eligibility, backtest'],
+  ['settlements', 'create, retrieve, list, waitUntilSettled', 'create, retrieve, list, wait_until_settled'],
+  ['investors', 'list, create, retrieve, portalInvite, revokePortalAccess', 'list, create, retrieve, portal_invite, revoke_portal_access'],
+  ['credentials', 'list, issue, revoke', 'list, issue, revoke'],
+  ['funds', 'list, retrieve, create, register, lifecycle, updateTerms, strikeNav, runAccruals, distributions, documents, redemptionNotices', 'list, retrieve, create, register, lifecycle, update_terms, strike_nav, run_accruals, list_distributions, publish_document, file_redemption_notice and more'],
+  ['policyChanges', 'list, preview, propose, approve, reject', 'list, preview, propose, approve, reject'],
+  ['screening', 'screen, sources, hits.list, hits.decide', 'screen, sources, list_hits, decide_hit'],
+  ['workItems', 'list, resolve', 'list, resolve'],
+  ['monitoring', 'retrieve, run', 'retrieve, run'],
+  ['credentialShares', 'list, request, revoke', 'list, request, revoke'],
+  ['travelRule', 'list, retrieve, start, retry, confirm', 'list, retrieve, start, retry, confirm'],
+  ['reports', 'placement, distribution, placementCsv, decisionsCsv, registerByJurisdictionCsv', 'placement, distribution, placement_csv, decisions_csv, register_by_jurisdiction_csv'],
+  ['audit', 'list, verify, exportCsv, anchors', 'list, iter, verify, export_csv, anchors'],
+  ['apiKeys', 'list, create, rotate, revoke', 'list, create, rotate, revoke'],
+  ['webhooks', 'list, create, delete, test, deliveries.list, deliveries.replay, verify', 'list, create, delete, test, list_deliveries, replay_delivery, verify'],
+  ['reference', 'jurisdictions, investorClasses, bookingCenters, rulePacks, signingKey, verifyReceipt', 'jurisdictions, investor_classes, booking_centers, rule_packs, signing_key, verify_receipt'],
+];
+const errors = [
+  ['e.code', 'Stable code from the API: not_found, insufficient_scope, human_required, threshold_not_met, rate_limited. network_error when the API could not be reached.'],
+  ['e.status', 'HTTP status. 0 for network failures and local timeouts.'],
+  ['e.message', 'The API\'s sentence that says what went wrong and what to do.'],
+  ['e.detail', 'Field errors or per-class results when the API returns them.'],
+  ['e.method, e.path', 'The request that failed.'],
+];
+---
+<Layout title="SDKs" description="Laissez SDKs for TypeScript and Python: dependency-free clients with automatic idempotency keys, retries, typed errors, settlement polling and webhook verification." path="developers/sdks/">
+  <section class="page-hero">
+    <div class="wrap">
+      <p class="eyebrow"><a href={url('developers/')}>Developers</a> / SDKs</p>
+      <h1>Two clients, zero dependencies.</h1>
+      <p class="lede">TypeScript for Node 18+, Workers, Deno, Bun and browsers. Python 3.9+ on the standard library. Both add an idempotency key to every write, retry 429 and 5xx with backoff, raise one error type with the API's code, poll settlements and verify webhook signatures in constant time.</p>
+      <div class="hero-cta">
+        <a class="btn brass" href="#typescript">TypeScript</a>
+        <a class="btn" href="#python">Python</a>
+        <a class="btn" href={url('developers/reference/')}>API reference</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="typescript">
+    <div class="wrap">
+      <div class="sec-head"><div><p class="eyebrow">TypeScript</p><h2>@laissez/sdk</h2></div><p class="lede">One file, <code>laissez.ts</code>, with full types for the main resources. It uses <code>fetch</code> and Web Crypto only, so the same file runs on a server, in a Worker and in the browser with a session token.</p></div>
+      <div class="cols-2">
+        <div>
+          <h4>Install</h4>
+          <p class="muted">Not on npm yet. Copy the file from the repository, or vendor it. Once published, <code>npm install @laissez/sdk</code>.</p>
+<pre class="codeblock"><code>curl -O https://raw.githubusercontent.com/parikshit7319/laissez/main/sdk/typescript/laissez.ts</code></pre>
+          <h4 style="margin-top:2rem">Use</h4>
+<pre class="codeblock"><code><span class="k">import</span> &#123; Laissez, LaissezError &#125; <span class="k">from</span> <span class="s">'./laissez'</span>;
+
+<span class="c">// A sandbox needs no account. The key is shown once.</span>
+<span class="k">const</span> sandbox = <span class="k">await</span> Laissez.createSandbox(<span class="s">'Aster &amp; Vale sandbox'</span>);
+<span class="k">const</span> laissez = <span class="k">new</span> Laissez(&#123; apiKey: sandbox.api_key &#125;);
+
+<span class="k">const</span> decision = <span class="k">await</span> laissez.decisions.create(&#123;
+  action: <span class="s">'subscribe'</span>, investor_id: <span class="s">'lumen'</span>, fund: <span class="s">'TWLF'</span>,
+  amount: 250000, settle_with: <span class="s">'USDC'</span>,
+&#125;, &#123; idempotencyKey: <span class="s">'order-2026-10-02-0001'</span> &#125;);
+
+<span class="k">if</span> (decision.outcome === <span class="s">'ALLOW'</span> &amp;&amp; decision.id) &#123;
+  <span class="k">let</span> s = <span class="k">await</span> laissez.settlements.create(decision.id);
+  <span class="k">if</span> (s.status === <span class="s">'pending'</span>) s = <span class="k">await</span> laissez.settlements.waitUntilSettled(s.id);
+  console.log(s.status); <span class="c">// settled</span>
+&#125; <span class="k">else</span> &#123;
+  console.log(decision.headline, decision.remedies);
+&#125;</code></pre>
+        </div>
+        <div>
+          <h4>Options</h4>
+          <div class="table-wrap"><table class="grid opt"><tbody>
+            <tr><td><code>apiKey</code> or <code>sessionToken</code></td><td>One is required. <code>lz_test_</code> for servers and jobs, <code>lz_sess_</code> on behalf of a signed-in person.</td></tr>
+            <tr><td><code>baseUrl</code></td><td>Defaults to <code>https://laissez-api.laissez.workers.dev</code>.</td></tr>
+            <tr><td><code>version</code></td><td>Sent as <code>Laissez-Version</code>. Default <code>2026-10-02</code>.</td></tr>
+            <tr><td><code>maxRetries</code></td><td>Retries after the first attempt. Default 3. Also per request.</td></tr>
+            <tr><td><code>timeoutMs</code></td><td>Per attempt. Default 30000.</td></tr>
+            <tr><td><code>autoIdempotency</code></td><td>Generate a key for every write that has none. Default true.</td></tr>
+            <tr><td><code>fetch</code></td><td>Your own fetch, for tests or a proxy.</td></tr>
+          </tbody></table></div>
+          <h4 style="margin-top:2rem">Errors</h4>
+<pre class="codeblock"><code><span class="k">try</span> &#123;
+  <span class="k">await</span> laissez.credentials.issue(&#123; investor_id: <span class="s">'meitan'</span>, classifications: [&#123; class_code: <span class="s">'HK_PI'</span>, evidence: &#123; portfolio_hkd: 1 &#125; &#125;] &#125;);
+&#125; <span class="k">catch</span> (e) &#123;
+  <span class="k">if</span> (e <span class="k">instanceof</span> LaissezError) &#123;
+    e.code;    <span class="c">// 'threshold_not_met'</span>
+    e.status;  <span class="c">// 422</span>
+    e.detail;  <span class="c">// per-class results</span>
+  &#125;
+&#125;</code></pre>
+          <p class="fine" style="margin-top:1rem"><code>responseMeta(result)</code> returns the HTTP status, the <code>Laissez-Version</code> echoed and whether the response was an idempotent replay. Tests: <code>npx tsx sdk/typescript/test.ts</code> runs 16 cases against a mocked fetch.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band light" id="python">
+    <div class="wrap">
+      <div class="sec-head"><div><p class="eyebrow">Python</p><h2>laissez</h2></div><p class="lede">A <code>src</code>-layout package on <code>urllib</code>, <code>json</code>, <code>hmac</code> and <code>uuid</code>. Keyword arguments mirror the request fields in the reference. Swap the transport for tests.</p></div>
+      <div class="cols-2">
+        <div>
+          <h4>Install</h4>
+<pre class="codeblock"><code>pip install <span class="s">"git+https://github.com/parikshit7319/laissez.git#subdirectory=sdk/python"</span></code></pre>
+          <h4 style="margin-top:2rem">Use</h4>
+<pre class="codeblock"><code><span class="k">from</span> laissez <span class="k">import</span> Laissez, LaissezError, create_sandbox
+
+sandbox = create_sandbox(<span class="s">"Aster &amp; Vale sandbox"</span>)
+client = Laissez(api_key=sandbox[<span class="s">"api_key"</span>])
+
+decision = client.decisions.create(
+    action=<span class="s">"subscribe"</span>, investor_id=<span class="s">"lumen"</span>, fund=<span class="s">"TWLF"</span>,
+    amount=250000, settle_with=<span class="s">"USDC"</span>,
+    idempotency_key=<span class="s">"order-2026-10-02-0001"</span>,
+)
+
+<span class="k">if</span> decision[<span class="s">"outcome"</span>] == <span class="s">"ALLOW"</span>:
+    s = client.settlements.create(decision[<span class="s">"id"</span>])
+    <span class="k">if</span> s[<span class="s">"status"</span>] == <span class="s">"pending"</span>:
+        s = client.settlements.wait_until_settled(s[<span class="s">"id"</span>])
+    print(s[<span class="s">"status"</span>])  <span class="c"># settled</span>
+<span class="k">else</span>:
+    print(decision[<span class="s">"headline"</span>], decision[<span class="s">"remedies"</span>])</code></pre>
+        </div>
+        <div>
+          <h4>Options</h4>
+          <div class="table-wrap"><table class="grid opt"><tbody>
+            <tr><td><code>api_key</code> or <code>session_token</code></td><td>One is required.</td></tr>
+            <tr><td><code>base_url</code>, <code>version</code></td><td>Same defaults as TypeScript.</td></tr>
+            <tr><td><code>max_retries</code>, <code>timeout</code></td><td>Default 3 retries, 30 seconds per attempt.</td></tr>
+            <tr><td><code>auto_idempotency</code></td><td>Default True.</td></tr>
+            <tr><td><code>transport</code>, <code>sleep</code></td><td>Replace urllib and time.sleep in tests.</td></tr>
+          </tbody></table></div>
+          <h4 style="margin-top:2rem">Errors</h4>
+<pre class="codeblock"><code><span class="k">try</span>:
+    client.policy_changes.approve(<span class="s">"pc_7Q2M"</span>)
+<span class="k">except</span> LaissezError <span class="k">as</span> e:
+    e.code     <span class="c"># 'human_required' with an API key</span>
+    e.status   <span class="c"># 403</span>
+    e.message  <span class="c"># 'Only a signed-in person can approve or reject policy changes. ...'</span></code></pre>
+          <p class="fine" style="margin-top:1rem"><code>client.last_response</code> holds the status, version and replay flag of the last call. <code>client.audit.iter()</code> walks the whole audit log following <code>next_before_seq</code>. Tests: <code>python3 -m unittest discover -s tests</code> runs 20 cases against a fake transport.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="behaviour">
+    <div class="wrap">
+      <div class="sec-head"><div><p class="eyebrow">Behaviour</p><h2>Idempotency, retries and errors, identically in both.</h2></div></div>
+      <div class="cols-3">
+        <div class="item"><span class="k">Idempotency</span><h4>Every write carries a key</h4><p>POST, PATCH, PUT and DELETE send <code>Idempotency-Key</code>. Pass your order id so a retry is applied once; otherwise the client generates a UUID per call. The API replays the stored response for 24 hours with <code>Idempotent-Replayed: true</code>. With automatic keys off, writes without a key are sent once and never retried.</p></div>
+        <div class="item"><span class="k">Retries</span><h4>Backoff on 429, 5xx and network errors</h4><p>Reads, and writes with a key, retry up to <code>maxRetries</code> (default 3). Delay starts near 0.5 s and doubles to a cap of 8 s with jitter; <code>Retry-After</code> wins when present. 501 and other 4xx are not retried. The same idempotency key is reused on every attempt, so the API applies the write once.</p></div>
+        <div class="item"><span class="k">Errors</span><h4>One exception type, the API's own code</h4><p>Every non-2xx response raises <code>LaissezError</code> with the code, status, message and detail from the <code>error</code> object. A network failure after the last retry raises <code>network_error</code> with status 0. <code>waitUntilSettled</code> raises <code>settlement_reverted</code> or <code>settlement_timeout</code>.</p></div>
+      </div>
+      <div class="table-wrap" style="margin-top:3rem">
+        <table class="grid"><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>{errors.map(([f, d]) => <tr><td><code>{f}</code></td><td class="muted">{d}</td></tr>)}</tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <section class="band light" id="webhooks">
+    <div class="wrap">
+      <div class="sec-head"><div><p class="eyebrow">Webhooks</p><h2>Verify before you trust.</h2></div><p class="lede">Both verifiers take the raw body, the <code>Laissez-Signature</code> header and your <code>whsec_</code> secret. They recompute HMAC-SHA256 over <code>"&lt;t&gt;.&lt;body&gt;"</code>, compare in constant time, reject deliveries older than 300 seconds (configurable) and return the parsed event.</p></div>
+      <div class="cols-2">
+<pre class="codeblock"><code><span class="c">// TypeScript: Cloudflare Worker</span>
+<span class="k">import</span> &#123; verifyWebhook, LaissezError &#125; <span class="k">from</span> <span class="s">'./laissez'</span>;
+
+<span class="k">export default</span> &#123;
+  <span class="k">async</span> fetch(req, env) &#123;
+    <span class="k">const</span> raw = <span class="k">await</span> req.text();
+    <span class="k">try</span> &#123;
+      <span class="k">const</span> event = <span class="k">await</span> verifyWebhook(raw, req.headers.get(<span class="s">'laissez-signature'</span>), env.LAISSEZ_WEBHOOK_SECRET);
+      <span class="k">switch</span> (event.type) &#123;
+        <span class="k">case</span> <span class="s">'settlement.completed'</span>: <span class="k">await</span> releaseUnits(event.data); <span class="k">break</span>;
+        <span class="k">case</span> <span class="s">'holder.status_changed'</span>: <span class="k">await</span> flagAccount(event.data); <span class="k">break</span>;
+      &#125;
+      <span class="k">return new</span> Response(<span class="s">'ok'</span>);
+    &#125; <span class="k">catch</span> (e) &#123;
+      <span class="k">if</span> (e <span class="k">instanceof</span> LaissezError) <span class="k">return new</span> Response(e.message, &#123; status: 400 &#125;);
+      <span class="k">throw</span> e;
+    &#125;
+  &#125;
+&#125;;</code></pre>
+<pre class="codeblock"><code><span class="c"># Python: FastAPI</span>
+<span class="k">from</span> fastapi <span class="k">import</span> FastAPI, Request, Response
+<span class="k">from</span> laissez <span class="k">import</span> verify_webhook, LaissezError
+
+app = FastAPI()
+
+@app.post(<span class="s">"/hooks/laissez"</span>)
+<span class="k">async def</span> hook(request: Request):
+    raw = <span class="k">await</span> request.body()
+    <span class="k">try</span>:
+        event = verify_webhook(raw, request.headers.get(<span class="s">"laissez-signature"</span>), os.environ[<span class="s">"LAISSEZ_WEBHOOK_SECRET"</span>])
+    <span class="k">except</span> LaissezError <span class="k">as</span> e:
+        <span class="k">return</span> Response(e.message, status_code=400)
+    <span class="k">if</span> event[<span class="s">"type"</span>] == <span class="s">"settlement.completed"</span>:
+        release_units(event[<span class="s">"data"</span>])
+    <span class="k">return</span> Response(<span class="s">"ok"</span>)</code></pre>
+      </div>
+      <p class="fine" style="margin-top:1.5rem">Use the raw bytes, not re-serialized JSON: a single reordered key changes the digest. Express users: mount <code>express.raw(&#123; type: 'application/json' &#125;)</code> on the webhook route. Errors are <code>invalid_signature</code>, <code>signature_expired</code> and <code>invalid_payload</code>.</p>
+    </div>
+  </section>
+
+  <section class="band raised" id="coverage">
+    <div class="wrap">
+      <div class="sec-head"><div><p class="eyebrow">Coverage</p><h2>Resource namespaces.</h2></div><p class="lede">Anything not wrapped is one call away: <code>laissez.get(path, &#123; query &#125;)</code> and <code>laissez.post(path, body)</code> in TypeScript, <code>client.get(path, query=...)</code> and <code>client.post(path, body)</code> in Python. Both go through the same retry and idempotency logic.</p></div>
+      <div class="table-wrap">
+        <table class="grid ns"><thead><tr><th>Namespace</th><th>TypeScript</th><th>Python</th></tr></thead>
+          <tbody>{namespaces.map(([n, ts, py]) => <tr><td><code>{n}</code></td><td class="muted">{ts}</td><td class="muted">{py}</td></tr>)}</tbody>
+        </table>
+      </div>
+      <p class="fine" style="margin-top:1.5rem">Python attributes use snake_case: <code>policy_changes</code>, <code>work_items</code>, <code>credential_shares</code>, <code>travel_rule</code>, <code>api_keys</code>. Source: <code>sdk/typescript</code> and <code>sdk/python</code> in the repository.</p>
+    </div>
+  </section>
+</Layout>
+<style>
+  .page-hero .eyebrow a { color: inherit; text-decoration: none; }
+  .band:not(.light) code:not(.codeblock code) { color: var(--brass-2); }
+  .band.light code:not(.codeblock code) { color: var(--ink); }
+  .cols-2 h4 { margin-bottom: 0.6rem; }
+  .cols-2 .codeblock { margin-top: 0.75rem; }
+  table.opt td:first-child { white-space: nowrap; width: 38%; }
+  table.opt td { font-size: 0.92rem; }
+  .band.light table.opt td { color: var(--ink-2); }
+  table.ns td { font-size: 0.9rem; }
+  .cols-3 .item p { font-size: 0.93rem; }
+  #webhooks .cols-2 { align-items: start; }
+</style>
