@@ -150,6 +150,7 @@ function Frame({ children }: { children: ComponentChildren }) {
             <div><dt>1</dt><dd>hash-chained audit log you can verify</dd></div>
           </dl>
           <p class="gate-foot">Institutions and people in the app are fictional. Thresholds and legal references are real.</p>
+          <p class="gate-links"><a href="../demo/">Guided demo</a><a href="../developers/">Developers</a><a href="../privacy/">Privacy</a><a href="../terms/">Terms</a></p>
         </div>
         <div class="gate-card">{children}</div>
       </div>
@@ -216,6 +217,7 @@ export function Gate({ onReady, notice }: { onReady: () => void; notice?: string
         <Btn onClick={() => setSso(!sso)}>{sso ? 'Hide single sign-on' : 'Sign in with SSO'}</Btn>
         <Btn kind="ghost" onClick={() => { setErr(null); setMode('register'); }}>Create an account</Btn>
       </div>
+      <p class="muted small"><a href="#/recover">Lost your passkeys?</a> Use a recovery code.</p>
       {sso ? (
         <form class="gate-sso" onSubmit={(e) => { e.preventDefault(); run('sso', () => startSso(email)); }}>
           <Field label="Work email" hint="We send you to your company's sign-in page.">

@@ -10,13 +10,14 @@ import '../components/live/live.css';
       <h1>Live product metrics</h1>
       <p class="lede">The numbers a product team would run Laissez by, read straight from the API with no dashboard in between. They move as people use the sandbox. Nothing here is projected or typed in.</p>
       <div class="hero-stamp"><MetricsStamp client:load /></div>
+      <div class="hero-cta"><a class="btn primary" href={url('app/')}>Try the sandbox</a><a class="arrow-link" href={url('status/')}>System status</a></div>
     </div>
   </section>
 
   <section class="band tight" id="north-star">
     <div class="wrap">
       <div class="sec-head">
-        <div><h2>North star: cross-border compliant settled value</h2></div>
+        <h2>North star: cross-border compliant settled value</h2>
         <p class="lede">The value of settled orders that passed every check, where the investor lives outside the fund's domicile. Shown per currency, for the last 30 days and all time.</p>
       </div>
       <NorthStar client:load />
@@ -31,7 +32,7 @@ import '../components/live/live.css';
   <section class="band raised" id="funnel">
     <div class="wrap">
       <div class="sec-head">
-        <div><h2>Activation funnel, last 30 days</h2></div>
+        <h2>Activation funnel, last 30 days</h2>
         <p class="lede">Four steps from first contact to the moment a team has changed something real. Each step counts distinct visitors or workspaces, and each conversion is measured against the step before it.</p>
       </div>
       <Funnel client:load />
@@ -41,7 +42,7 @@ import '../components/live/live.css';
   <section class="band" id="guardrails">
     <div class="wrap">
       <div class="sec-head">
-        <div><h2>Guardrails</h2></div>
+        <h2>Guardrails</h2>
         <p class="lede">Metrics that are not allowed to move the wrong way while the north star grows. The first one is the product's whole promise: no token moves without a passing decision at the moment it moves.</p>
       </div>
       <Guardrails client:load />
@@ -51,7 +52,7 @@ import '../components/live/live.css';
   <section class="band raised" id="adoption">
     <div class="wrap">
       <div class="sec-head">
-        <div><h2>Reuse and time to value</h2></div>
+        <h2>Reuse and time to value</h2>
         <p class="lede">Credential reuse is the leading indicator that the network effect is real. Time to first settlement is the sandbox's job: how fast a developer gets from an empty workspace to a settled cross-border order.</p>
       </div>
       <Adoption client:load />
@@ -61,7 +62,7 @@ import '../components/live/live.css';
   <section class="band" id="series">
     <div class="wrap">
       <div class="sec-head">
-        <div><h2>Thirty days, day by day</h2></div>
+        <h2>Thirty days, day by day</h2>
         <p class="lede">Daily counts for each funnel event and for cross-border settlements, drawn to a shared scale per chart with a zero baseline. Hover or use the arrow keys to read a day.</p>
       </div>
       <SeriesGrid client:load />
@@ -90,5 +91,5 @@ import '../components/live/live.css';
 <style>
   .hero-stamp { margin-top: 2rem; display: flex; }
   .why { margin-top: clamp(2.5rem, 5vw, 4rem); }
-  .band.light code { color: var(--ink); font-size: 0.9em; }
+  code { color: var(--ink); font-size: 0.9em; }
 </style>

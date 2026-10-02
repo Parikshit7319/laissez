@@ -1,30 +1,42 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import { url } from '../lib/url';
+const API = 'https://laissez-api.laissez.workers.dev';
 ---
-<Layout title="Request access" description="Apply to the Laissez design partner program." path="access/">
+<Layout title="Request access" description="Apply to the Laissez design partner program: production access for distributors and issuers with tokenized funds in market or in build." path="access/">
   <section class="page-hero">
     <div class="wrap access">
       <div>
-        <p class="eyebrow">Design partner program</p>
         <h1>Take one fund through one corridor with us.</h1>
-        <p class="lede">We are working with a small number of distributors and issuers that have tokenized funds in market or in build. Partners shape the launch rule packs and get production access first.</p>
+        <p class="lede">We are working with a small number of distributors and issuers that have tokenized funds in market or in build. Partners shape the launch rule packs and get production access first. The sandbox needs no application; this form is for production.</p>
         <ul class="ticks">
-          <li>Sandbox keys and a test fund across six jurisdictions</li>
+          <li>Production keys, your corridor's rule packs reviewed by counsel first</li>
           <li>Founder-led integration, no platform fee during the pilot</li>
-          <li>Your corridors prioritized in the rule-pack roadmap</li>
+          <li>Your jurisdictions prioritised in the rule-pack roadmap</li>
         </ul>
-        <p class="fine" style="margin-top:2rem">Prefer email? Write to <span class="sel">parikshit.ambhore@rice.edu</span></p>
+        <p class="fine" style="margin-top:2rem">Prefer email? Write to <a class="text-link" href="mailto:parikshit.ambhore@rice.edu">parikshit.ambhore@rice.edu</a>. Just want to look around? <a class="text-link" href={url('app/')}>Open a sandbox</a>, no sign-up.</p>
       </div>
-      <form class="form" id="access-form" novalidate>
-        <div class="row"><label for="f-name">Full name</label><input id="f-name" name="name" required autocomplete="name" /></div>
-        <div class="row"><label for="f-email">Work email</label><input id="f-email" name="email" type="email" required autocomplete="email" /></div>
-        <div class="row"><label for="f-org">Institution</label><input id="f-org" name="org" required autocomplete="organization" /></div>
-        <div class="row"><label for="f-role">You are</label>
-          <select id="f-role" name="role"><option>A distributor</option><option>An issuer or asset manager</option><option>A transfer agent or fund administrator</option><option>Something else</option></select>
+      <form class="form" id="access-form" novalidate data-api={API}>
+        <div class="row"><label for="f-name">Full name</label><input id="f-name" name="name" required autocomplete="name" maxlength="120" /></div>
+        <div class="row"><label for="f-email">Work email</label><input id="f-email" name="email" type="email" required autocomplete="email" maxlength="200" inputmode="email" /></div>
+        <div class="row"><label for="f-org">Organization</label><input id="f-org" name="organization" required autocomplete="organization" maxlength="160" /></div>
+        <div class="row"><label for="f-role">Your role</label>
+          <select id="f-role" name="role">
+            <option value="distributor">Distribution or wealth platform</option>
+            <option value="issuer">Issuer or asset manager</option>
+            <option value="ta">Transfer agent or fund administrator</option>
+            <option value="engineering">Engineering or digital assets</option>
+            <option value="compliance">Compliance or legal</option>
+            <option value="investor">Investor or allocator</option>
+            <option value="other">Something else</option>
+          </select>
         </div>
-        <div class="row"><label for="f-msg">Funds and corridors you care about</label><textarea id="f-msg" name="msg" rows="4" placeholder="For example: a tokenized Treasury fund, Singapore and Hong Kong investors, settlement in USDC"></textarea></div>
-        <button class="btn brass" type="submit">Prepare my request</button>
-        <p class="fine" id="f-out" role="status"></p>
+        <div class="row"><label for="f-dist">What you distribute or issue</label><input id="f-dist" name="distributes" maxlength="200" placeholder="For example: a tokenized Treasury fund, or UCITS to private banks in Asia" /></div>
+        <div class="row"><label for="f-msg">Funds, corridors and timing</label><textarea id="f-msg" name="message" rows="4" maxlength="2000" placeholder="Which jurisdictions, which settlement asset, and when you want to be live"></textarea></div>
+        <div class="hp" aria-hidden="true"><label for="f-web">Website</label><input id="f-web" name="website" tabindex="-1" autocomplete="off" /></div>
+        <button class="btn primary" type="submit" id="f-submit">Request access</button>
+        <p class="fine" id="f-out" role="status" aria-live="polite"></p>
+        <p class="fine">We reply within two business days. We store what you type here and nothing else; see the <a class="text-link" href={url('privacy/')}>privacy page</a>.</p>
       </form>
     </div>
   </section>
@@ -33,28 +45,61 @@ import Layout from '../layouts/Layout.astro';
   (function () {
     var f = document.getElementById('access-form');
     var out = document.getElementById('f-out');
+    var btn = document.getElementById('f-submit');
+    var started = Date.now();
+    var v = function (id) { return document.getElementById(id).value.trim(); };
+    var say = function (msg, kind) { out.textContent = msg; out.className = 'fine ' + (kind || ''); };
     f.addEventListener('submit', function (e) {
       e.preventDefault();
-      var v = function (id) { return document.getElementById(id).value.trim(); };
-      if (!v('f-name') || !v('f-email') || !v('f-org')) { out.textContent = 'Add your name, work email and institution so we can reply.'; return; }
-      var body = 'Name: ' + v('f-name') + '\nEmail: ' + v('f-email') + '\nInstitution: ' + v('f-org') + '\nRole: ' + v('f-role') + '\n\n' + v('f-msg');
-      var href = 'mailto:parikshit.ambhore@rice.edu?subject=' + encodeURIComponent('Laissez design partner request: ' + v('f-org')) + '&body=' + encodeURIComponent(body);
-      out.innerHTML = '';
-      var a = document.createElement('a'); a.href = href; a.className = 'text-link'; a.textContent = 'Open the drafted email in your mail app';
-      out.appendChild(document.createTextNode('Your request is drafted. ')); out.appendChild(a);
-      out.appendChild(document.createTextNode('. If nothing opens, email parikshit.ambhore@rice.edu directly.'));
+      if (!v('f-name') || !v('f-email') || !v('f-org')) { say('Add your name, work email and organization so we can reply.', 'bad'); return; }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('f-email'))) { say('That email address does not look right.', 'bad'); return; }
+      var body = {
+        name: v('f-name'), email: v('f-email'), organization: v('f-org'), role: v('f-role'),
+        distributes: v('f-dist'), message: v('f-msg'), website: v('f-web'),
+        source: location.pathname, elapsed_ms: Date.now() - started
+      };
+      btn.disabled = true; say('Sending your request.');
+      var ctl = ('AbortController' in window) ? new AbortController() : null;
+      var t = setTimeout(function () { if (ctl) ctl.abort(); }, 12000);
+      fetch(f.dataset.api + '/v1/access-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctl ? ctl.signal : undefined })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
+        .then(function (r) {
+          clearTimeout(t);
+          if (r.ok) {
+            f.querySelectorAll('input, select, textarea').forEach(function (el) { el.disabled = true; });
+            btn.textContent = 'Request sent';
+            say('Thank you. Your request is in (reference ' + (r.j.id || 'recorded') + '). We will reply to ' + body.email + ' within two business days.', 'ok');
+            return;
+          }
+          btn.disabled = false;
+          var msg = (r.j && r.j.error && r.j.error.message) || 'The request could not be sent.';
+          if (r.status === 429) msg = 'Too many requests from this network. Try again in an hour, or email us.';
+          say(msg + ' You can also email parikshit.ambhore@rice.edu.', 'bad');
+        })
+        .catch(function () {
+          clearTimeout(t); btn.disabled = false;
+          var mail = 'mailto:parikshit.ambhore@rice.edu?subject=' + encodeURIComponent('Laissez design partner request: ' + body.organization) + '&body=' + encodeURIComponent('Name: ' + body.name + '\nEmail: ' + body.email + '\nOrganization: ' + body.organization + '\nRole: ' + body.role + '\nDistributes: ' + body.distributes + '\n\n' + body.message);
+          out.className = 'fine bad'; out.textContent = 'We could not reach the API. ';
+          var a = document.createElement('a'); a.href = mail; a.className = 'text-link'; a.textContent = 'Send the same request by email instead';
+          out.appendChild(a); out.appendChild(document.createTextNode('.'));
+        });
     });
   })();
 </script>
 <style>
   .access { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: clamp(2.5rem, 6vw, 6rem); align-items: start; }
-  .form { background: var(--night-2); border: 1px solid var(--hair-2); border-radius: 22px; padding: 2rem; display: grid; gap: 1.1rem; }
-  .row { display: grid; gap: 0.45rem; }
-  .row label { font-size: 0.875rem; color: var(--text-2); }
-  .row input, .row select, .row textarea { font: inherit; color: var(--text); background: var(--night); border: 1px solid var(--hair-2); border-radius: 10px; padding: 0.8rem 0.9rem; width: 100%; }
-  .row input:focus, .row select:focus, .row textarea:focus { outline: none; border-color: var(--brass); }
+  .form { background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: clamp(1.25rem, 3vw, 2rem); display: grid; gap: 1rem; box-shadow: var(--shadow); }
+  .row { display: grid; gap: 0.4rem; }
+  .row label { font-size: 0.875rem; color: var(--ink-2); font-weight: 500; }
+  .row input, .row select, .row textarea { font: inherit; color: var(--ink); background: var(--white); border: 1px solid var(--line-2); border-radius: 8px; padding: 0.75rem 0.85rem; width: 100%; min-height: 2.9rem; }
+  .row input:focus, .row select:focus, .row textarea:focus { outline: 2px solid var(--green); outline-offset: 0; border-color: var(--green); }
   .row textarea { resize: vertical; }
-  .form .btn { justify-self: start; margin-top: 0.5rem; }
-  .sel { user-select: all; color: var(--text); }
+  .row input:disabled, .row select:disabled, .row textarea:disabled { background: var(--paper-2); color: var(--ink-2); }
+  .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .form .btn { justify-self: start; margin-top: 0.25rem; }
+  .form p.fine { margin: 0; }
+  #f-out.ok { color: var(--green); font-size: 0.95rem; }
+  #f-out.bad { color: var(--coral); }
+  #f-out:empty { display: none; }
   @media (max-width: 960px) { .access { grid-template-columns: 1fr; } }
 </style>

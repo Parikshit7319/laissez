@@ -17,6 +17,7 @@ export const NEW_JURISDICTIONS: NewJurisdiction[] = [
   { code: 'AE-ADGM', name: 'UAE (ADGM)', iso3: 'ARE', iso_numeric: '784' },
   { code: 'LU', name: 'Luxembourg', iso3: 'LUX', iso_numeric: '442' },
   { code: 'IE', name: 'Ireland', iso3: 'IRL', iso_numeric: '372' },
+  { code: 'IN', name: 'India', iso3: 'IND', iso_numeric: '356' },
 ];
 /** ISO 3166-1 numeric codes for the launch jurisdictions, backfilled by migration 005. */
 export const LAUNCH_ISO_NUMERIC: Record<string, string> = {
@@ -32,7 +33,11 @@ export const GLOBAL_JURISDICTION = { code: 'GLOBAL', name: 'Global (cross-jurisd
 export type NewClass = {
   code: string; jurisdiction: string; label: string; stamp: string;
   rule_ref: string; source_id: string; threshold: string; requires_opt_in: boolean;
+  /** What the investor's consent is called when requires_opt_in is true, or when a notification is part of the status. */
+  opt_in_label?: string;
 };
+/** Consent labels for the launch classes (migration 007 writes them to investor_classes.opt_in_label). */
+export const LAUNCH_OPT_IN_LABELS: Record<string, string> = { SG_AI: 'opt-in' };
 /** Luxembourg and Ireland reuse EU_PRO (MiFID II Annex II), which already exists. */
 export const NEW_CLASSES: NewClass[] = [
   {
@@ -43,33 +48,68 @@ export const NEW_CLASSES: NewClass[] = [
   {
     code: 'GB_EPRO', jurisdiction: 'GB', label: 'Elective professional client', stamp: 'Elective professional', rule_ref: 'COBS 3.5.3R', source_id: 'fca-cobs35',
     threshold: 'Qualitative assessment plus 2 of 3: 10 significant trades per quarter over four quarters, a portfolio over EUR 500K, one year in a professional finance role. The client opts up in writing after a written warning.',
-    requires_opt_in: true,
+    requires_opt_in: true, opt_in_label: 'written opt-up',
   },
   {
     code: 'JP_QII', jurisdiction: 'JP', label: 'Qualified institutional investor', stamp: 'QII', rule_ref: 'Definitions Ordinance Art. 10(1)', source_id: 'jp-qii',
     threshold: 'Listed financial institutions, or a corporation or individual with securities of JPY 1 billion or more that has notified the FSA. Individuals also need a securities account open for a year. Notified status lasts two years.',
-    requires_opt_in: false,
+    requires_opt_in: false, opt_in_label: 'FSA notification',
   },
   {
     code: 'ADGM_PRO', jurisdiction: 'AE-ADGM', label: 'Professional client', stamp: 'Professional client', rule_ref: 'FSRA COBS 2.4', source_id: 'adgm-cobs',
     threshold: 'Individual: net assets of at least US$1M excluding primary residence, plus experience. Undertaking: own funds of at least US$1M plus experience, or 2 of 3: US$20M balance sheet, US$40M turnover, US$2M own funds.',
     requires_opt_in: false,
   },
+  // ---------- United States (added Oct 2026 alongside US_AI) ----------
+  {
+    code: 'US_QP', jurisdiction: 'US', label: 'Qualified purchaser', stamp: 'Qualified purchaser', rule_ref: 'ICA §2(a)(51)', source_id: 'ica-2a51',
+    threshold: 'Natural persons and family companies with at least $5M in investments; other entities that own and invest on a discretionary basis at least $25M; entities owned entirely by qualified purchasers.',
+    requires_opt_in: false,
+  },
+  {
+    code: 'US_QIB', jurisdiction: 'US', label: 'Qualified institutional buyer', stamp: 'QIB', rule_ref: 'Rule 144A(a)(1)', source_id: 'us-144a',
+    threshold: 'Institutions owning and investing on a discretionary basis at least $100M in securities of unaffiliated issuers; registered dealers at $10M; banks also need $25M audited net worth.',
+    requires_opt_in: false,
+  },
+  {
+    code: 'US_IAI', jurisdiction: 'US', label: 'Institutional accredited investor', stamp: 'Institutional AI', rule_ref: 'Reg D Rule 501(a)(1), (2), (3), (7)', source_id: 'reg-d-501',
+    threshold: 'Banks, broker-dealers, insurers, registered investment companies and other 501(a)(1) institutions; private BDCs; organizations and trusts not formed for the investment with total assets over $5M.',
+    requires_opt_in: false,
+  },
+  // ---------- India ----------
+  {
+    code: 'IN_AI', jurisdiction: 'IN', label: 'Accredited investor (SEBI)', stamp: 'Accredited investor', rule_ref: 'SEBI AIF Master Circular Ch. 12 (circular of Aug 26, 2021)', source_id: 'sebi-ai',
+    threshold: 'Individual: annual income of at least INR 2 crore; or net worth of at least INR 7.5 crore with INR 3.75 crore in financial assets; or income of at least INR 1 crore plus net worth of at least INR 5 crore with half financial. Body corporate or trust: net worth of at least INR 50 crore.',
+    requires_opt_in: false,
+  },
+  {
+    code: 'IN_LRS', jurisdiction: 'IN', label: 'Resident individual within the LRS', stamp: 'LRS remitter', rule_ref: 'RBI Master Direction No. 7/2015-16', source_id: 'rbi-lrs',
+    threshold: 'Resident individual with a PAN remitting under the Liberalised Remittance Scheme: USD 250,000 per financial year (April to March) across all purposes. Not available to companies, firms, HUFs or trusts.',
+    requires_opt_in: false,
+  },
+  {
+    code: 'IFSCA_PRO', jurisdiction: 'IN', label: 'Accredited investor (IFSCA)', stamp: 'IFSCA accredited', rule_ref: 'IFSCA circular IFSCA-IF-10PR/1/2023-Capital Markets', source_id: 'ifsca-ai',
+    threshold: 'Individual: annual gross income of at least US$200,000, or net assets of at least US$1M with US$500,000 in financial assets. Body corporate or trust: net worth of at least US$5M, or every constituent an accredited investor.',
+    requires_opt_in: false,
+  },
 ];
 
 // ---------- Law rules for a fund's distribution list ----------
-export type LawRule = { accepts: string[]; basis: string; lawRequires: string | null; lawText: string; lawRef: string; lawSource: string };
+export type LawRule = {
+  accepts: string[]; basis: string; lawRequires: string | null; lawText: string; lawRef: string; lawSource: string;
+  /** Classes the law accepts when more than one does. Any one suffices; lawRequires stays as the first for older readers. */
+  lawRequiresAny?: string[] | null;
+};
 /**
  * Registered into EXTRA_LAW by api/src/rulepacks.ts so issuers can add these jurisdictions.
- * The engine binds a single class per jurisdiction (lawRequires). For GB that is per se status:
- * elective professional clients are professional investors in law, but this pack does not accept
- * them until the engine can bind on either of two classes.
+ * A jurisdiction's law may accept more than one class (lawRequiresAny); the engine passes when the
+ * investor holds any one of them, honoring each class's consent rule.
  */
 export const NEW_LAW: Record<string, LawRule> = {
   GB: {
-    accepts: ['GB_PRO'], basis: 'UK national private placement (AIFM Regulations 2013, regs 57 to 59)', lawRequires: 'GB_PRO',
-    lawText: 'Non-UK AIF marketed under the UK national private placement regime after notice to the FCA: professional investors only. This pack binds on per se professional status (COBS 3.5.2R).',
-    lawRef: 'AIFM Regs 2013 regs 57-59; COBS 3.5.2R', lawSource: 'uk-aifmr',
+    accepts: ['GB_PRO', 'GB_EPRO'], basis: 'UK national private placement (AIFM Regulations 2013, regs 57 to 59)', lawRequires: 'GB_PRO', lawRequiresAny: ['GB_PRO', 'GB_EPRO'],
+    lawText: 'Non-UK AIF marketed under the UK national private placement regime after notice to the FCA: professional investors only. A professional investor is a per se professional client (COBS 3.5.2R) or an elective professional client who opted up in writing (COBS 3.5.3R).',
+    lawRef: 'AIFM Regs 2013 regs 57-59; COBS 3.5.2R, 3.5.3R', lawSource: 'uk-aifmr',
   },
   JP: {
     accepts: ['JP_QII'], basis: 'QII-only private placement (FIEA Art. 2(3)(ii)(a))', lawRequires: 'JP_QII',
@@ -91,6 +131,11 @@ export const NEW_LAW: Record<string, LawRule> = {
     lawText: 'Non-EU AIFM marketing an AIF in Ireland without a passport: professional investors only, after notifying the Central Bank of Ireland.',
     lawRef: 'S.I. 257/2013 Reg. 43; AIFMD Art. 42', lawSource: 'ie-aifmr',
   },
+  IN: {
+    accepts: ['IN_AI', 'IN_LRS', 'IFSCA_PRO'], basis: 'Overseas portfolio investment by Indian residents (FEM (Overseas Investment) Rules 2022)', lawRequires: 'IN_AI', lawRequiresAny: ['IN_AI', 'IN_LRS', 'IFSCA_PRO'],
+    lawText: 'A foreign fund is not offered to the Indian public. A resident individual may acquire units of a regulated overseas fund only as overseas portfolio investment within the Liberalised Remittance Scheme (OI Rules 2022 Sch. III; RBI MD 7/2015-16). An Indian entity may hold overseas portfolio investment up to 50% of its net worth per its last audited balance sheet (OI Rules 2022 Sch. II). Any offer to more than 200 persons in a financial year is a public offer (Companies Act 2013 s42).',
+    lawRef: 'FEM (OI) Rules 2022 Sch. II, III; RBI MD 7/2015-16; Companies Act s42', lawSource: 'fema-oi-2022',
+  },
 };
 
 // ---------- Booking centers ----------
@@ -101,6 +146,9 @@ export const NEW_BOOKING_CENTERS: BookingCenter[] = [
     ruleText: 'Handling a QII-only private placement from Japan: qualified institutional investors only.', ruleRef: 'FIEA Art. 2(3)(ii)(a)', source: 'jp-fiea' },
   { id: 'ADGM', name: 'Abu Dhabi (ADGM)', jur: 'AE-ADGM', licence: 'FSRA financial services permission, Professional Clients only (fictional licensee)', requires: 'ADGM_PRO',
     ruleText: 'Firm permitted to deal with Professional Clients only.', ruleRef: 'FSRA COBS 2.4', source: 'adgm-cobs' },
+  { id: 'GIFT', name: 'GIFT City (IFSC)', jur: 'IN', licence: 'IFSCA-registered fund management entity (fictional licensee)', requires: 'IFSCA_PRO',
+    ruleText: 'Foreign fund units distributed from GIFT City: accredited investors only (IFSCA or SEBI accredited).', ruleRef: 'IFSCA (Fund Management) Regulations 2025; IFSCA AI circular', source: 'ifsca-ai',
+    requiresAny: ['IFSCA_PRO', 'IN_AI'] } as BookingCenter & { requiresAny: string[] },
 ];
 
 // ---------- Pack versions ----------
@@ -122,12 +170,14 @@ export const RULE_PACKS: RulePack[] = [
     summary: 'MiFID II professional clients; UCITS retail passport; AIFMD Art. 42 private placement.' },
   { id: 'AE-DIFC/eligibility', version: '2026.07.0', jurisdiction: 'AE-DIFC', status: 'active', effective_from: '2026-07-01', effective_to: null,
     summary: 'DFSA professional clients (COB 2.3).' },
-  { id: 'US/eligibility', version: '2026.07.0', jurisdiction: 'US', status: 'active', effective_from: '2026-07-01', effective_to: null,
+  { id: 'US/eligibility', version: '2026.07.0', jurisdiction: 'US', status: 'retired', effective_from: '2026-07-01', effective_to: '2026-10-02',
     summary: 'Accredited investors (Reg D 501(a)); Regulation S offshore restrictions; Section 3(c)(1) holder limit.' },
+  { id: 'US/eligibility', version: '2026.10.0', jurisdiction: 'US', status: 'active', effective_from: '2026-10-02', effective_to: null,
+    summary: 'Adds qualified purchasers (ICA 2(a)(51)), qualified institutional buyers (Rule 144A) and institutional accredited investors (Rule 501(a)(1), (2), (3), (7)); Section 3(c)(7) funds carry the Exchange Act 12(g) 2,000 holders of record threshold instead of the 100-owner cap; Regulation S Category 3 distribution compliance period on resales to U.S. persons (Rule 903(b)(3)).' },
   { id: 'GB/eligibility', version: 'draft-cp2536', jurisdiction: 'GB', status: 'draft', effective_from: null, effective_to: null,
     summary: 'Drafted against FCA CP25/36: proposed GBP 10M investable-assets route. Inactive until final rules.' },
   { id: 'GB/eligibility', version: '2026.10.0', jurisdiction: 'GB', status: 'active', effective_from: '2026-10-01', effective_to: null,
-    summary: 'Per se professional clients (COBS 3.5.2R); UK national private placement after FCA notification (AIFM Regulations 2013 regs 57 to 59). Elective professionals (COBS 3.5.3R) are recorded but not yet accepted.' },
+    summary: 'Per se professional clients (COBS 3.5.2R) or elective professional clients with a written opt-up (COBS 3.5.3R); UK national private placement after FCA notification (AIFM Regulations 2013 regs 57 to 59).' },
   { id: 'JP/eligibility', version: '2026.10.0', jurisdiction: 'JP', status: 'active', effective_from: '2026-10-01', effective_to: null,
     summary: 'Qualified institutional investors (Definitions Ordinance Art. 10): JPY 1 billion securities test with FSA notification; QII-only private placement (FIEA Art. 2(3)(ii)(a)).' },
   { id: 'AE-ADGM/eligibility', version: '2026.10.0', jurisdiction: 'AE-ADGM', status: 'active', effective_from: '2026-10-01', effective_to: null,
@@ -136,6 +186,12 @@ export const RULE_PACKS: RulePack[] = [
     summary: 'MiFID II per se professional clients; non-EU AIF marketing under Art. 45 of the Law of 12 July 2013 after the CSSF information form.' },
   { id: 'IE/eligibility', version: '2026.10.0', jurisdiction: 'IE', status: 'active', effective_from: '2026-10-01', effective_to: null,
     summary: 'MiFID II per se professional clients; non-EU AIF marketing under Reg. 43 of S.I. No. 257 of 2013 after Central Bank notification.' },
+  { id: 'IN/eligibility', version: '2026.10.0', jurisdiction: 'IN', status: 'active', effective_from: '2026-10-02', effective_to: null,
+    summary: 'SEBI accredited investors (AIF Master Circular Ch. 12); resident individuals within the RBI Liberalised Remittance Scheme (USD 250,000 per financial year); IFSCA accredited investors for GIFT City; overseas portfolio investment under the FEM (Overseas Investment) Rules 2022; Companies Act s42 200-person private placement limit.' },
+  { id: 'global/sanctions', version: '2024-01-01', jurisdiction: 'GLOBAL', status: 'retired', effective_from: '2024-01-01', effective_to: '2025-08-25',
+    summary: 'Comprehensive OFAC country programs: Cuba, Iran, North Korea, Syria, occupied regions of Ukraine.' },
+  { id: 'global/sanctions', version: '2025-08-25', jurisdiction: 'GLOBAL', status: 'retired', effective_from: '2025-08-25', effective_to: '2026-10-01',
+    summary: 'Comprehensive OFAC country programs: Cuba, Iran, North Korea, occupied regions of Ukraine. Syria program removed Aug 25, 2025 (Executive Order 14312).' },
   { id: 'global/sanctions', version: '2026-10-01', jurisdiction: 'GLOBAL', status: 'active', effective_from: '2026-10-01', effective_to: null,
     summary: 'Comprehensive OFAC country programs: Cuba, Iran, North Korea, occupied regions of Ukraine. Syria removed Aug 25, 2025.' },
   { id: 'global/travel-rule', version: '2026.07', jurisdiction: 'GLOBAL', status: 'active', effective_from: '2026-07-16', effective_to: null,
@@ -159,7 +215,8 @@ export function packsAsOf(packs: RulePack[], date: string): Record<string, strin
 /** A context with the new jurisdictions, classes and booking centers added. Does not touch optional fields. */
 export function extendCtx<T extends Ctx>(base: T): T {
   const classInfo: Record<string, ClassMeta> = { ...base.classInfo };
-  for (const c of NEW_CLASSES) classInfo[c.code] = { label: c.label, stamp: c.stamp, jur: c.jurisdiction, rule: c.rule_ref, source: c.source_id, threshold: c.threshold };
+  for (const [code, label] of Object.entries(LAUNCH_OPT_IN_LABELS)) if (classInfo[code]) classInfo[code] = { ...classInfo[code], requiresOptIn: true, optInLabel: label };
+  for (const c of NEW_CLASSES) classInfo[c.code] = { label: c.label, stamp: c.stamp, jur: c.jurisdiction, rule: c.rule_ref, source: c.source_id, threshold: c.threshold, requiresOptIn: c.requires_opt_in, optInLabel: c.opt_in_label };
   const bookingCenters: Record<string, BookingCenter> = { ...base.bookingCenters };
   for (const b of NEW_BOOKING_CENTERS) bookingCenters[b.id] = b;
   const jurName: Record<string, string> = { ...base.jurName };
@@ -183,6 +240,8 @@ export type RegressionCase = {
   fund: 'TWLF' | 'NMEL' | 'AGPC';
   /** Distribution entries added to the base fund (from data.ts), keyed by jurisdiction. */
   distribution?: Record<string, LawRule>;
+  /** Fund fields overridden for the case (for example usAccepts, holderCap, regSCategory, offeringDate). */
+  fund_patch?: Record<string, unknown>;
   order: Pick<Order, 'action' | 'amount' | 'asset'>;
   whatIfs?: WhatIf[];
   /** Simulated watchlist hit on the investor's or the counterparty's name. */
@@ -211,7 +270,21 @@ const CH_BIG = { balance_sheet: 410_000_000, turnover: 880_000_000, equity: 120_
 const GB_BIG = { balance_sheet: 25_000_000, net_turnover: 50_000_000, own_funds: 1_000_000 };
 const DENY_CLASS = ['fundClass', 'law', 'booking'];
 const HOLDS_TWLF = { TWLF: { units: 1_000_000, since: '2025-01-15' } };
-const NEW_DIST = { GB: NEW_LAW.GB, JP: NEW_LAW.JP, 'AE-ADGM': NEW_LAW['AE-ADGM'], LU: NEW_LAW.LU, IE: NEW_LAW.IE };
+const NEW_DIST = { GB: NEW_LAW.GB, JP: NEW_LAW.JP, 'AE-ADGM': NEW_LAW['AE-ADGM'], LU: NEW_LAW.LU, IE: NEW_LAW.IE, IN: NEW_LAW.IN };
+/** AGPC's U.S. entry widened to the new classes, for cases on a Section 3(c)(7) fund or a Rule 144A placement. */
+const usDist = (accepts: string[], basis: string): LawRule => ({
+  accepts, basis, lawRequires: accepts[0], lawRequiresAny: accepts,
+  lawText: `${basis}: purchasers must hold the status the exemption names, verified by the issuer.`, lawRef: 'Reg D Rule 501(a); ICA §2(a)(51); Rule 144A', lawSource: 'reg-d-501',
+});
+const US_3C7 = { US: usDist(['US_AI', 'US_QP'], 'Section 3(c)(7) private fund offered under Rule 506(c)') };
+const US_QP_ONLY = { US: usDist(['US_QP'], 'Section 3(c)(7) private fund: qualified purchasers only') };
+const US_QIB_ONLY = { US: usDist(['US_QIB'], 'Rule 144A resale to qualified institutional buyers') };
+const US_IAI_ONLY = { US: usDist(['US_IAI'], 'Rule 506(b) placement to institutional accredited investors') };
+const US_AI_OK = { US_AI: { net_worth: 6_000_000 } };
+const US_AI_ENTITY = { US_AI: { assets: 6_000_000 } };
+const IN_AI_OK = { IN_AI: { annual_income: 25_000_000 } };
+const lrs = (remitted: number) => ({ IN_LRS: { resident_individual: true, pan: true, remitted_this_fy_usd: remitted } });
+const HOLDS_AGPC = { AGPC: { units: 1_000_000, since: '2025-01-15' } };
 
 export const REGRESSION_CASES: RegressionCase[] = [
   // ---------- SG/eligibility ----------
@@ -283,16 +356,62 @@ export const REGRESSION_CASES: RegressionCase[] = [
     investor: corp('US-04', 'US', 'NY', { US_AI: { assets: 6_000_000 } }, { usPerson: true }), expect: 'DENY', failing: ['regS'] },
   { id: 'US-05', pack: 'US/eligibility', name: 'Existing holder adds when the fund is at its cap', fund: 'AGPC', order: sub(300_000), whatIfs: ['capFull'],
     investor: corp('US-05', 'US', 'NY', { US_AI: { assets: 6_000_000 } }, { usPerson: true, holdings: { AGPC: { units: 500_000, since: '2025-01-15' } } }), expect: 'ALLOW', failing: [] },
+  { id: 'US-06', pack: 'US/eligibility', name: 'Qualified purchaser with exactly $5M in investments joins a 3(c)(7) fund with 1,200 holders of record', fund: 'AGPC', distribution: US_3C7, fund_patch: { usAccepts: ['US_AI', 'US_QP'], holderCap: null, holders: 1200 }, order: sub(300_000),
+    investor: person('US-06', 'US', 'NY', { US_QP: { investments: 5_000_000 }, ...US_AI_OK }, { usPerson: true }), expect: 'ALLOW', failing: [], issued: ['US_QP', 'US_AI'], present: ['cap12g'], absent: ['cap'] },
+  { id: 'US-07', pack: 'US/eligibility', name: 'One dollar under $5M is not a qualified purchaser', fund: 'AGPC', distribution: US_QP_ONLY, fund_patch: { usAccepts: ['US_QP'], holderCap: null, holders: 1200 }, order: sub(300_000),
+    investor: person('US-07', 'US', 'NY', { US_QP: { investments: 4_999_999 }, ...US_AI_OK }, { usPerson: true }), expect: 'DENY', failing: ['fundClass', 'law'], issued: ['US_AI'] },
+  { id: 'US-08', pack: 'US/eligibility', name: 'A 3(c)(7) fund at 1,999 holders of record cannot add a 2,000th without Section 12(g) registration', fund: 'AGPC', distribution: US_3C7, fund_patch: { usAccepts: ['US_AI', 'US_QP'], holderCap: null, holders: 1999 }, order: sub(300_000),
+    investor: corp('US-08', 'US', 'NY', { US_QP: { investments: 30_000_000 }, ...US_AI_ENTITY }, { usPerson: true }), expect: 'DENY', failing: ['cap12g'], issued: ['US_QP', 'US_AI'] },
+  { id: 'US-09', pack: 'US/eligibility', name: 'Family company with $5M in investments is a qualified purchaser; an ordinary entity needs $25M', fund: 'AGPC', distribution: US_QP_ONLY, fund_patch: { usAccepts: ['US_QP'], holderCap: null, holders: 40 }, order: sub(300_000),
+    investor: corp('US-09', 'US', 'NY', { US_QP: { family_company: true, investments: 5_000_000 }, ...US_AI_ENTITY }, { usPerson: true }), expect: 'ALLOW', failing: [], issued: ['US_QP', 'US_AI'] },
+  { id: 'US-10', pack: 'US/eligibility', name: 'Qualified institutional buyer with $100M in securities', fund: 'AGPC', distribution: US_QIB_ONLY, fund_patch: { usAccepts: ['US_QIB'] }, order: sub(300_000),
+    investor: corp('US-10', 'US', 'NY', { US_QIB: { securities: 100_000_000 }, ...US_AI_ENTITY }, { usPerson: true }), expect: 'ALLOW', failing: [], issued: ['US_QIB', 'US_AI'] },
+  { id: 'US-11', pack: 'US/eligibility', name: 'Bank with $100M in securities but $20M net worth is not a QIB', fund: 'AGPC', distribution: US_QIB_ONLY, fund_patch: { usAccepts: ['US_QIB'] }, order: sub(300_000),
+    investor: corp('US-11', 'US', 'NY', { US_QIB: { securities: 100_000_000, bank: true, net_worth: 20_000_000 }, ...US_AI_ENTITY }, { usPerson: true }), expect: 'DENY', failing: ['fundClass', 'law'], issued: ['US_AI'] },
+  { id: 'US-12', pack: 'US/eligibility', name: 'Institutional accredited investor on $6M total assets', fund: 'AGPC', distribution: US_IAI_ONLY, fund_patch: { usAccepts: ['US_IAI'] }, order: sub(300_000),
+    investor: corp('US-12', 'US', 'NY', { US_IAI: { total_assets: 6_000_000 }, ...US_AI_ENTITY }, { usPerson: true }), expect: 'ALLOW', failing: [], issued: ['US_IAI', 'US_AI'] },
+  { id: 'US-13', pack: 'US/eligibility', name: 'Regulation S Category 3: offshore units cannot pass to a U.S. person inside the one-year period', fund: 'AGPC', fund_patch: { regSCategory: 3, offeringDate: '2026-01-15' }, order: { action: 'transfer', amount: 300_000, asset: 'USDC' },
+    investor: corp('US-13', 'SG', 'SG', SG_OK, { holdings: HOLDS_AGPC }), counterparty: person('US-13-cp', 'US', 'NY', US_AI_OK, { usPerson: true }), expect: 'DENY', failing: ['regSPeriod'] },
+  { id: 'US-14', pack: 'US/eligibility', name: 'Regulation S Category 3: the same transfer after the one-year period ends', fund: 'AGPC', fund_patch: { regSCategory: 3, offeringDate: '2025-06-01' }, order: { action: 'transfer', amount: 300_000, asset: 'USDC' },
+    investor: corp('US-14', 'SG', 'SG', SG_OK, { holdings: HOLDS_AGPC }), counterparty: person('US-14-cp', 'US', 'NY', US_AI_OK, { usPerson: true }), expect: 'ALLOW', failing: [], present: ['regSPeriod'] },
+  { id: 'US-15', pack: 'US/eligibility', name: 'Regulation S Category 3 debt: 40-day period still running', fund: 'AGPC', fund_patch: { regSCategory: 3, offeringDate: '2026-09-01', regSSecurityType: 'debt' }, order: { action: 'transfer', amount: 300_000, asset: 'USDC' },
+    investor: corp('US-15', 'SG', 'SG', SG_OK, { holdings: HOLDS_AGPC }), counterparty: person('US-15-cp', 'US', 'NY', US_AI_OK, { usPerson: true }), expect: 'DENY', failing: ['regSPeriod'] },
+  { id: 'US-16', pack: 'US/eligibility', name: 'Regulation S period does not touch a transfer between two non-U.S. persons', fund: 'AGPC', fund_patch: { regSCategory: 3, offeringDate: '2026-01-15' }, order: { action: 'transfer', amount: 300_000, asset: 'USDC' },
+    investor: corp('US-16', 'SG', 'SG', SG_OK, { holdings: HOLDS_AGPC }), counterparty: corp('US-16-cp', 'HK', 'HK', { HK_PI: { portfolio: 50_000_000 } }), expect: 'ALLOW', failing: [], absent: ['regSPeriod'] },
+
+  // ---------- IN/eligibility ----------
+  { id: 'IN-01', pack: 'IN/eligibility', name: 'SEBI accredited individual within the LRS allowance, booked in GIFT City', fund: 'TWLF', distribution: NEW_DIST, order: sub(100_000),
+    investor: person('IN-01', 'IN', 'GIFT', { ...IN_AI_OK, ...lrs(100_000) }), expect: 'ALLOW', failing: [], issued: ['IN_AI', 'IN_LRS'], present: ['lrs'], binding: ['booking'] },
+  { id: 'IN-02', pack: 'IN/eligibility', name: 'Order that would take the financial year over USD 250,000', fund: 'TWLF', distribution: NEW_DIST, order: sub(100_000),
+    investor: person('IN-02', 'IN', 'GIFT', { ...IN_AI_OK, ...lrs(200_000) }), expect: 'DENY', failing: ['lrs'], issued: ['IN_AI', 'IN_LRS'] },
+  { id: 'IN-03', pack: 'IN/eligibility', name: 'Euro order converted at the demo rate breaches the LRS ceiling', fund: 'NMEL', distribution: { IN: NEW_LAW.IN }, order: sub(150_000, 'EURC'),
+    investor: person('IN-03', 'IN', 'GIFT', { ...IN_AI_OK, ...lrs(100_000) }), expect: 'DENY', failing: ['lrs'], issued: ['IN_AI', 'IN_LRS'] },
+  { id: 'IN-04', pack: 'IN/eligibility', name: 'Resident individual below the SEBI thresholds may invest within the LRS but the GIFT City licence needs accredited status', fund: 'TWLF', distribution: NEW_DIST, order: sub(100_000),
+    investor: person('IN-04', 'IN', 'GIFT', { IN_AI: { annual_income: 15_000_000, net_worth: 40_000_000, financial_assets: 30_000_000 }, ...lrs(0) }), expect: 'DENY', failing: ['booking'], issued: ['IN_LRS'] },
+  { id: 'IN-05', pack: 'IN/eligibility', name: 'Body corporate with INR 60 crore net worth: overseas portfolio investment, no LRS test', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),
+    investor: corp('IN-05', 'IN', 'GIFT', { IN_AI: { net_worth: 600_000_000 } }), expect: 'ALLOW', failing: [], issued: ['IN_AI'], absent: ['lrs'] },
+  { id: 'IN-06', pack: 'IN/eligibility', name: 'Body corporate with INR 40 crore net worth is not accredited', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),
+    investor: corp('IN-06', 'IN', 'GIFT', { IN_AI: { net_worth: 400_000_000 } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
+  { id: 'IN-07', pack: 'IN/eligibility', name: 'IFSCA accredited individual on income, first remittance of the year', fund: 'TWLF', distribution: NEW_DIST, order: sub(100_000),
+    investor: person('IN-07', 'IN', 'GIFT', { IFSCA_PRO: { annual_income: 250_000 }, ...lrs(0) }), expect: 'ALLOW', failing: [], issued: ['IFSCA_PRO', 'IN_LRS'] },
+  { id: 'IN-08', pack: 'IN/eligibility', name: 'The LRS ceiling applies to every resident individual, with or without an LRS record', fund: 'TWLF', distribution: NEW_DIST, order: sub(300_000),
+    investor: person('IN-08', 'IN', 'GIFT', IN_AI_OK), expect: 'DENY', failing: ['lrs'], issued: ['IN_AI'] },
+  { id: 'IN-09', pack: 'IN/eligibility', name: 'Accredited individual booked in Hong Kong without professional investor status', fund: 'TWLF', distribution: NEW_DIST, order: sub(100_000),
+    investor: person('IN-09', 'IN', 'HK', { ...IN_AI_OK, ...lrs(0) }), expect: 'DENY', failing: ['booking'], issued: ['IN_AI', 'IN_LRS'] },
 
   // ---------- GB/eligibility ----------
-  { id: 'GB-01', pack: 'GB/eligibility', name: 'Large undertaking on balance sheet and turnover, booked in London', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),
-    investor: corp('GB-01', 'GB', 'LDN', { GB_PRO: GB_BIG }), expect: 'ALLOW', failing: [], issued: ['GB_PRO'], binding: ['law'] },
+  { id: 'GB-01', pack: 'GB/eligibility', name: 'Large undertaking on balance sheet and turnover, booked in London: the licence (per se only) binds over the law (per se or elective)', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),
+    investor: corp('GB-01', 'GB', 'LDN', { GB_PRO: GB_BIG }), expect: 'ALLOW', failing: [], issued: ['GB_PRO'], binding: ['booking'] },
   { id: 'GB-02', pack: 'GB/eligibility', name: 'Undertaking meeting only the own funds test', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),
     investor: corp('GB-02', 'GB', 'LDN', { GB_PRO: { own_funds: 3_000_000 } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
   { id: 'GB-03', pack: 'GB/eligibility', name: 'FCA-regulated firm is per se professional', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),
     investor: corp('GB-03', 'GB', 'LDN', { GB_PRO: { regulated_entity: true } }), expect: 'ALLOW', failing: [], issued: ['GB_PRO'] },
-  { id: 'GB-04', pack: 'GB/eligibility', name: 'Elective professional with written opt-up is recorded, but the pack binds on per se status', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),
-    investor: person('GB-04', 'GB', 'LDN', { GB_EPRO: { qualitative: true, portfolio: 750_000, finance_role: true, opt_in: true } }), expect: 'DENY', failing: DENY_CLASS, issued: ['GB_EPRO'] },
+  { id: 'GB-04', pack: 'GB/eligibility', name: 'Elective professional with written opt-up satisfies UK law, but the London licence needs per se status', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),
+    investor: person('GB-04', 'GB', 'LDN', { GB_EPRO: { qualitative: true, portfolio: 750_000, finance_role: true, opt_in: true } }), expect: 'DENY', failing: ['booking'], issued: ['GB_EPRO'] },
+  { id: 'GB-07', pack: 'GB/eligibility', name: 'Elective professional undertaking with written opt-up, booked in Singapore as an accredited investor', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),
+    investor: corp('GB-07', 'GB', 'SG', { GB_EPRO: { qualitative: true, frequent_trading: true, portfolio: 900_000, opt_in: true }, ...SG_OK }), expect: 'ALLOW', failing: [], issued: ['GB_EPRO', 'SG_AI'], binding: ['law', 'booking'] },
+  { id: 'GB-08', pack: 'GB/eligibility', name: 'Elective professional record without the written opt-up fails UK law on consent', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),
+    investor: corp('GB-08', 'GB', 'SG', SG_OK, { classifications: [raw('GB_EPRO', '2027-03-14')] }), expect: 'DENY', failing: ['law'], issued: ['SG_AI'] },
   { id: 'GB-05', pack: 'GB/eligibility', name: 'Elective professional tests met but no written opt-up', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),
     investor: person('GB-05', 'GB', 'LDN', { GB_EPRO: { qualitative: true, portfolio: 750_000, finance_role: true } }), expect: 'DENY', failing: DENY_CLASS, issued: [] },
   { id: 'GB-06', pack: 'GB/eligibility', name: 'UK professional client booked in Hong Kong', fund: 'TWLF', distribution: NEW_DIST, order: sub(250_000),

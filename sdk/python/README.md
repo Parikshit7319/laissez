@@ -10,7 +10,7 @@ Standard library only. Python 3.9 or later.
 pip install "git+https://github.com/parikshit7319/laissez.git#subdirectory=sdk/python"
 ```
 
-Once published: `pip install laissez`.
+Once published: `pip install laissez`. Releases publish to PyPI from this repository: pushing a tag `sdk-v<version>` runs `.github/workflows/publish-sdks.yml`, which tests both SDKs and publishes this package and `@laissez/sdk` together. Versions follow the API version they default to (`2026.10.2` targets API `2026-10-02`).
 
 ## Quickstart
 

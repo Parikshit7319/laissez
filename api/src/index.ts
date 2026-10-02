@@ -9,16 +9,22 @@ import { type Vars, router } from './http';
 import { authenticate, pub, acct } from './auth';
 import { idp, setSelfFetch } from './oidc';
 import { versionMiddleware, LATEST_VERSION, SUPPORTED_VERSIONS } from './version';
+import { requestLogging } from './logging';
 import { OPENAPI } from './openapi';
 import * as core from './routes/core';
 import * as platform from './routes/platform';
 import * as compliance from './routes/compliance';
+import * as compliance2 from './routes/compliance2';
 import * as fundops from './routes/fundops';
 import * as network from './routes/network';
 import * as portal from './routes/portal';
 import * as travel from './routes/travel';
 import * as reports from './routes/reports';
 import * as chainRoutes from './routes/chain';
+import * as leads from './routes/leads';
+import * as account2 from './routes/account2';
+import { scim } from './scim';
+import { sendDigests } from './email';
 import * as chainLib from './chain';
 import './rulepacks';
 
@@ -26,12 +32,14 @@ type App = Hono<{ Bindings: Env; Variables: Vars }>;
 const app: App = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 // ---------- Middleware for every request ----------
+// Logging is outermost so X-Request-Id, X-Response-Time and the JSON log line cover every response, errors included.
+app.use('*', requestLogging);
 app.use('*', async (c, next) => {
   const allowed = c.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean);
   return cors({
     origin: (o) => (allowed.includes(o) ? o : allowed[0]),
-    allowHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'Laissez-Version'],
-    exposeHeaders: ['Laissez-Version', 'Idempotent-Replayed'],
+    allowHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'Laissez-Version', 'X-Request-Id'],
+    exposeHeaders: ['Laissez-Version', 'Idempotent-Replayed', 'X-Request-Id', 'X-Response-Time', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset', 'X-Quota-Limit', 'X-Quota-Remaining', 'Retry-After'],
     allowMethods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     maxAge: 86400,
   })(c, next);
@@ -40,13 +48,21 @@ app.use('*', platform.securityHeaders);
 app.use('*', versionMiddleware);
 
 app.onError((err, c) => {
-  if (err instanceof ApiError) return c.json({ error: { code: err.code, message: err.message, detail: err.detail } }, err.status as any);
+  if (err instanceof ApiError) {
+    if (err.status === 429) {
+      const d: any = err.detail ?? {};
+      c.header('Retry-After', String(Math.max(1, Number(d.retry_after ?? 60) || 60)));
+      if (d.rate) { c.header('X-RateLimit-Limit', String(d.rate.limit)); c.header('X-RateLimit-Remaining', '0'); c.header('X-RateLimit-Reset', String(d.rate.resetAt)); }
+    }
+    return c.json({ error: { code: err.code, message: err.message, detail: err.detail } }, err.status as any);
+  }
   if (err instanceof z.ZodError) {
     return c.json({ error: { code: 'invalid_request', message: 'The request body is not valid. Fix the fields listed in detail and retry.', detail: err.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`) } }, 400);
   }
   if (err instanceof HTTPException) return c.json({ error: { code: 'http_error', message: err.message || 'The request could not be processed.' } }, err.status);
   console.error(err);
-  return c.json({ error: { code: 'internal_error', message: 'Something went wrong on our side. The request was not applied. Retry, and contact us if it keeps failing.' } }, 500);
+  const requestId = (c as any).get('requestId') as string | undefined;
+  return c.json({ error: { code: 'internal_error', message: 'Something went wrong on our side. The request was not applied. Retry, and contact us if it keeps failing.', ...(requestId ? { request_id: requestId } : {}) } }, 500);
 });
 app.notFound((c) => c.json({ error: { code: 'not_found', message: `No route for ${c.req.method} ${new URL(c.req.url).pathname}. See the API overview at GET /.` } }, 404));
 
@@ -77,17 +93,22 @@ mount('/v1', opt(compliance, 'publicRoutes'));
 mount('/v1', opt(fundops, 'publicRoutes'));
 mount('/v1', opt(reports, 'publicRoutes'));
 mount('/v1', opt(chainRoutes, 'publicRoutes'));
+mount('/v1', opt(leads, 'publicRoutes'));
 mount('/v1/portal', opt(portal, 'publicRoutes'));
+mount('/v1', opt(account2, 'publicRoutes'));
 mount('/trp', opt(travel, 'publicRoutes'));
+// SCIM 2.0 provisioning, authenticated by the organization's SCIM token.
+app.route('/scim/v2', scim as unknown as App);
 
 // ---------- Authenticated ----------
 const v1 = router();
 v1.use('*', authenticate);
+v1.use('*', account2.rateLimitHeaders);
 v1.use('*', platform.idempotency);
 v1.route('/', acct);
 v1.route('/', core.routes);
 v1.route('/', platform.routes);
-for (const m of [compliance, fundops, network, reports, chainRoutes, travel, portal]) {
+for (const m of [compliance, compliance2, fundops, network, reports, chainRoutes, travel, portal, account2]) {
   const r = opt(m, 'routes');
   if (r) v1.route('/', r);
 }
@@ -147,7 +168,11 @@ async function dailyCleanup(env: Env) {
     admin`delete from idempotency_keys where created_at < now() - interval '24 hours'`,
     admin`delete from sessions where expires_at < now() - interval '7 days' or revoked_at < now() - interval '7 days'`,
     admin`delete from uptime_checks where checked_at < now() - interval '120 days'`,
+    admin`delete from request_log_samples where ts < now() - interval '30 days'`,
   ]);
+  // Work queue digest to administrators and compliance officers of every organization with open items.
+  try { const d = await sendDigests(env, admin); console.log(JSON.stringify({ job: 'work_digest', ...d })); }
+  catch (e) { console.error('work digest failed', e); }
 }
 
 export default {

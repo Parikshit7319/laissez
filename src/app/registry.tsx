@@ -7,13 +7,16 @@ import { Funds, FundDetail, PolicyChanges, CreateFund } from './views/issuer';
 import { RuleLibrary, Screening, RuleDrafts, AuditLog, ReceiptChecker } from './views/compliance';
 import { Explorer, Webhooks } from './views/developers';
 import { Members, SingleSignOn, Security, ApiKeys, Branding } from './views/settings';
-import { WorkQueue, ScreeningHits, SanctionsLists, Monitoring, RegFeed } from './views/compliance2';
+import { Outbox, Sessions, Provisioning, Organization } from './views/settings2';
+import { WorkQueue, ScreeningHits, ScreeningHitDetail, SanctionsLists, Monitoring, RegFeed, InboundTravelRule } from './views/compliance2';
+import { Notifications } from './views/notifications';
+import { Anchors } from './views/anchors';
 import { RedemptionNotices } from './views/fundops';
 import { Network } from './views/network';
 import { PortalRequests, EvidenceReview } from './views/portalAdmin';
 import { TravelRule } from './views/travel';
 import { Reports } from './views/reports';
-import { ChainOverview, Reconciliation } from './views/chain';
+import { ChainOverview, ChainJobsPage, Reconciliation } from './views/chain';
 
 export type RouteProps = { params: Record<string, string>; query: URLSearchParams };
 export type RouteEntry = {
@@ -56,19 +59,26 @@ export const ROUTES: RouteEntry[] = [
   // Compliance
   { pattern: '/rules', group: 'Compliance', label: 'Rule library', component: RuleLibrary },
   { pattern: '/screening-hits', group: 'Compliance', label: 'Screening hits', component: ScreeningHits },
+  { pattern: '/screening-hits/:id', group: 'Compliance', component: (r) => <ScreeningHitDetail id={r.params.id} /> },
   { pattern: '/screening', group: 'Compliance', label: 'Name screening', component: Screening },
   { pattern: '/sanctions-lists', group: 'Compliance', label: 'Sanctions lists', component: SanctionsLists },
-  { pattern: '/monitoring', group: 'Compliance', label: 'Monitoring', component: Monitoring },
+  { pattern: '/monitoring', group: 'Compliance', label: 'Monitoring', component: () => <Monitoring /> },
+  { pattern: '/monitoring/:id', group: 'Compliance', component: (r) => <Monitoring runId={r.params.id} /> },
   { pattern: '/evidence', group: 'Compliance', label: 'Evidence review', component: EvidenceReview },
   { pattern: '/travel-rule', group: 'Compliance', label: 'Travel Rule', component: () => <TravelRule /> },
+  { pattern: '/travel-rule/inbound', group: 'Compliance', label: 'Inbound review', component: () => <InboundTravelRule /> },
+  { pattern: '/travel-rule/inbound/:id', group: 'Compliance', component: (r) => <InboundTravelRule id={r.params.id} /> },
   { pattern: '/travel-rule/:id', group: 'Compliance', component: (r) => <TravelRule id={r.params.id} /> },
   { pattern: '/reg-feed', group: 'Compliance', label: 'Regulatory feed', component: RegFeed },
   { pattern: '/drafts', group: 'Compliance', label: 'Change agent', component: RuleDrafts },
   { pattern: '/audit', group: 'Compliance', label: 'Audit log', component: AuditLog },
+  { pattern: '/anchors', group: 'Compliance', label: 'Audit anchors', component: Anchors },
+  { pattern: '/notifications', group: 'Compliance', component: Notifications, hidden: true },
   { pattern: '/receipts', group: 'Compliance', label: 'Receipt checker', component: ReceiptChecker },
 
   // Settlement network
   { pattern: '/chain', group: 'Settlement', label: 'On-chain', component: ChainOverview },
+  { pattern: '/chain/jobs', group: 'Settlement', label: 'Chain jobs', component: ChainJobsPage },
   { pattern: '/reconciliation', group: 'Settlement', label: 'Reconciliation', component: Reconciliation },
 
   // Developers
@@ -79,8 +89,12 @@ export const ROUTES: RouteEntry[] = [
   { pattern: '/settings/members', group: 'Organization', label: 'Members', component: Members },
   { pattern: '/settings/sso', group: 'Organization', label: 'Single sign-on', component: SingleSignOn },
   { pattern: '/settings/security', group: 'Organization', label: 'Security', component: Security },
+  { pattern: '/settings/sessions', group: 'Organization', label: 'Sessions and recovery', component: Sessions },
+  { pattern: '/settings/provisioning', group: 'Organization', label: 'Provisioning', component: Provisioning },
   { pattern: '/settings/api-keys', group: 'Organization', label: 'API keys', component: ApiKeys, perm: 'keys:admin' },
   { pattern: '/settings/branding', group: 'Organization', label: 'Branding', component: Branding },
+  { pattern: '/settings/outbox', group: 'Organization', label: 'Outbox', component: Outbox },
+  { pattern: '/settings/organization', group: 'Organization', label: 'Organization', component: Organization },
   { pattern: '/keys', group: 'Organization', component: ApiKeys, perm: 'keys:admin', hidden: true },
 ];
 

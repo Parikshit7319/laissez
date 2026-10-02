@@ -29,6 +29,7 @@ function Tabs<T extends string>({ value, options, onChange, label }: { value: T;
 
 const KIND_LABEL: Record<string, string> = {
   holder_status: 'Holder status', credential_expiring: 'Credential renewal', credential_lapsed: 'Lapsed credential', screening_hit: 'Screening match',
+  placement_limit: 'Placement limit', recon_break: 'Reconciliation break',
 };
 const SEVERITY: [string, string, 'no' | 'warn' | 'muted'][] = [['high', 'High priority', 'no'], ['medium', 'Medium priority', 'warn'], ['low', 'Low priority', 'muted']];
 
@@ -113,21 +114,25 @@ function Hit({ hit, onDone }: { hit: any; onDone: (msg: string) => void }) {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<any>(null);
-  const decide = async (status: 'false_positive' | 'confirmed') => {
+  const decide = async (status: 'needs_information' | 'false_positive' | 'confirmed') => {
     setBusy(status); setErr(null);
     try {
       await api(`/v1/screening-hits/${hit.id}/decide`, { body: { status, note: note.trim() || undefined } });
-      onDone(status === 'confirmed' ? 'Match confirmed. The holder stays frozen; monitoring is updating the work queue.' : 'Marked a false positive. Laissez will not flag this pair again; monitoring is updating standings.');
+      onDone(status === 'confirmed' ? 'Match confirmed. The holder stays frozen; monitoring is updating the work queue.'
+        : status === 'needs_information' ? 'Marked as needing information. The hold stays until a decision is made.'
+        : 'Marked a false positive. Laissez will not flag this pair again; monitoring is updating standings.');
     } catch (e) { setErr(e); } finally { setBusy(null); }
   };
   const alias = hit.matched_name !== hit.primary_name;
+  const undecided = hit.status === 'open' || hit.status === 'needs_information';
   return (
     <div class="rule">
       <div class="rule-h">
-        <h3>{hit.screened_name}</h3>
-        <Chip tone={hit.status === 'open' ? 'warn' : hit.status === 'confirmed' ? 'no' : 'ok'}>{hit.status === 'open' ? 'Open' : hit.status === 'confirmed' ? 'Confirmed match' : 'False positive'}</Chip>
+        <h3><a href={`#/screening-hits/${hit.id}`}>{hit.screened_name}</a></h3>
+        {hitChip(hit.status)}
         <Chip tone="info">{pct(hit.score)} similar</Chip>
         <Chip tone="muted">{CONTEXT_LABEL[hit.context] ?? hit.context}</Chip>
+        {hit.notes ? <Chip tone="muted">{plural(hit.notes, 'note')}</Chip> : null}
       </div>
       <div class="tw"><table class="t">
         <thead><tr><th>Screened name</th><th>Matched list entry</th><th>List and programs</th></tr></thead>
@@ -137,10 +142,12 @@ function Hit({ hit, onDone }: { hit: any; onDone: (msg: string) => void }) {
           <td><Chip tone="muted">{hit.source}</Chip><div class="small">{hit.programs ?? 'No program given'}</div></td>
         </tr></tbody>
       </table></div>
-      <p class="small muted">Flagged {when(hit.created_at)}.{hit.decided_at ? <> Decided by {hit.decided_by} {when(hit.decided_at)}.{hit.note ? <> Note: {hit.note}</> : null}</> : null}</p>
-      {hit.status === 'open' ? (
+      <p class="small muted">Flagged {when(hit.created_at)}.{hit.decided_at ? <> {hit.status === 'needs_information' ? 'Information requested' : 'Decided'} by {hit.decided_by} {when(hit.decided_at)}.{hit.note ? <> Note: {hit.note}</> : null}</> : null}</p>
+      {undecided ? (
         <div class="row-inline">
           <Field label="Note" hint="Optional. Recorded with the decision in the audit log."><input value={note} maxLength={1000} onInput={(e) => setNote((e.target as HTMLInputElement).value)} placeholder="Different date of birth and nationality" /></Field>
+          <a class="b b-default" href={`#/screening-hits/${hit.id}`}>Compare</a>
+          {hit.status === 'open' ? <PermBtn perm="compliance:write" kind="ghost" busy={busy === 'needs_information'} disabled={!!busy} onClick={() => decide('needs_information')}>Needs information</PermBtn> : null}
           <PermBtn perm="compliance:write" busy={busy === 'false_positive'} disabled={!!busy} onClick={() => decide('false_positive')}>False positive</PermBtn>
           <PermBtn perm="compliance:write" kind="danger" busy={busy === 'confirmed'} disabled={!!busy} onClick={() => decide('confirmed')}>Confirm match</PermBtn>
         </div>
@@ -150,17 +157,121 @@ function Hit({ hit, onDone }: { hit: any; onDone: (msg: string) => void }) {
   );
 }
 
+const hitChip = (status: string) => status === 'open' ? <Chip tone="warn">Open</Chip> : status === 'needs_information' ? <Chip tone="info">Needs information</Chip> : status === 'confirmed' ? <Chip tone="no">Confirmed match</Chip> : <Chip tone="ok">False positive</Chip>;
+const yesNo = (v: unknown) => (v ? 'Yes' : 'No');
+
+/** One hit, compared side by side: the client record against every name the list files under the same entry, with the note history. */
+export function ScreeningHitDetail({ id }: { id: string }) {
+  const r = useApi(`/v1/screening-hits/${id}`, [id]);
+  const toast = useToast();
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<any>(null);
+  const h = r.data;
+  const addNote = async (e: Event) => {
+    e.preventDefault(); if (!note.trim()) return;
+    setBusy('note'); setErr(null);
+    try { await api(`/v1/screening-hits/${id}/notes`, { body: { note: note.trim() } }); setNote(''); toast.show('Note saved.'); r.reload(); } catch (x) { setErr(x); } finally { setBusy(null); }
+  };
+  const decide = async (status: 'needs_information' | 'false_positive' | 'confirmed') => {
+    setBusy(status); setErr(null);
+    try {
+      await api(`/v1/screening-hits/${id}/decide`, { body: { status, note: note.trim() || undefined } });
+      setNote('');
+      toast.show(status === 'confirmed' ? 'Match confirmed. The holder stays frozen.' : status === 'needs_information' ? 'Marked as needing information. The hold stays.' : 'Marked a false positive. This pair will not be flagged again.');
+      r.reload();
+    } catch (x) { setErr(x); } finally { setBusy(null); }
+  };
+  if (r.loading && !h) return <Loading />;
+  if (r.error) return <ErrorBox error={r.error} onRetry={r.reload} />;
+  if (!h) return null;
+  const inv = h.investor; const entry = h.entry;
+  const undecided = h.status === 'open' || h.status === 'needs_information';
+  const row = (label: string, left: any, right: any, same?: boolean | null) => (
+    <tr><th scope="row">{label}</th><td>{left ?? <span class="muted">Not recorded</span>}</td><td>{right ?? <span class="muted">Not given</span>}</td><td>{same === true ? <Chip tone="warn">Same</Chip> : same === false ? <Chip tone="ok">Differs</Chip> : null}</td></tr>
+  );
+  const country = (c?: string | null) => (c ? c : null);
+  const sameCountry = inv && entry.country ? (String(entry.country).toUpperCase().includes(String(inv.residence).slice(0, 2).toUpperCase()) || String(inv.residence_name ?? '').toLowerCase() === String(entry.country).toLowerCase()) : null;
+  const sameType = inv && entry.entry_type ? ((/individual|person/i.test(entry.entry_type)) === (inv.kind === 'Individual')) : null;
+  return (
+    <>
+      <Head title={`Screening match: ${h.screened_name}`} sub={<>Compare the client record with the listed entry, name by name. The score is trigram similarity against the normalized name; {pct(h.threshold)} or higher holds an order.</>}
+        actions={<a class="b b-ghost" href="#/screening-hits">All screening hits</a>} />
+      <div class="row-inline tight" style={{ marginBottom: '0.9rem' }}>{hitChip(h.status)}<Chip tone="info">{pct(h.score)} similar</Chip><Chip tone="muted">{h.source}</Chip><Chip tone="muted">{CONTEXT_LABEL[h.context] ?? h.context}</Chip>{h.decided_by ? <span class="small muted">{h.status === 'needs_information' ? 'Information requested' : 'Decided'} by {h.decided_by} {when(h.decided_at)}</span> : null}</div>
+      <PermNote perm="compliance:write" />
+      <Card title="Side by side" pad={false}>
+        <div class="tw"><table class="t">
+          <thead><tr><th style={{ width: '10rem' }}></th><th>Client record</th><th>List entry ({h.source} {h.source_uid})</th><th></th></tr></thead>
+          <tbody>
+            {row('Name', <strong>{h.screened_name}</strong>, <strong>{entry.primary_name}</strong>, null)}
+            {row('Type', inv ? inv.kind : null, entry.entry_type, sameType)}
+            {row('Country', inv ? `${inv.residence_name ?? inv.residence}${inv.city ? `, ${inv.city}` : ''}` : null, country(entry.country), sameCountry)}
+            {row('Programs', inv ? `Booked in ${inv.booking_center}${inv.us_person ? ', U.S. person' : ''}` : null, entry.programs, null)}
+            {row('On file since', inv ? day(inv.created_at) : null, entry.listed_on ? String(entry.listed_on) : null, null)}
+            {row('Credential', inv?.credential_id ? `${inv.credential_id}, expires ${inv.credential_expires_on}` : inv ? 'None active' : null, null, null)}
+            {row('Holdings', h.holdings?.length ? h.holdings.map((x: any) => `${x.units.toLocaleString('en-US')} ${x.ticker}`).join(', ') : inv ? 'None' : null, null, null)}
+          </tbody>
+        </table></div>
+      </Card>
+      <div class="grid2">
+        <Card title={`Names under this entry (${entry.names.length})`} pad={false}>
+          <div class="tw"><table class="t">
+            <thead><tr><th>Listed name</th><th>Kind</th><th class="r">Similarity to {h.screened_name}</th></tr></thead>
+            <tbody>{entry.names.map((n: any) => (
+              <tr style={n.name === h.matched_name ? { background: 'rgba(201, 169, 110, 0.1)' } : undefined}>
+                <td>{n.name}{n.name === h.matched_name ? <span class="small muted"> (the match)</span> : null}</td>
+                <td class="small muted">{n.is_alias ? 'Alias' : 'Primary name'}</td>
+                <td class="r">{n.score >= h.threshold ? <strong>{pct(n.score)}</strong> : pct(n.score)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </Card>
+        <Card title="Notes and decisions">
+          {h.notes.length ? (
+            <ul class="plain">{h.notes.map((n: any) => (
+              <li><div class="small muted">{n.author}, {when(n.created_at)}{n.status ? <> {hitChip(n.status)}</> : null}</div><div>{n.note}</div></li>
+            ))}</ul>
+          ) : <p class="small muted">No notes yet. Record what you compared and why.</p>}
+          <form class="row-inline" onSubmit={addNote} style={{ marginTop: '0.6rem' }}>
+            <Field label="Note" hint="Saved to the hit and the audit log."><input value={note} maxLength={2000} onInput={(e) => setNote((e.target as HTMLInputElement).value)} placeholder="Date of birth on the passport differs from the listing" /></Field>
+            <PermBtn perm="compliance:write" type="submit" kind="default" busy={busy === 'note'} disabled={!!busy || !note.trim()}>Add note</PermBtn>
+          </form>
+          {undecided ? (
+            <div class="row-inline tight" style={{ marginTop: '0.8rem' }}>
+              {h.status === 'open' ? <PermBtn perm="compliance:write" kind="ghost" busy={busy === 'needs_information'} disabled={!!busy} onClick={() => decide('needs_information')}>Needs information</PermBtn> : null}
+              <PermBtn perm="compliance:write" busy={busy === 'false_positive'} disabled={!!busy} onClick={() => decide('false_positive')}>False positive</PermBtn>
+              <PermBtn perm="compliance:write" kind="danger" busy={busy === 'confirmed'} disabled={!!busy} onClick={() => decide('confirmed')}>Confirm match</PermBtn>
+              <span class="small muted">The note above is recorded with the decision.</span>
+            </div>
+          ) : null}
+          <ErrorBox error={err} />
+        </Card>
+      </div>
+      {h.other_hits?.length ? (
+        <Card title="Other matches for this name" pad={false}>
+          <div class="tw"><table class="t">
+            <thead><tr><th>List</th><th>Entry</th><th class="r">Similarity</th><th>Status</th><th>Flagged</th></tr></thead>
+            <tbody>{h.other_hits.map((o: any) => <tr><td><Chip tone="muted">{o.source}</Chip></td><td><a href={`#/screening-hits/${o.id}`}>{o.matched_name}</a></td><td class="r">{pct(o.score)}</td><td>{hitChip(o.status)}</td><td class="small muted nowrap">{when(o.created_at)}</td></tr>)}</tbody>
+          </table></div>
+        </Card>
+      ) : null}
+      {inv ? <p class="small muted">Client: <a href={`#/clients/${inv.id}`}>{inv.name}</a>. {yesNo(inv.us_person) === 'Yes' ? 'U.S. person. ' : ''}Decisions are kept for the audit trail.</p> : <p class="small muted">This name was screened without a client record (bulk check or manual screen).</p>}
+      <Toast msg={toast.msg} />
+    </>
+  );
+}
+
 export function ScreeningHits() {
-  const [status, setStatus] = useState<'open' | 'false_positive' | 'confirmed' | 'all'>('open');
+  const [status, setStatus] = useState<'open' | 'needs_information' | 'false_positive' | 'confirmed' | 'all'>('open');
   const r = useApi(`/v1/screening-hits?status=${status}`, [status]);
   const toast = useToast();
   const counts = r.data?.counts ?? {};
   const rows: any[] = r.data?.data ?? [];
   return (
     <>
-      <Head title="Screening hits" sub="Names that matched a sanctions list entry closely enough to hold. A false positive clears the pair for good; a confirmed match keeps the holder frozen." actions={<a class="b b-ghost" href="#/sanctions-lists">Screen a name</a>} />
+      <Head title="Screening hits" sub="Names that matched a sanctions list entry closely enough to hold. A false positive clears the pair for good; a confirmed match keeps the holder frozen; needs information keeps the hold while you gather facts." actions={<a class="b b-ghost" href="#/sanctions-lists">Screen a name</a>} />
       <Tabs label="Filter screening hits" value={status} onChange={setStatus}
-        options={[['open', `Open (${counts.open ?? 0})`], ['false_positive', `False positives (${counts.false_positive ?? 0})`], ['confirmed', `Confirmed (${counts.confirmed ?? 0})`], ['all', 'All']]} />
+        options={[['open', `Open (${counts.open ?? 0})`], ['needs_information', `Needs information (${counts.needs_information ?? 0})`], ['false_positive', `False positives (${counts.false_positive ?? 0})`], ['confirmed', `Confirmed (${counts.confirmed ?? 0})`], ['all', 'All']]} />
       <PermNote perm="compliance:write" />
       {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : rows.length ? (
         <Card>{rows.map((h) => <Hit key={h.id} hit={h} onDone={(m) => { toast.show(m); r.reload(); }} />)}</Card>
@@ -269,7 +380,57 @@ const TRIGGER_LABEL: Record<string, string> = {
   nightly: 'Nightly sweep', sanctions_update: 'Sanctions list update', manual: 'Run by hand', screening_decision: 'After a screening decision', test: 'Test',
 };
 
-export function Monitoring() {
+const RUN_ITEM_KIND: Record<string, string> = { status_change: 'Status change', item_opened: 'Work item opened', item_closed: 'Work item closed' };
+
+function RunDetail({ runId }: { runId: number }) {
+  const r = useApi(`/v1/monitoring/runs/${runId}`, [runId]);
+  if (r.loading && !r.data) return <Card title={`Run ${runId}`}><Loading /></Card>;
+  if (r.error) return <Card title={`Run ${runId}`}><ErrorBox error={r.error} onRetry={r.reload} /></Card>;
+  const d = r.data;
+  const st = d.statuses ?? {};
+  return (
+    <Card title={<>Run {d.id} <Chip tone="muted">{TRIGGER_LABEL[d.trigger] ?? d.trigger}</Chip></>} actions={<a class="b b-ghost" href="#/monitoring">All runs</a>}>
+      <p class="small muted">Started {when(d.started_at)}{d.finished_at ? `, finished ${when(d.finished_at)}` : ''}{d.duration_ms != null ? ` in ${(d.duration_ms / 1000).toFixed(1)} s` : ''}{d.requested_by ? `. Requested by ${d.requested_by}` : ''}.</p>
+      <div class="kpis">
+        <div class="kpi"><span>Holdings checked</span><b>{d.holders_checked}</b><em>{d.statuses ? `${st.eligible ?? 0} eligible, ${st['redemption-only'] ?? 0} redemption-only, ${st.frozen ?? 0} frozen` : 'Standing of every holding'}</em></div>
+        <div class="kpi"><span>Status changes</span><b>{d.changes}</b><em>Holdings whose standing moved</em></div>
+        <div class="kpi"><span>Work items opened</span><b>{d.items_opened}</b><em>{d.new_screening_hits ? plural(d.new_screening_hits, 'new screening hit') : 'New conditions found'}</em></div>
+        <div class="kpi"><span>Work items closed</span><b>{d.items_closed ?? 0}</b><em>Conditions that cleared</em></div>
+      </div>
+      {d.note ? <p class="small muted">{d.note}</p> : null}
+      {d.status_changes.length ? (
+        <>
+          <h3 style="margin: 0.8rem 0 0.4rem">Status changes</h3>
+          <div class="tw"><table class="t">
+            <thead><tr><th>Client</th><th>Fund</th><th>From</th><th>To</th></tr></thead>
+            <tbody>{d.status_changes.map((x: any) => (
+              <tr><td><a href={`#/clients/${x.investor_id}`}>{x.investor_name ?? x.investor_id}</a></td><td><code>{x.ticker}</code> <span class="small muted">{x.fund_name}</span></td><td>{x.from_status ? statusChip(x.from_status) : <span class="muted small">New holding</span>}</td><td>{statusChip(x.to_status)}</td></tr>
+            ))}</tbody>
+          </table></div>
+        </>
+      ) : null}
+      {d.opened.length || d.closed.length ? (
+        <>
+          <h3 style="margin: 0.8rem 0 0.4rem">Work items</h3>
+          <div class="tw"><table class="t">
+            <thead><tr><th>Change</th><th>Item</th><th>Kind</th><th>Client</th><th>Now</th></tr></thead>
+            <tbody>{[...d.opened, ...d.closed].map((x: any) => (
+              <tr>
+                <td>{x.kind === 'item_opened' ? <Chip tone="warn">Opened</Chip> : <Chip tone="ok">Closed</Chip>}</td>
+                <td>{x.link ? <a href={x.link}>{x.work_item_title ?? x.work_item_id}</a> : x.work_item_title ?? x.work_item_id}</td>
+                <td class="small">{KIND_LABEL[x.work_item_kind ?? x.to_status ?? x.from_status] ?? x.work_item_kind ?? x.to_status ?? x.from_status}</td>
+                <td class="small">{x.investor_id ? <a href={`#/clients/${x.investor_id}`}>{x.investor_name ?? x.investor_id}</a> : <span class="muted">Fund-level</span>}</td>
+                <td class="small muted">{x.work_item_status ?? ''}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </>
+      ) : null}
+    </Card>
+  );
+}
+
+export function Monitoring({ runId }: { runId?: string } = {}) {
   const r = useApi('/v1/monitoring');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<any>(null);
@@ -286,7 +447,8 @@ export function Monitoring() {
         actions={<PermBtn perm="compliance:write" kind="primary" busy={busy} onClick={run}>Run monitoring now</PermBtn>} />
       <PermNote perm="compliance:write" />
       <ErrorBox error={err} />
-      {last ? <p class="verdict-line ok" role="status">Checked {plural(last.holders_checked, 'holding')}: {plural(last.changes, 'status change')}, {plural(last.items_opened, 'work item')} opened, {last.items_closed} closed. <a href="#/work">Open the work queue</a></p> : null}
+      {last ? <p class="verdict-line ok" role="status">Checked {plural(last.holders_checked, 'holding')}: {plural(last.changes, 'status change')}, {plural(last.items_opened, 'work item')} opened, {last.items_closed} closed. <a href={`#/monitoring/${last.run_id}`}>See the run</a> or <a href="#/work">open the work queue</a>.</p> : null}
+      {runId ? <RunDetail runId={Number(runId)} /> : null}
       {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : (
         <>
           <div class="kpis">
@@ -314,15 +476,17 @@ export function Monitoring() {
           <Card title="Recent runs" pad={false}>
             {r.data.runs.length ? (
               <div class="tw"><table class="t">
-                <thead><tr><th>Finished</th><th>Trigger</th><th class="r">Holdings checked</th><th class="r">Status changes</th><th class="r">Items opened</th><th class="r">Time</th></tr></thead>
+                <thead><tr><th>Finished</th><th>Trigger</th><th class="r">Holdings checked</th><th class="r">Status changes</th><th class="r">Items opened</th><th class="r">Items closed</th><th class="r">Time</th><th></th></tr></thead>
                 <tbody>{r.data.runs.map((x: any) => (
-                  <tr>
-                    <td class="nowrap">{when(x.finished_at ?? x.started_at)}</td>
+                  <tr style={String(x.id) === String(runId) ? { background: 'rgba(201, 169, 110, 0.1)' } : undefined}>
+                    <td class="nowrap"><a href={`#/monitoring/${x.id}`}>{when(x.finished_at ?? x.started_at)}</a></td>
                     <td>{TRIGGER_LABEL[x.trigger] ?? x.trigger}</td>
                     <td class="r">{x.holders_checked}</td>
                     <td class="r">{x.changes ? <strong>{x.changes}</strong> : 0}</td>
                     <td class="r">{x.items_opened}</td>
+                    <td class="r">{x.items_closed ?? 0}</td>
                     <td class="r muted">{x.duration_ms != null ? `${(x.duration_ms / 1000).toFixed(1)} s` : ''}</td>
+                    <td><a class="small" href={`#/monitoring/${x.id}`}>Detail</a></td>
                   </tr>
                 ))}</tbody>
               </table></div>
@@ -402,6 +566,113 @@ export function RegFeed() {
           <p class="small muted">{r.data.newest_fetched_at ? `Newest item seen ${when(r.data.newest_fetched_at)}. ` : ''}{plural(r.data.total ?? 0, 'publication')} on file, {r.data.relevant ?? 0} relevant.</p>
         </Card>
       ) : <Card><Empty title="No publications yet">The feed job runs every six hours. Publications appear here after its first run.</Empty></Card>}
+      <Toast msg={toast.msg} />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inbound Travel Rule review
+// ---------------------------------------------------------------------------
+
+const personName = (p: any): string | null => {
+  if (!p) return null;
+  if (p.legalPerson) return p.legalPerson.name?.nameIdentifier?.[0]?.legalPersonName ?? null;
+  const n = p.naturalPerson?.name?.nameIdentifier?.[0];
+  return n ? [n.secondaryIdentifier, n.primaryIdentifier].filter(Boolean).join(' ') : null;
+};
+const personAddress = (p: any): string | null => {
+  const a = (p?.legalPerson ?? p?.naturalPerson)?.geographicAddress?.[0];
+  return a ? [a.townName, a.country].filter(Boolean).join(', ') : null;
+};
+const personCountry = (p: any): string | null => p?.legalPerson?.countryOfRegistration ?? p?.naturalPerson?.countryOfResidence ?? null;
+const inboundChip = (s: string) => s === 'review' ? <Chip tone="warn">Needs review</Chip> : s === 'approved' ? <Chip tone="ok">Approved</Chip> : s === 'confirmed' ? <Chip tone="ok">Confirmed</Chip> : s === 'rejected' ? <Chip tone="no">Rejected</Chip> : <Chip>{s}</Chip>;
+
+function InboundDetail({ m, onChange }: { m: any; onChange: (msg: string) => void }) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<any>(null);
+  const decide = async (d: 'approve' | 'reject') => {
+    setBusy(d); setErr(null);
+    try {
+      const res = await api(`/v1/travel-rule/inbound/${m.id}/${d}`, { body: { note: note.trim() || undefined } });
+      onChange(`${d === 'approve' ? 'Approved' : 'Rejected'}. ${res.delivered ? 'The resolution reached the originator VASP.' : res.detail}`);
+    } catch (x) { setErr(x); } finally { setBusy(null); }
+  };
+  const bp = m.beneficiary_person; const acct = m.account;
+  const claimedCountry = personCountry(bp);
+  const acctCountry = acct ? String(acct.residence).slice(0, 2) : null;
+  const row = (label: string, left: any, right: any, same?: boolean | null) => (
+    <tr><th scope="row">{label}</th><td>{left ?? <span class="muted">Not given</span>}</td><td>{right ?? <span class="muted">Not recorded</span>}</td><td>{same === true ? <Chip tone="ok">Same</Chip> : same === false ? <Chip tone="no">Differs</Chip> : null}</td></tr>
+  );
+  const norm = (s: string | null) => (s ?? '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  return (
+    <Card title={<>Inquiry {m.id} {inboundChip(m.status)}</>}>
+      <p class="small muted">From {m.originator_vasp} for {personName(m.originator) ?? 'an unnamed originator'}, {m.amount != null ? `${Number(m.amount).toLocaleString('en-US')} units` : 'amount not given'}. Received {when(m.created_at)}.{m.reviewed_by ? ` Reviewed by ${m.reviewed_by} ${when(m.reviewed_at)}.` : ''}{m.review_note ? ` Note: ${m.review_note}` : ''}</p>
+      <div class="tw"><table class="t">
+        <thead><tr><th style={{ width: '9rem' }}></th><th>Inquiry names</th><th>Account at this booking center</th><th></th></tr></thead>
+        <tbody>
+          {row('Beneficiary', <strong>{m.claimed_beneficiary}</strong>, acct ? <strong><a href={`#/clients/${acct.id}`}>{acct.name}</a></strong> : null, acct ? norm(m.claimed_beneficiary) === norm(acct.name) : null)}
+          {row('Type', bp?.legalPerson ? 'Legal person' : bp?.naturalPerson ? 'Natural person' : null, acct ? acct.kind : null, acct && bp ? (!!bp.naturalPerson) === (acct.kind === 'Individual') : null)}
+          {row('Country', claimedCountry, acct ? jur(acct.residence) : null, claimedCountry && acctCountry ? claimedCountry.toUpperCase() === acctCountry.toUpperCase() : null)}
+          {row('Address', personAddress(bp), acct?.city ?? null, null)}
+        </tbody>
+      </table></div>
+      {m.status === 'review' ? (
+        <div class="row-inline" style={{ marginTop: '0.8rem' }}>
+          <Field label="Note" hint="Sent to the originator as the rejection reason; recorded in the audit log either way."><input value={note} maxLength={500} onInput={(e) => setNote((e.target as HTMLInputElement).value)} placeholder="Trading name of the same entity, confirmed with the client" /></Field>
+          <PermBtn perm="compliance:write" kind="primary" busy={busy === 'approve'} disabled={!!busy || !acct} onClick={() => decide('approve')}>Approve and release the wallet</PermBtn>
+          <PermBtn perm="compliance:write" kind="danger" busy={busy === 'reject'} disabled={!!busy} onClick={() => decide('reject')}>Reject</PermBtn>
+        </div>
+      ) : null}
+      <ErrorBox error={err} />
+      {m.timeline?.length ? (
+        <ul class="plain small" style={{ marginTop: '0.8rem' }}>{m.timeline.map((t: any) => <li><span class="muted">{when(t.at)}</span> <strong>{t.event}</strong>{t.detail ? <> {t.detail}</> : null}</li>)}</ul>
+      ) : null}
+    </Card>
+  );
+}
+
+export function InboundTravelRule({ id }: { id?: string } = {}) {
+  const [status, setStatus] = useState<'review' | 'approved' | 'rejected' | 'all'>('review');
+  const r = useApi(`/v1/travel-rule/inbound?status=${status}`, [status]);
+  const [sel, setSel] = useState<string | null>(id ?? null);
+  const toast = useToast();
+  const rows: any[] = r.data?.data ?? [];
+  const counts = r.data?.counts ?? {};
+  const current = rows.find((x) => x.id === (sel ?? id)) ?? (status === 'review' ? rows[0] : null);
+  return (
+    <>
+      <Head title="Inbound Travel Rule review" sub="Inquiries other VASPs sent to accounts here. A beneficiary name that matches is approved on the spot; a mismatch on a known account waits for a compliance officer, and the originator receives the resolution when you decide."
+        actions={<a class="b b-ghost" href="#/travel-rule">All Travel Rule messages</a>} />
+      <div class="kpis">
+        <div class="kpi"><span>Waiting for review</span><b>{counts.review ?? 0}</b><em>Originator VASPs waiting at their callback URL</em></div>
+        <div class="kpi"><span>Approved</span><b>{counts.approved ?? 0}</b><em>Wallet released to the originator</em></div>
+        <div class="kpi"><span>Rejected</span><b>{counts.rejected ?? 0}</b><em>Including automatic rejections of unknown accounts</em></div>
+      </div>
+      <Tabs label="Filter inbound inquiries" value={status} onChange={(v) => { setStatus(v); setSel(null); }} options={[['review', 'Needs review'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['all', 'All inbound']]} />
+      <PermNote perm="compliance:write" />
+      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : !rows.length ? (
+        <Card><Empty title={status === 'review' ? 'Nothing waiting for review' : 'No inquiries here'}>{status === 'review' ? 'Name mismatches on inbound inquiries appear here, and compliance officers are notified.' : 'Switch the filter to see other inquiries.'}</Empty></Card>
+      ) : (
+        <>
+          <Card pad={false}>
+            <div class="tw"><table class="t">
+              <thead><tr><th>Status</th><th>Claimed beneficiary</th><th>Account</th><th>Originator VASP</th><th>Received</th></tr></thead>
+              <tbody>{rows.map((m) => (
+                <tr class="click" aria-selected={current?.id === m.id} onClick={() => setSel(m.id)} style={current?.id === m.id ? { background: 'rgba(201, 169, 110, 0.1)' } : undefined}>
+                  <td>{inboundChip(m.status)}</td>
+                  <td><strong>{m.claimed_beneficiary ?? 'Unnamed'}</strong></td>
+                  <td>{m.account ? m.account.name : <span class="muted">Unknown account</span>}</td>
+                  <td class="small">{m.originator_vasp}</td>
+                  <td class="small nowrap">{when(m.created_at)}</td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+          </Card>
+          {current ? <InboundDetail key={current.id} m={current} onChange={(msg) => { toast.show(msg); r.reload(); }} /> : null}
+        </>
+      )}
       <Toast msg={toast.msg} />
     </>
   );

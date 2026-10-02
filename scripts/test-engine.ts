@@ -1,7 +1,9 @@
 // Golden tests for the policy resolver. Run with: npm test
 import assert from 'node:assert/strict';
-import { evaluate, holderStatus, defaultCtx, inputsHash, snapshotFor, ctxFromSnapshot, replaySnapshot, dealingDateFor, type Ctx, type DocReq, type Order } from '../src/proto/engine';
+import { evaluate, holderStatus, defaultCtx, inputsHash, snapshotFor, ctxFromSnapshot, replaySnapshot, dealingDateFor, indianFinancialYear, type Ctx, type DocReq, type Order } from '../src/proto/engine';
 import { TESTS, findTest } from '../src/proto/thresholds';
+import { CALENDARS, isBusinessDay } from '../api/src/calendars';
+import { distributionDueOn, distributionPeriodStart } from '../api/src/fundops-core';
 
 type Case = [string, Parameters<typeof evaluate>[0], string[], 'ALLOW' | 'DENY' | 'FREEZE', ((d: ReturnType<typeof evaluate>) => void)?];
 const cases: Case[] = [
@@ -169,5 +171,137 @@ const doc = (over: Partial<DocReq>): DocReq => ({ id: 'doc_im', ticker: 'TWLF', 
   assert.equal(dealingDateFor('monthly', '2027-01-31', true), '2027-02-26', 'January 31, 2027 is a Sunday, so January has already dealt'); n++;
   assert.equal(evaluate(subLumen).dealingDate, undefined, 'the demo has no clock and no dealing check'); n++;
   assert.ok(!evaluate(subLumen).checks.some((c) => c.layer === 'Documents' || c.layer === 'Fund terms'), 'the demo is unchanged'); n++;
+}
+// Holiday calendars: the fund's calendar moves the dealing date past public holidays
+{
+  const ny = ['2026-11-26', '2026-12-25'];
+  const at = (now: string, terms: Record<string, unknown> = {}) => evaluate(subLumen, [], ctxWith({ now, calendars: { 'America/New_York': ny } }, (c) => Object.assign(c.funds.TWLF, { cutoffTime: '16:00', cutoffTz: 'America/New_York', dealingFrequency: 'daily', ...terms })));
+  assert.equal(at('2026-11-26T15:00:00Z').dealingDate, '2026-11-27', 'Thanksgiving is not a dealing day in New York'); n++;
+  assert.ok(at('2026-11-26T15:00:00Z').checks.find((c) => c.id === 'dealing')!.detail.includes('public holiday'), 'the check says a holiday moved the date'); n++;
+  const zrh = evaluate(subLumen, [], ctxWith({ now: '2026-12-01T15:00:00Z', calendars: { 'Europe/Zurich': ['2026-12-24', '2026-12-25', '2026-12-31'] } }, (c) => Object.assign(c.funds.TWLF, { cutoffTime: '16:00', cutoffTz: 'Europe/Zurich', dealingFrequency: 'monthly' })));
+  assert.equal(zrh.dealingDate, '2026-12-30', 'a Zurich monthly fund deals on Dec 30 when Dec 31 is closed'); n++;
+  assert.equal(dealingDateFor('daily', '2026-12-25', true, ['2026-12-25']), '2026-12-28'); n++;
+  assert.equal(dealingDateFor('daily', '2026-12-25', true, (d) => d === '2026-12-25'), '2026-12-28', 'a predicate works too'); n++;
+  assert.equal(isBusinessDay('2026-07-03', 'America/New_York'), false, 'Independence Day observed'); n++;
+  assert.equal(isBusinessDay('2026-07-06', 'America/New_York'), true); n++;
+  assert.equal(isBusinessDay('2027-02-08', 'Asia/Singapore'), false, 'Lunar New Year in lieu'); n++;
+  assert.equal(isBusinessDay('2026-05-25', 'Europe/Zurich'), false, 'Whit Monday'); n++;
+  assert.equal(isBusinessDay('2026-05-25', 'Europe/Berlin'), true, 'TARGET2 is open on Whit Monday'); n++;
+  assert.equal(isBusinessDay('2026-10-06', 'Mars/Olympus'), true, 'unknown calendars skip weekends only'); n++;
+  assert.equal(CALENDARS.length, 12); n++;
+  for (const cal of CALENDARS) for (const [y, days] of Object.entries(cal.holidays)) for (const d of days) assert.ok(d.startsWith(y) && !Number.isNaN(Date.parse(d)), `${cal.key} ${d}`);
+  n++;
+  // Snapshots carry the calendar, so a replay gets the same dealing date
+  const full = ctxWith({ now: '2026-11-26T15:00:00Z', calendars: { 'America/New_York': ny } }, (c) => Object.assign(c.funds.TWLF, { cutoffTime: '16:00', cutoffTz: 'America/New_York', dealingFrequency: 'daily' }));
+  const snap = snapshotFor(subLumen, full);
+  assert.deepEqual(snap.calendars, { 'America/New_York': ny }); assert.equal(replaySnapshot(snap).dealingDate, '2026-11-27'); n++;
+}
+// Distribution due dates: month end for daily and monthly funds, quarter end for quarterly funds
+{
+  assert.equal(distributionDueOn({ dealingFrequency: 'daily' }, '2026-02-10'), '2026-02-28'); n++;
+  assert.equal(distributionDueOn({ dealingFrequency: 'monthly' }, '2028-02-10'), '2028-02-29'); n++;
+  assert.equal(distributionDueOn({ dealingFrequency: 'quarterly' }, '2026-10-02'), '2026-12-31'); n++;
+  assert.equal(distributionDueOn({ dealingFrequency: 'quarterly' }, '2026-04-01'), '2026-06-30'); n++;
+  assert.equal(distributionPeriodStart({ dealingFrequency: 'quarterly' }, '2026-11-15'), '2026-10-01'); n++;
+  assert.equal(distributionPeriodStart({ dealingFrequency: 'daily' }, '2026-11-15'), '2026-11-01'); n++;
+}
+// Opt-in from class metadata: a class flagged requiresOptIn needs consent, worded with its label
+{
+  const withMeta = (mut?: (c: Ctx) => void) => ctxWith({}, (c) => {
+    c.classInfo.HK_PI = { ...c.classInfo.HK_PI, requiresOptIn: true, optInLabel: 'written election' };
+    mut?.(c);
+  });
+  const d = evaluate({ action: 'subscribe', investorId: 'lumen', fundId: 'TWLF', amount: 2_000_000, asset: 'USDC' }, [], withMeta());
+  const booking = d.checks.find((c) => c.id === 'booking')!;
+  assert.equal(d.outcome, 'DENY'); assert.equal(booking.result, 'fail');
+  assert.ok(booking.label.includes('Professional investor with written election'), booking.label);
+  assert.ok(booking.detail.includes('no written election is recorded'), booking.detail);
+  assert.ok(booking.remedy!.startsWith("Record the client's written election"), booking.remedy); n++;
+  const ok = evaluate({ action: 'subscribe', investorId: 'lumen', fundId: 'TWLF', amount: 2_000_000, asset: 'USDC' }, [], withMeta((c) => { c.investors.lumen.classifications[1].optIn = '2026-03-14'; }));
+  assert.equal(ok.outcome, 'ALLOW', ok.headline);
+  assert.ok(ok.resolved.some((r) => r.text === 'Professional investor with written election in Hong Kong'), JSON.stringify(ok.resolved)); n++;
+  // SG_AI keeps its launch opt-in rule even without metadata
+  const legacy = evaluate(subLumen, [], ctxWith({}, (c) => { delete c.investors.lumen.classifications[0].optIn; }));
+  assert.equal(legacy.outcome, 'DENY'); assert.ok(legacy.checks.find((c) => c.id === 'law')!.detail.includes('no opt-in is recorded')); n++;
+}
+// Law accepting any of several classes: pass on either, consent honored per class, the narrower rule binds
+{
+  const anyLaw = (mut?: (c: Ctx) => void) => ctxWith({}, (c) => {
+    const d: any = c.funds.TWLF.distribution.SG;
+    d.accepts = ['SG_AI', 'HK_PI']; d.lawRequiresAny = ['SG_AI', 'HK_PI'];
+    mut?.(c);
+  });
+  const d = evaluate(subLumen, [], anyLaw());
+  assert.equal(d.outcome, 'ALLOW');
+  const law = d.checks.find((c) => c.id === 'law')!;
+  assert.equal(law.label, 'Singapore: Accredited investor with opt-in or Professional investor', law.label); n++;
+  // Without the SG opt-in, HK_PI still satisfies the law; the Hong Kong booking rule binds
+  const viaHk = evaluate(subLumen, [], anyLaw((c) => { delete c.investors.lumen.classifications[0].optIn; }));
+  assert.equal(viaHk.outcome, 'ALLOW', viaHk.headline);
+  assert.ok(viaHk.checks.find((c) => c.id === 'law')!.result === 'pass');
+  assert.deepEqual(viaHk.resolved.map((r) => r.text), ['Accredited investor with opt-in or Professional investor in Singapore', 'Professional investor in Hong Kong']); n++;
+  // Neither class: the remedy names both
+  const none = evaluate(subLumen, [], anyLaw((c) => { c.investors.lumen.classifications = []; }));
+  assert.equal(none.outcome, 'DENY');
+  assert.equal(none.checks.find((c) => c.id === 'law')!.remedy, 'Investor must qualify as Accredited investor with opt-in or Professional investor in Singapore.'); n++;
+  // lawRequires alone still works (compatibility)
+  assert.equal(evaluate(subLumen).checks.find((c) => c.id === 'law')!.label, 'Singapore: Accredited investor with opt-in'); n++;
+}
+// India: the LRS ceiling on a resident individual's order
+{
+  const india = (remitted: number, amount: number, fund: 'TWLF' | 'NMEL' = 'TWLF', mut?: (c: Ctx) => void) => {
+    const ctx = ctxWith({ lrsRemitted: { meitan: remitted } }, (c) => {
+      c.jurName.IN = 'India';
+      c.classInfo.IN_AI = { label: 'Accredited investor (SEBI)', stamp: 'AI', jur: 'IN', rule: 'SEBI AI framework', source: 'sebi-ai', threshold: '' };
+      c.bookingCenters.GIFT = { id: 'GIFT', name: 'GIFT City (IFSC)', jur: 'IN', licence: 'IFSCA (fictional)', requires: 'IN_AI', ruleText: 'Accredited investors only.', ruleRef: 'IFSCA', source: 'ifsca-ai' };
+      Object.assign(c.investors.meitan, { residence: 'IN', city: 'Mumbai', booking: 'GIFT', classifications: [{ code: 'IN_AI', basis: 'Income INR 3 crore', verified: '2026-06-01', expires: '2027-06-01' }] });
+      (c.funds[fund].distribution as any).IN = { accepts: ['IN_AI'], basis: 'OPI within the LRS', lawRequires: 'IN_AI', lawText: 'Resident individuals within the LRS.', lawRef: 'OI Rules 2022 Sch. III', lawSource: 'rbi-lrs' };
+      mut?.(c);
+    });
+    return evaluate({ action: 'subscribe', investorId: 'meitan', fundId: fund, amount, asset: fund === 'NMEL' ? 'EURC' : 'USDC' }, [], ctx);
+  };
+  const ok = india(100_000, 150_000);
+  assert.equal(ok.outcome, 'ALLOW', ok.headline);
+  const lrs = ok.checks.find((c) => c.id === 'lrs')!;
+  assert.equal(lrs.layer, 'Residence law'); assert.ok(lrs.detail.includes('USD 250,000'), lrs.detail); n++;
+  const over = india(100_000, 150_001);
+  assert.equal(over.outcome, 'DENY'); assert.deepEqual(failIds(over), ['lrs']);
+  assert.equal(over.checks.find((c) => c.id === 'lrs')!.remedy, "Reduce the order to $150,000 or less, or place the balance after April 1 when the next financial year's allowance opens."); n++;
+  const eur = india(100_000, 140_000, 'NMEL');
+  assert.equal(eur.outcome, 'DENY', 'EUR 140,000 at 1.10 is USD 154,000, over the remaining USD 150,000');
+  assert.ok(eur.checks.find((c) => c.id === 'lrs')!.detail.includes('fixed demo rate of 1.1'), eur.checks.find((c) => c.id === 'lrs')!.detail); n++;
+  const used = india(250_000, 10_000);
+  assert.ok(used.checks.find((c) => c.id === 'lrs')!.remedy!.startsWith('The investor has used the full LRS allowance for FY 2026-27')); n++;
+  // Without a context override, the figure on the IN_LRS classification is used
+  const fromClass = india(0, 200_000, 'TWLF', (c) => { delete c.lrsRemitted; c.investors.meitan.classifications.push({ code: 'IN_LRS', basis: 'Resident individual with PAN; USD 100,000 of the USD 250,000 LRS allowance used this financial year (remitted_this_fy_usd=100000).', verified: '2026-06-01', expires: '2027-06-01' }); });
+  assert.deepEqual(failIds(fromClass), ['lrs']); n++;
+  assert.equal(indianFinancialYear('2026-03-31'), '2025-26'); assert.equal(indianFinancialYear('2026-04-01'), '2026-27'); n++;
+}
+// Regulation S Category 3: distribution compliance period on resales to U.S. persons
+{
+  const regs = (patch: Record<string, unknown>, cpId = 'reyes') => evaluate({ action: 'transfer', investorId: 'sorell', fundId: 'AGPC', amount: 300_000, asset: 'USDC', counterpartyId: cpId }, [], ctxWith({}, (c) => {
+    Object.assign(c.funds.AGPC, patch);
+    c.investors.reyes.classifications[0].expires = '2027-09-15'; c.investors.reyes.expires = '2027-09-15';
+  }));
+  const blocked = regs({ regSCategory: 3, offeringDate: '2026-01-15' });
+  assert.deepEqual(failIds(blocked), ['regSPeriod']);
+  const ch = blocked.checks.find((c) => c.id === 'regSPeriod')!;
+  assert.equal(ch.layer, 'Transfer controls'); assert.equal(ch.ruleRef, 'Reg S Rule 903(b)(3)'); assert.ok(ch.detail.includes('Until 2027-01-15')); n++;
+  assert.equal(regs({ regSCategory: 3, offeringDate: '2025-09-30' }).checks.find((c) => c.id === 'regSPeriod')!.result, 'pass', 'one year has passed'); n++;
+  assert.deepEqual(failIds(regs({ regSCategory: 3, offeringDate: '2026-09-01', regSSecurityType: 'debt' })), ['regSPeriod'], 'debt: 40 days'); n++;
+  assert.equal(regs({ regSCategory: 3, offeringDate: '2026-08-01', regSSecurityType: 'debt' }).checks.find((c) => c.id === 'regSPeriod')!.result, 'pass'); n++;
+  assert.ok(!regs({ regSCategory: 2, offeringDate: '2026-09-01' }).checks.some((c) => c.id === 'regSPeriod'), 'category 2 has no period check'); n++;
+  assert.ok(!regs({ regSCategory: 3, offeringDate: '2026-09-01' }, 'qamar').checks.some((c) => c.id === 'regSPeriod'), 'non-U.S. receiver'); n++;
+}
+// Section 3(c)(7): no 100-owner cap, 12(g) holders of record threshold
+{
+  const c7 = (holders: number, existing = false) => evaluate({ action: 'subscribe', investorId: 'reyes', fundId: 'AGPC', amount: 300_000, asset: 'USDC' }, [], ctxWith({}, (c) => {
+    Object.assign(c.funds.AGPC, { holderCap: null, holders, usAccepts: ['US_AI', 'US_QP'] });
+    c.investors.reyes.classifications[0].expires = '2027-09-15'; c.investors.reyes.expires = '2027-09-15';
+    if (!existing) c.investors.reyes.holdings = {};
+  }));
+  assert.equal(c7(1998).outcome, 'ALLOW'); assert.ok(!c7(1998).checks.some((x) => x.id === 'cap')); assert.ok(c7(1998).checks.find((x) => x.id === 'cap12g')!.detail.includes('1999 with Daniel Reyes')); n++;
+  assert.deepEqual(failIds(c7(1999)), ['cap12g']); n++;
+  assert.equal(c7(1999, true).outcome, 'ALLOW', 'an existing holder adds without changing the count'); n++;
 }
 console.log(`${n} engine and threshold tests passed`);

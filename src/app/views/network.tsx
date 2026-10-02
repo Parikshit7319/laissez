@@ -77,14 +77,14 @@ export function Network() {
           <ErrorBox error={err} />
           {result ? (
             <div class="reveal" role="status" style={{ marginTop: '1rem' }}>
-              <span class="f-l">Consent requested for {result.share.investor_name} from {result.share.issuing_org}</span>
+              <span class="f-l">Consent requested for {result.share.investor_name} from {result.share.issuing_org} {result.email_status === 'sent' ? <Chip tone="ok">Emailed to the client</Chip> : result.email_status === 'outbox' ? <Chip tone="info">In the outbox</Chip> : result.email_status === 'failed' ? <Chip tone="warn">Email failed</Chip> : null}</span>
               {result.consent_url ? (
                 <>
                   <div class="reveal-row"><code class="break">{result.consent_url}</code><Copy text={result.consent_url} /></div>
-                  <p class="small muted">In production the client receives this link. In the sandbox, open it yourself to act as the client.</p>
+                  <p class="small muted">{result.delivery}</p>
                   <div class="row-inline tight"><a class="b b-default" href={result.consent_url} target="_blank" rel="noopener">Open the consent page <span aria-hidden="true">↗</span></a></div>
                 </>
-              ) : <p class="small muted">{result.delivery}</p>}
+              ) : <p class="small muted">{result.delivery} The client can also approve it from the inbox in their investor portal at the issuing distributor.</p>}
               <p class="small muted">The request expires in {result.consent_expires_in_days} days if the client does not answer.</p>
             </div>
           ) : null}
@@ -93,7 +93,7 @@ export function Network() {
         <Card title="How reliance works">
           <ol class="plain small" style={{ paddingLeft: '1.1rem', listStyle: 'decimal' }}>
             <li>You ask to rely on a credential another distributor issued, by its passport number.</li>
-            <li>The client sees exactly what is shared and approves or declines with a typed signature.</li>
+            <li>The client sees exactly what is shared and approves or declines with a typed signature, by email link or from their investor portal at the issuing distributor.</li>
             <li>On approval the client appears in your client list. Classifications are read live from the issuing distributor, so a revocation or lapse there applies here at once.</li>
             <li>You still screen the client against sanctions lists yourself on every order.</li>
           </ol>

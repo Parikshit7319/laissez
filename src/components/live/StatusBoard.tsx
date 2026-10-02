@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { API_HOST, type DailyUptime, type Incident, type StatusComponent, type StatusResponse } from './api';
+import { API_HOST, type DailyUptime, type ErrorBudget, type Incident, type Latency, type StatusComponent, type StatusResponse } from './api';
 import { useLive, useNow, REFRESH_MS } from './store';
 import { UptimeStrip, LEVEL_TEXT, type Level } from './UptimeStrip';
 import { fmtAgo, fmtDateTime, fmtDay, fmtDayLong, fmtDuration, fmtInt, fmtTime, fmtUptime, isoDay, joinNames } from './format';
@@ -90,6 +90,8 @@ export default function StatusBoard() {
         {(['ok', 'minor', 'major', 'none'] as Level[]).map((l) => <li key={l}><span class={`lv-sw ${l}`} aria-hidden="true" />{LEVEL_TEXT[l]}</li>)}
       </ul>
 
+      <Reliability budget={data.error_budget} latency={data.latency} now={now} />
+
       <Incidents incidents={data.incidents} windowDays={data.incident_window_days ?? 30} firstDay={firstDay} />
 
       <Freshness data={data} now={now} />
@@ -145,6 +147,89 @@ function incidentWindow(i: Incident): string {
   if (!i.ended_at) return `Since ${start}`;
   const sameDay = isoDay(i.started_at) === isoDay(i.ended_at);
   return `${start} to ${sameDay ? fmtTime(i.ended_at) : fmtDateTime(i.ended_at)}`;
+}
+
+const BUDGET_TEXT: Record<ErrorBudget['state'], { label: string; cls: string }> = {
+  ok: { label: 'Within budget', cls: 'ok' }, warning: { label: 'Under a quarter left', cls: 'warn' }, exhausted: { label: 'Budget exhausted', cls: 'bad' }, no_data: { label: 'No data yet', cls: 'idle' },
+};
+const fmtMinutes = (m: number) => {
+  const v = Math.abs(m);
+  const text = v >= 120 ? `${(v / 60).toFixed(1)} h` : `${Number.isInteger(v) ? v : v.toFixed(1)} min`;
+  return m < 0 ? `${text} over` : text;
+};
+const fmtMs = (ms: number | null | undefined) => (ms == null ? 'No data' : `${fmtInt(ms)} ms`);
+
+/** Error budget against the 99.9 percent objective, and sampled request latency. Both come from the same status response. */
+function Reliability({ budget, latency, now }: { budget?: ErrorBudget; latency?: Latency; now: number }) {
+  if (!budget && !latency) return null;
+  const b = budget;
+  const l = latency;
+  const state = b ? BUDGET_TEXT[b.state] ?? BUDGET_TEXT.no_data : null;
+  const usedShare = b && b.allowed_downtime_minutes ? Math.min(1, b.used_downtime_minutes / b.allowed_downtime_minutes) : 0;
+  const routes = (l?.by_route ?? []).filter((r) => r.samples >= 3).slice(0, 6);
+  return (
+    <section class="lv-block" aria-labelledby="lv-rel-h">
+      <div class="lv-block-head">
+        <h2 id="lv-rel-h" class="lv-block-h">Error budget and latency</h2>
+        <p class="lv-quiet">{b ? `${b.objective}% availability objective over a rolling ${b.window_days} days.` : ''} {l ? `Latency is measured inside the API on 1 in ${l.sample_rate} requests over the last ${l.window_hours} hours.` : ''}</p>
+      </div>
+      <div class="lv-rel">
+        {b && (
+          <div class="lv-rel-card">
+            <div class="lv-rel-top">
+              <h3 class="lv-rel-h">Error budget</h3>
+              {state && <span class={`lv-pill ${state.cls === 'warn' ? 'idle' : state.cls}`}>{state.cls === 'bad' && <span class="lv-dot bad" aria-hidden="true" />}{state.label}</span>}
+            </div>
+            {b.state === 'no_data' ? (
+              <p class="lv-empty">No request-path checks in the last {b.window_days} days yet.</p>
+            ) : (
+              <>
+                <dl class="lv-rel-figs">
+                  <div><dt>Availability, {b.covered_days < b.window_days ? `${b.covered_days} d` : `${b.window_days} d`}</dt><dd>{fmtUptime(b.availability)}</dd></div>
+                  <div><dt>Budget remaining</dt><dd class={b.remaining_minutes <= 0 ? 'lv-bad' : undefined}>{fmtMinutes(b.remaining_minutes)}</dd></div>
+                  <div><dt>Spent</dt><dd>{fmtMinutes(b.used_downtime_minutes)} <span class="lv-quiet">of {fmtMinutes(b.allowed_downtime_minutes)}</span></dd></div>
+                </dl>
+                <div class="lv-budget" role="img" aria-label={`${Math.round(usedShare * 100)} percent of the error budget spent`}>
+                  <span class={`lv-budget-fill ${state?.cls ?? ''}`} style={{ width: `${Math.max(usedShare > 0 ? 1.5 : 0, usedShare * 100)}%` }} />
+                </div>
+                <p class="lv-note">{fmtInt(b.failed_intervals)} of {fmtInt(b.intervals)} check intervals failed{b.covered_days < b.window_days ? `, counting ${b.covered_days} ${b.covered_days === 1 ? 'day' : 'days'} of recorded checks` : ''}. Each failed {b.interval_minutes}-minute interval spends {b.interval_minutes} minutes. The objective allows {fmtMinutes(b.allowed_downtime_minutes)} per {b.window_days} days.</p>
+              </>
+            )}
+          </div>
+        )}
+        {l && (
+          <div class="lv-rel-card">
+            <div class="lv-rel-top">
+              <h3 class="lv-rel-h">Request latency, {l.window_hours} h</h3>
+              <span class="lv-pill idle">{fmtInt(l.samples)} {l.samples === 1 ? 'sample' : 'samples'}</span>
+            </div>
+            {!l.samples ? (
+              <p class="lv-empty">No sampled requests in the last {l.window_hours} hours{l.first_sample_at ? '' : '. Sampling starts with the first request after deploy'}.</p>
+            ) : (
+              <>
+                <dl class="lv-rel-figs">
+                  <div><dt>p95</dt><dd>{fmtMs(l.p95_ms)}</dd></div>
+                  <div><dt>p50</dt><dd>{fmtMs(l.p50_ms)}</dd></div>
+                  <div><dt>p99</dt><dd>{fmtMs(l.p99_ms)}</dd></div>
+                  <div><dt>5xx rate</dt><dd class={l.server_errors ? 'lv-bad' : undefined}>{l.server_error_rate == null ? 'No data' : `${l.server_error_rate.toFixed(2)}%`}</dd></div>
+                </dl>
+                {routes.length > 0 && (
+                  <div class="table-wrap">
+                    <table class="grid lv-table lv-routes">
+                      <caption class="lv-sr">p95 latency by route, busiest first</caption>
+                      <thead><tr><th scope="col">Route</th><th scope="col" class="num">Samples</th><th scope="col" class="num">p95</th><th scope="col" class="num">5xx</th></tr></thead>
+                      <tbody>{routes.map((r) => <tr key={r.path}><td><code>{r.path}</code></td><td class="num">{fmtInt(r.samples)}</td><td class="num">{fmtMs(r.p95_ms)}</td><td class="num">{fmtInt(r.server_errors)}</td></tr>)}</tbody>
+                    </table>
+                  </div>
+                )}
+                <p class="lv-note">Time from the first byte of the request to the response, inside the Worker. Network time to Cloudflare is not included.{l.first_sample_at && now - new Date(l.first_sample_at).getTime() < l.window_hours * 3_600_000 ? ` Sampling has run since ${fmtDateTime(l.first_sample_at)}.` : ''}</p>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function Incidents({ incidents, windowDays, firstDay }: { incidents?: Incident[]; windowDays: number; firstDay: string | null }) {

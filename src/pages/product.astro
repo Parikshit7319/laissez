@@ -2,13 +2,12 @@
 import Layout from '../layouts/Layout.astro';
 import { url } from '../lib/url';
 ---
-<Layout title="Product" description="How Laissez works: eligibility credentials, rule packs, a policy resolver, atomic settlement and a signed evidence trail." path="product/">
+<Layout title="Product" description="How Laissez works: eligibility credentials, rule packs, a policy resolver, atomic settlement, a credential network, an investor portal, Travel Rule messaging and a signed evidence trail." path="product/">
   <section class="page-hero">
     <div class="wrap">
-      <p class="eyebrow">Product</p>
-      <h1>Five services. One decision before every token moves.</h1>
-      <p class="lede">Laissez sits between the systems distributors already run and the registries issuers already run. It does not hold assets, replace a transfer agent or ask anyone to change token standards.</p>
-      <div class="hero-cta"><a class="btn brass" href={url('demo/')}>Try the live demo</a><a class="btn" href={url('developers/')}>API overview</a></div>
+      <h1>One decision before every token moves.</h1>
+      <p class="lede">Laissez sits between the systems distributors already run and the registries issuers already run. It does not hold assets, replace a transfer agent or ask anyone to change token standards. Everything on this page is live in the sandbox.</p>
+      <div class="hero-cta"><a class="btn primary" href={url('app/')}>Try the sandbox</a><a class="arrow-link" href={url('demo/')}>Watch the guided demo</a></div>
     </div>
   </section>
 
@@ -19,28 +18,29 @@ import { url } from '../lib/url';
           <title>Laissez architecture</title>
           <g class="col">
             <text x="20" y="28" class="h">Distributor</text>
-            <rect x="20" y="50" width="220" height="70" rx="14" /><text x="40" y="82" class="t">Order management</text><text x="40" y="104" class="s">tickets, suitability</text>
-            <rect x="20" y="140" width="220" height="70" rx="14" /><text x="40" y="172" class="t">KYC and onboarding</text><text x="40" y="194" class="s">evidence stays here</text>
-            <rect x="20" y="230" width="220" height="70" rx="14" /><text x="40" y="262" class="t">Client wallets</text><text x="40" y="284" class="s">custodial or self-held</text>
+            <rect x="20" y="50" width="220" height="70" rx="10" /><text x="40" y="82" class="t">Order management</text><text x="40" y="104" class="s">tickets, suitability</text>
+            <rect x="20" y="140" width="220" height="70" rx="10" /><text x="40" y="172" class="t">KYC and onboarding</text><text x="40" y="194" class="s">evidence stays here</text>
+            <rect x="20" y="230" width="220" height="70" rx="10" /><text x="40" y="262" class="t">Client wallets</text><text x="40" y="284" class="s">custodial or self-held</text>
+            <rect x="20" y="320" width="220" height="70" rx="10" /><text x="40" y="352" class="t">Investor portal</text><text x="40" y="374" class="s">your brand, Laissez underneath</text>
           </g>
-          <rect x="300" y="40" width="500" height="390" rx="24" class="core" />
-          <text x="330" y="78" class="h brass">Laissez</text>
+          <rect x="300" y="40" width="500" height="390" rx="14" class="core" />
+          <text x="330" y="78" class="h core-h">Laissez</text>
           <g class="svc">
-            <rect x="330" y="100" width="210" height="76" rx="14" /><text x="350" y="134" class="t">Eligibility credential</text><text x="350" y="156" class="s">verify once, reuse everywhere</text>
-            <rect x="560" y="100" width="210" height="76" rx="14" /><text x="580" y="134" class="t">Rule packs</text><text x="580" y="156" class="s">versioned, counsel-approved</text>
-            <rect x="330" y="196" width="440" height="76" rx="14" class="hl" /><text x="350" y="230" class="t">Policy resolver</text><text x="350" y="252" class="s">fund policy, residence law, booking licence, global screens</text>
-            <rect x="330" y="292" width="210" height="76" rx="14" /><text x="350" y="326" class="t">Settlement orchestrator</text><text x="350" y="348" class="s">atomic delivery vs payment</text>
-            <rect x="560" y="292" width="210" height="76" rx="14" /><text x="580" y="326" class="t">Evidence ledger</text><text x="580" y="348" class="s">signed receipts, hashes</text>
+            <rect x="330" y="100" width="210" height="76" rx="10" /><text x="350" y="134" class="t">Eligibility credential</text><text x="350" y="156" class="s">verify once, share with consent</text>
+            <rect x="560" y="100" width="210" height="76" rx="10" /><text x="580" y="134" class="t">Rule packs</text><text x="580" y="156" class="s">versioned, dated, tested</text>
+            <rect x="330" y="196" width="440" height="76" rx="10" class="hl" /><text x="350" y="230" class="t">Policy resolver</text><text x="350" y="252" class="s">seven layers in order; where two overlap, the stricter rule binds</text>
+            <rect x="330" y="292" width="210" height="76" rx="10" /><text x="350" y="326" class="t">Settlement orchestrator</text><text x="350" y="348" class="s">atomic delivery vs payment</text>
+            <rect x="560" y="292" width="210" height="76" rx="10" /><text x="580" y="326" class="t">Evidence ledger</text><text x="580" y="348" class="s">signed receipts, hash chain</text>
           </g>
           <text x="330" y="404" class="s">Regulatory change agent drafts rule updates; counsel approves before release</text>
           <g class="col">
             <text x="860" y="28" class="h">Issuer and rails</text>
-            <rect x="860" y="50" width="220" height="70" rx="14" /><text x="880" y="82" class="t">Identity registry</text><text x="880" y="104" class="s">ERC-3643 trusted claims</text>
-            <rect x="860" y="140" width="220" height="70" rx="14" /><text x="880" y="172" class="t">Fund token</text><text x="880" y="194" class="s">issuer’s chain and agent</text>
-            <rect x="860" y="230" width="220" height="70" rx="14" /><text x="880" y="262" class="t">Cash leg</text><text x="880" y="284" class="s">USDC, EURC, deposit tokens</text>
-            <rect x="860" y="320" width="220" height="70" rx="14" /><text x="880" y="352" class="t">Travel Rule network</text><text x="880" y="374" class="s">IVMS101 messages</text>
+            <rect x="860" y="50" width="220" height="70" rx="10" /><text x="880" y="82" class="t">Identity registry</text><text x="880" y="104" class="s">ERC-3643, ONCHAINID claims</text>
+            <rect x="860" y="140" width="220" height="70" rx="10" /><text x="880" y="172" class="t">Fund token</text><text x="880" y="194" class="s">issuer's chain and agent</text>
+            <rect x="860" y="230" width="220" height="70" rx="10" /><text x="880" y="262" class="t">Cash leg</text><text x="880" y="284" class="s">USDC, EURC, deposit tokens</text>
+            <rect x="860" y="320" width="220" height="70" rx="10" /><text x="880" y="352" class="t">Travel Rule network</text><text x="880" y="374" class="s">IVMS101 over TRP</text>
           </g>
-          <path d="M240 85 H300 M240 175 H300 M240 265 H300" class="link" />
+          <path d="M240 85 H300 M240 175 H300 M240 265 H300 M240 355 H300" class="link" />
           <path d="M800 85 H860 M800 175 H860 M800 265 H860 M800 355 H860" class="link" />
         </svg>
       </figure>
@@ -49,14 +49,14 @@ import { url } from '../lib/url';
 
   <section class="band light" id="credential">
     <div class="wrap cols-2">
-      <div><p class="eyebrow">Eligibility credential</p><h2>The investor is verified once. The result travels.</h2></div>
+      <div><h2>The investor is verified once. The result travels.</h2></div>
       <div>
-        <p class="lede">A credential records the investor’s legal classification in each jurisdiction that matters to them: a Singapore accredited investor who has opted in, a Hong Kong professional investor, a Swiss professional client. Each classification carries its citation, the evidence reference and an expiry.</p>
+        <p class="lede">A credential records the investor's legal classification in each jurisdiction that matters to them: a Singapore accredited investor who has opted in, a Hong Kong professional investor, a Swiss professional client. Each classification carries its citation, the evidence reference and an expiry.</p>
         <ul class="ticks">
-          <li>Issued by the distributor that performed KYC, under reliance terms the issuer accepts</li>
-          <li>Accepted by issuers as a trusted claim in their existing ERC-3643 identity registry</li>
-          <li>Renewal is a re-attestation, not a new onboarding</li>
-          <li>Holds references and hashes, never the underlying documents</li>
+          <li>Issued by the distributor that performed KYC. Each classification runs through its legal threshold test before it is stamped; a class that fails is refused with the reason.</li>
+          <li>Accepted by issuers as a trusted claim in their existing ERC-3643 identity registry.</li>
+          <li>Renewal is a re-attestation, not a new onboarding.</li>
+          <li>Holds references and hashes, never the underlying documents.</li>
         </ul>
       </div>
     </div>
@@ -64,12 +64,15 @@ import { url } from '../lib/url';
 
   <section class="band" id="resolver">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">Policy resolver</p><h2>Four layers, evaluated in order, every time.</h2></div><p class="lede">Every rule that applies must hold. Where two layers test the same jurisdiction, the stricter test binds. The decision names the binding rule and, on a refusal, the fix.</p></div>
-      <div class="cols-4">
-        <div class="item"><span class="k">Layer 1</span><h4>Credential</h4><p>Is this the investor that was verified, is the credential current, and is there a sanctions match?</p></div>
-        <div class="item"><span class="k">Layer 2</span><h4>Fund policy</h4><p>Where the issuer offers the fund, to which investor classes, minimums, holder caps, lock-ups and accepted settlement assets.</p></div>
-        <div class="item"><span class="k">Layer 3</span><h4>Residence law</h4><p>What the investor’s home jurisdiction requires before this kind of fund can be offered to them.</p></div>
-        <div class="item"><span class="k">Layer 4</span><h4>Booking licence</h4><p>What the distributor’s licence in the booking location permits, which can be stricter than the investor’s home law.</p></div>
+      <div class="sec-head"><h2>Seven layers, evaluated in order, every time.</h2><p class="lede">Every rule that applies must hold. Where two layers test the same jurisdiction, the stricter test binds. The decision names the binding rule and, on a refusal, the fix.</p></div>
+      <div class="layers">
+        <div class="item"><span class="k">Credential</span><p>Is this the investor that was verified, is the credential current, and is there a sanctions match?</p></div>
+        <div class="item"><span class="k">Fund policy</span><p>Where the issuer offers the fund, to which investor classes, minimums, holder caps, lock-ups and accepted settlement assets.</p></div>
+        <div class="item"><span class="k">Residence law</span><p>What the investor's home jurisdiction requires before this kind of fund can be offered to them.</p></div>
+        <div class="item"><span class="k">Booking licence</span><p>What the distributor's licence in the booking location permits, which can be stricter than the investor's home law.</p></div>
+        <div class="item"><span class="k">Documents</span><p>The offering documents the investor must have acknowledged, at their current version.</p></div>
+        <div class="item"><span class="k">Fund terms</span><p>Dealing cut-offs, notice periods and redemption gates set by the fund. A late order is dated to the next dealing day.</p></div>
+        <div class="item"><span class="k">Global screens</span><p>Sanctions programs that apply everywhere, and Travel Rule data for transfers of 1,000 or more.</p></div>
       </div>
       <div class="states">
         <h3>Holder states</h3>
@@ -86,55 +89,82 @@ import { url } from '../lib/url';
 
   <section class="band light" id="settlement">
     <div class="wrap cols-2">
-      <div><p class="eyebrow">Settlement orchestrator</p><h2>Delivery versus payment, in one transaction.</h2></div>
+      <div><h2>Delivery versus payment, in one transaction.</h2></div>
       <div>
-        <p class="lede">Once a decision allows an order, Laissez builds the settlement instruction: the cash leg locks, the registry confirms the receiving wallet’s claim, and fund units and cash swap together on the issuer’s chain.</p>
+        <p class="lede">Once a decision allows an order, Laissez builds the settlement instruction: the decision is re-checked, the cash leg locks, the registry confirms the receiving wallet's claim, and fund units and cash swap together on the issuer's chain.</p>
         <ol class="steps">
-          <li><div><h4>Decision signed</h4><p>The resolver signs the outcome and the rule-pack versions it used.</p></div></li>
+          <li><div><h4>Decision re-checked and signed</h4><p>Current state is evaluated again at the moment of settlement. A decision older than five minutes is not honoured.</p></div></li>
           <li><div><h4>Cash leg locked</h4><p>USDC, EURC or a bank deposit token moves into the settlement contract.</p></div></li>
-          <li><div><h4>Registry confirms</h4><p>The issuer’s identity registry accepts Laissez’s claim for the receiving wallet.</p></div></li>
+          <li><div><h4>Registry confirms</h4><p>The issuer's identity registry accepts Laissez's claim for the receiving wallet.</p></div></li>
           <li><div><h4>Atomic swap</h4><p>Units and cash exchange in the same transaction. If either leg fails, both revert.</p></div></li>
         </ol>
+        <p class="fine" style="margin-top:1.25rem">Simulated settlement runs in every sandbox today and returns 201 settled. On-chain settlement against ERC-3643 contracts on the Base Sepolia testnet returns 202 pending and completes with a webhook; the testnet deployment is pending and <a class="text-link" href={url('status/')}>the status page</a> will say when it is live.</p>
       </div>
     </div>
   </section>
 
-  <section class="band" id="evidence">
-    <div class="wrap cols-2">
-      <div><p class="eyebrow">Evidence ledger and rule governance</p><h2>Every decision can be proven. Every rule has an owner.</h2></div>
-      <div>
-        <p class="lede">Receipts record the outcome, the binding rules, the rule-pack versions and a hash of the inputs. Rule packs change only through a two-person release: a regulatory change agent drafts the diff from regulator publications with citations, and counsel approves it.</p>
-        <ul class="ticks">
-          <li>Only outcome, input hash and rule versions are written on-chain</li>
-          <li>Rule changes preview their effect on existing holders before release</li>
-          <li>Proposals stay inactive until they become law, such as the UK’s pending client categorisation changes</li>
-        </ul>
-        <p style="margin-top:2rem"><a class="text-link" href={url('trust/')}>How we handle data and keys</a></p>
+  <section class="band" id="network">
+    <div class="wrap">
+      <div class="sec-head"><h2>A credential network, an investor portal and the Travel Rule.</h2><p class="lede">The three pieces that make one verification useful beyond the firm that did it.</p></div>
+      <div class="cols-3">
+        <div class="item"><h4>Credential network</h4><p>A distributor can request to rely on a credential another distributor issued. The investor consents on a private page; both firms see the share; the relying firm can place orders without re-papering the client. Every share is in both audit logs.</p></div>
+        <div class="item"><h4>Investor portal</h4><p>A white-label page under the distributor's name and colour where an investor sees their credential and its stamps, reads fund documents and acknowledges them at a specific version, and submits subscription requests that land in the distributor's work queue.</p></div>
+        <div class="item"><h4>Travel Rule</h4><p>Transfers of 1,000 or more carry IVMS101 originator and beneficiary data over the Travel Rule Protocol. Settlement waits for the beneficiary VASP to confirm, and the message timeline sits next to the decision.</p></div>
       </div>
+    </div>
+  </section>
+
+  <section class="band light" id="evidence">
+    <div class="wrap cols-2">
+      <div><h2>Every decision can be proven. Every rule has an owner.</h2></div>
+      <div>
+        <p class="lede">Receipts record the outcome, the binding rules, the rule-pack versions and a hash of the inputs, signed with Ed25519. Rule packs change only through a two-person release: a regulatory change agent drafts the diff from regulator publications with citations, and counsel approves it.</p>
+        <ul class="ticks">
+          <li>Only outcome, input hash and rule versions are written on-chain.</li>
+          <li>The audit log is hash-chained; anyone with read access can verify it in one call.</li>
+          <li>Rule changes preview their effect on existing holders before release.</li>
+          <li>Proposals stay inactive until they become law, such as the UK's pending client categorisation changes.</li>
+        </ul>
+        <p style="margin-top:1.5rem"><a class="arrow-link" href={url('trust/')}>How we handle data and keys</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band cta-band">
+    <div class="wrap">
+      <h2>See it with your own order.</h2>
+      <p class="lede">A private sandbox with fictional clients across every jurisdiction above, two funds and teammates for two-person approval.</p>
+      <div class="hero-cta"><a class="btn primary" href={url('app/')}>Try the sandbox</a><a class="arrow-link" href={url('developers/')}>Read the API overview</a></div>
     </div>
   </section>
 </Layout>
 <style>
   .arch { margin: 0; overflow-x: auto; }
   .arch svg { min-width: 760px; width: 100%; }
-  .arch rect { fill: var(--night-2); stroke: var(--hair-2); }
-  .arch .core { fill: rgba(201, 169, 110, 0.05); stroke: rgba(230, 210, 164, 0.45); }
-  .arch .svc rect { fill: var(--night-3); }
-  .arch .svc rect.hl { stroke: rgba(230, 210, 164, 0.6); }
-  .arch .h { font: 500 15px var(--f-ui); fill: var(--text-3); }
-  .arch .h.brass { font: 400 24px var(--f-display); fill: var(--brass-2); }
-  .arch .t { font: 500 16px var(--f-ui); fill: var(--text); }
-  .arch .s { font: 400 13px var(--f-ui); fill: var(--text-3); }
-  .arch .link { stroke: rgba(230, 210, 164, 0.5); stroke-width: 1.2; stroke-dasharray: 4 5; fill: none; }
-  .states { margin-top: 4.5rem; }
-  .states h3 { margin-bottom: 1.5rem; }
+  .arch rect { fill: var(--white); stroke: var(--line-2); }
+  .arch .core { fill: var(--paper-2); stroke: var(--line-2); }
+  .arch .svc rect { fill: var(--white); }
+  .arch .svc rect.hl { stroke: var(--green); stroke-width: 1.5; }
+  .arch .h { font: 500 15px var(--f-ui); fill: var(--ink-3); }
+  .arch .h.core-h { font: 500 22px var(--f-display); fill: var(--ink); }
+  .arch .t { font: 560 16px var(--f-ui); fill: var(--ink); }
+  .arch .s { font: 400 13px var(--f-ui); fill: var(--ink-3); }
+  .arch .link { stroke: var(--brass); stroke-width: 1.2; stroke-dasharray: 4 5; fill: none; }
+  .layers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(1.25rem, 2.5vw, 2rem); }
+  .layers .item .k { color: var(--ink); font-weight: 600; font-size: 0.95rem; }
+  .states { margin-top: 3.5rem; }
+  .states h3 { margin-bottom: 1.25rem; }
   .state-row { display: grid; grid-template-columns: 1fr 3rem 1fr 3rem 1fr; align-items: center; gap: 0.5rem; }
-  .st { background: var(--night-2); border: 1px solid var(--hair-2); border-radius: 16px; padding: 1.4rem; height: 100%; }
+  .st { background: var(--white); border: 1px solid var(--line); border-radius: 10px; padding: 1.25rem; height: 100%; }
   .st h4 { margin: 0.6rem 0 0.4rem; }
-  .st p { margin: 0; color: var(--text-2); font-size: 0.94rem; }
-  .dot { display: block; width: 0.7rem; height: 0.7rem; border-radius: 50%; }
-  .dot.g { background: var(--verdigris); } .dot.b { background: var(--brass); } .dot.c { background: var(--coral); }
-  .arrow { height: 1px; background: var(--hair-2); position: relative; }
-  .arrow::after { content: ''; position: absolute; right: 0; top: -3px; border: solid var(--text-3); border-width: 0 1px 1px 0; width: 6px; height: 6px; transform: rotate(-45deg); }
+  .st p { margin: 0; color: var(--ink-2); font-size: 0.94rem; }
+  .dot { display: block; width: 0.65rem; height: 0.65rem; border-radius: 50%; }
+  .dot.g { background: var(--green); } .dot.b { background: var(--amber); } .dot.c { background: var(--coral); }
+  .arrow { height: 1px; background: var(--line-2); position: relative; }
+  .arrow::after { content: ''; position: absolute; right: 0; top: -3px; border: solid var(--ink-3); border-width: 0 1px 1px 0; width: 6px; height: 6px; transform: rotate(-45deg); }
+  .cta-band .lede { margin-bottom: 0; }
+  .cta-band .hero-cta { display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap; margin-top: 1.75rem; }
+  @media (max-width: 1000px) { .layers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 860px) { .state-row { grid-template-columns: 1fr; } .arrow { display: none; } }
+  @media (max-width: 560px) { .layers { grid-template-columns: 1fr; } }
 </style>

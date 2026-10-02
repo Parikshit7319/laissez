@@ -54,7 +54,7 @@ export const classInfo: Record<ClassCode, { label: string; stamp: string; jur: J
 export type BookingId = string;
 export type BookingCenter = {
   id: BookingId; name: string; jur: Jur; licence: string;
-  requires: ClassCode | null; ruleText: string; ruleRef: string; source: string;
+  requires: ClassCode | null; requiresAny?: ClassCode[] | null; ruleText: string; ruleRef: string; source: string;
 };
 export const bookingCenters: Record<BookingId, BookingCenter> = {
   HK: { id: 'HK', name: 'Hong Kong', jur: 'HK', licence: 'SFC Types 1 and 4 (fictional licensee)', requires: 'HK_PI', ruleText: 'Dealing from Hong Kong in a fund the SFC has not authorized: client must be a professional investor.', ruleRef: 'SFO, Cap. 571D', source: 'hk-pi' },

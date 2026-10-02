@@ -1,0 +1,127 @@
+name: Publish SDKs
+
+# Publishes @laissez/sdk to npm and laissez to PyPI when a tag sdk-v<version> is pushed.
+# Cut the tag with: node scripts/release-sdks.mjs <sdk version> [--api <api version>] && git push --follow-tags
+#
+# Secrets:
+#   NPM_TOKEN     npm automation token with publish rights on @laissez/sdk.
+#   PYPI_TOKEN    Optional. A PyPI API token. Leave unset to use trusted publishing instead: on pypi.org, add a
+#                 publisher for this repository with workflow "publish-sdks.yml" and environment "pypi".
+
+on:
+  push:
+    tags: ['sdk-v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run every step except the uploads
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Versions match the tag, tests pass
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      dry_run: ${{ steps.v.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            api/package-lock.json
+            api/jobs/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Resolve version
+        id: v
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#sdk-v}"
+            DRY=false
+          else
+            VERSION=$(node -p "require('./sdk/typescript/package.json').version")
+            DRY="${{ inputs.dry_run }}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$DRY" >> "$GITHUB_OUTPUT"
+          echo "Publishing SDK version $VERSION (dry run: $DRY)"
+      - name: Check every version string
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: node scripts/release-sdks.mjs --check "$VERSION"
+      - name: Install
+        run: |
+          npm ci --prefix api --no-audit --no-fund
+          npm ci --prefix api/jobs --no-audit --no-fund
+      - name: TypeScript SDK tests and typecheck
+        run: |
+          npx --prefix api/jobs tsx sdk/typescript/test.ts
+          npx --prefix api tsc -p sdk/typescript/tsconfig.json
+      - name: Python SDK tests
+        working-directory: sdk/python
+        run: python3 -m unittest discover -s tests -v
+
+  npm:
+    name: npm (@laissez/sdk)
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Pack
+        working-directory: sdk/typescript
+        run: npm pack --dry-run
+      - name: Publish
+        if: needs.verify.outputs.dry_run != 'true'
+        working-directory: sdk/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then echo "::error::NPM_TOKEN is not set."; exit 1; fi
+          npm publish --access public --provenance
+
+  pypi:
+    name: PyPI (laissez)
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build sdist and wheel
+        working-directory: sdk/python
+        run: |
+          python3 -m pip install --upgrade build twine
+          python3 -m build
+          python3 -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: sdk/python/dist
+      - name: Publish
+        if: needs.verify.outputs.dry_run != 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdk/python/dist
+          # With PYPI_TOKEN unset the action uses trusted publishing through the id-token permission above.
+          password: ${{ secrets.PYPI_TOKEN }}

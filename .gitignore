@@ -13,3 +13,6 @@ api/chain/.hardhat-artifacts/
 api/chain/deployment.local.json
 __pycache__/
 sdk/python/*.egg-info/
+tests/e2e/node_modules/
+test-results/
+playwright-report/

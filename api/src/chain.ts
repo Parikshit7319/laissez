@@ -12,6 +12,8 @@ import { adminSql, type Sql } from './db';
 import { type Env, id as newId, today, ApiError } from './util';
 import { emit } from './ctx';
 import { auditQ, SYSTEM, type Actor } from './http';
+import { noticeExecutionQueries } from './fundops-core';
+import { travelRuleConfirmRaw } from './routes/travel';
 
 // ---------- Constants and ABIs ----------
 export const CLAIM_TOPIC = 10101n;
@@ -20,6 +22,8 @@ const DEFAULT_RPC = 'https://sepolia.base.org';
 const MULTICALL3_CANONICAL = '0xcA11bde05977b3631167028862bE2a173976CA11' as Address;
 const MAX_ATTEMPTS = 8;
 const RECEIPT_WAIT_MS = 20_000;
+/** Below this the operator wallet cannot pay for many more settlements on Base Sepolia. */
+export const LOW_BALANCE_ETH = 0.002;
 const NETWORK_LABEL: Record<string, string> = { 'base-sepolia': 'Base Sepolia', 'hardhat-local': 'Local Hardhat' };
 
 /** ISO 3166-1 numeric codes stored in the on-chain identity registries. */
@@ -42,7 +46,7 @@ const REGISTRY_ABI = parseAbi([
   'function investorCountry(address wallet) view returns (uint16)',
 ]);
 const IDENTITY_ABI = parseAbi(['function getClaim(bytes32 claimId) view returns (uint256 topic, uint256 scheme, address issuer, bytes signature, bytes data, string uri)']);
-const CLAIM_ISSUER_ABI = parseAbi(['function revokeClaim(bytes32 claimId, address identity) returns (bool)', 'function isClaimRevoked(bytes signature) view returns (bool)']);
+const CLAIM_ISSUER_ABI = parseAbi(['function revokeClaim(bytes32 claimId, address identity) returns (bool)', 'function revokeClaimBySignature(bytes signature)', 'function isClaimRevoked(bytes signature) view returns (bool)']);
 const COMPLIANCE_ABI = parseAbi(['function callModuleFunction(bytes callData, address module)']);
 const COUNTRY_MODULE_ABI = parseAbi([
   'function batchAllowCountries(uint16[] countries)',
@@ -71,7 +75,7 @@ export type Deployment = {
   network: string; chainId: number; explorer: string | null; operator: Address; claimSigner: Address; claimTopic: number;
   contracts: {
     identityImplementation: Address; identityImplementationAuthority: Address; idFactory: Address; claimIssuer: Address;
-    countryAllowModuleImplementation: Address; countryAllowModule: Address; onboarder: Address; dvp: Address; auditAnchor: Address;
+    countryAllowModuleImplementation: Address; countryAllowModule: Address; claimExpiryModule?: Address; onboarder: Address; dvp: Address; auditAnchor: Address;
     multicall3?: Address; cash: Record<string, Address>;
   };
   identityInitCodeHash: Hex; autoFundTestCash: boolean; funds: Record<string, FundSuite>; blocks: { start: number; end: number }; deployedAt: string;
@@ -349,6 +353,23 @@ export async function onCredentialRevoked(c: any, investorId: string): Promise<v
   await processChainJob(admin, c.env, jobId, { left: 20 });
 }
 
+/**
+ * When an onboarded investor gets a new credential (a renewal or a re-issue), publishes a fresh claim with the new
+ * credential hash and expiry on the existing identity and revokes the old claim's signature, so isVerified stays true
+ * past the old expiry. Investors not yet on-chain get their claim at first settlement instead.
+ */
+export async function onCredentialIssued(c: any, investorId: string): Promise<void> {
+  if (!(await chainEnabled(c))) return;
+  const admin = adminOf(c); const ws: string = c.get('ws');
+  const [inv] = await admin`select i.chain_identity, i.chain_wallet, i.chain_onboarded_at, cr.lzid, cr.expires_on::text as expires_on
+    from investors i
+    left join lateral (select lzid, expires_on from credentials where workspace_id = i.workspace_id and investor_id = i.id and status = 'active' order by created_at desc limit 1) cr on true
+    where i.workspace_id = ${ws} and i.id = ${investorId}`;
+  if (!inv?.chain_onboarded_at || !inv.chain_identity || !inv.chain_wallet || !inv.lzid) return;
+  const jobId = await insertJob(admin, ws, 're_issue_claim', investorId, { investor_id: investorId, identity: inv.chain_identity, wallet: inv.chain_wallet, lzid: inv.lzid, expires_on: inv.expires_on });
+  await processChainJob(admin, c.env, jobId, { left: 20 });
+}
+
 /** After a fund policy is published, syncs the fund's CountryAllowModule with its distribution jurisdictions. */
 export async function onPolicyPublished(c: any, ticker: string): Promise<void> {
   if (!(await chainEnabled(c))) return;
@@ -388,6 +409,7 @@ export async function processChainJob(admin: Sql, env: Env, jobId: string, budge
     const ch = chainFor(env, dep, budget);
     if (job.kind === 'settle') await runSettle(admin, ch, env, job);
     else if (job.kind === 'revoke_claim') await runRevoke(admin, ch, env, job);
+    else if (job.kind === 're_issue_claim') await runReissue(admin, ch, env, job);
     else if (job.kind === 'policy_sync') await runPolicySync(admin, ch, env, job);
     else if (job.kind === 'break_demo') await runBreakDemo(admin, ch, env, job);
     else throw new Final(`Unknown chain job kind ${job.kind}.`);
@@ -613,6 +635,8 @@ async function finishSettle(admin: Sql, ch: Chain, env: Env, job: JobRow, partie
       }
     }
     if (holderDelta) q.push(admin`update funds set holders = greatest(0, holders + ${holderDelta}) where workspace_id = ${ws} and ticker = ${t}`);
+    // A redemption consumes the pending notices that covered it, oldest first, in the same transaction.
+    if (p.action === 'redeem') q.push(...(await noticeExecutionQueries(admin, ws, p.investor_id, t, u, '9999-12-31')));
   }
   const onboarding = onboardSent.map((s, i) => ({ investor_id: s.investor, tx_hash: s.hash, block: onboardReceipts[i]?.blockNumber ?? null, explorer_url: txUrl(dep, s.hash), wallet: parties.find((x) => x.id === s.investor)?.wallet, identity: parties.find((x) => x.id === s.investor)?.identity }));
   const chainInfo = {
@@ -639,6 +663,8 @@ async function finishSettle(admin: Sql, ch: Chain, env: Env, job: JobRow, partie
   q.push(admin`update chain_jobs set status = 'confirmed', block = ${r.blockNumber}, error = null, updated_at = now() where id = ${job.id}`);
   await admin.transaction(q);
   await emit(admin, ws, 'settlement.completed', { id: p.settlement_id, decision: p.decision_id, units: u, fund: t, chain: { network: dep.network, tx_hash: r.hash, block: r.blockNumber, explorer_url: chainInfo.explorer_url } }).catch((e) => console.error(e));
+  // Travel Rule: the beneficiary VASP receives the transaction id once the transfer is final on chain.
+  if (p.action === 'transfer') await travelRuleConfirmRaw(env, admin, ws, p.decision_id, r.hash).catch((e) => console.error('travel rule confirmation', e));
   // A claim published from a credential that is no longer active (a redemption-only holder) is revoked right after.
   for (const x of parties) {
     if (!x.credActive && onboardSent.some((s) => s.investor === x.id)) {
@@ -739,6 +765,46 @@ async function runRevoke(admin: Sql, ch: Chain, env: Env, job: JobRow) {
   await confirmJob(admin, job, r, null, [auditQ(admin, ws, SYSTEM, 'credential.chain_claim_revoked', p.investor_id, { identity: p.identity, wallet: p.wallet, tx_hash: r.hash, block: r.blockNumber, network: dep.network })]);
 }
 
+/**
+ * Re-issues the Laissez claim on an onboarded identity: a new signature over the new credential hash and expiry,
+ * added through the onboarder (same claim id, so it replaces the old claim), and the old signature revoked at the
+ * issuer so it cannot be presented again. Two transactions, sent together; the job resumes from the last receipt.
+ */
+async function runReissue(admin: Sql, ch: Chain, env: Env, job: JobRow) {
+  const p = job.payload; const dep = ch.dep; const ws = job.workspace_id as string;
+  const issuer = dep.contracts.claimIssuer; const cid = claimIdFor(issuer);
+  const [cred] = await admin`select lzid, expires_on::text as expires_on, status from credentials where workspace_id = ${ws} and investor_id = ${p.investor_id} and status = 'active' order by created_at desc limit 1`;
+  if (!cred || cred.lzid !== p.lzid) return confirmJob(admin, job, null, 'The credential changed again before the claim was re-issued; the newer job carries it.');
+  let last: Receipt | null = null;
+  const resumed = await resumeSent(ch, job);
+  if (resumed === 'pending') return requeue(admin, job.id, 'Waiting for the transaction to be mined.');
+  if (resumed) last = resumed;
+  else {
+    const raw = await ethCall(ch, p.identity, encodeFunctionData({ abi: IDENTITY_ABI, functionName: 'getClaim', args: [cid] }));
+    const [topic, , , oldSig, oldData] = decodeFunctionResult({ abi: IDENTITY_ABI, functionName: 'getClaim', data: raw }) as readonly [bigint, bigint, Address, Hex, Hex, string];
+    const data = claimDataFor(p.lzid, p.expires_on ?? cred.expires_on ?? null);
+    if (topic !== 0n && oldData === data) return confirmJob(admin, job, null, 'The on-chain claim already carries this credential and expiry.');
+    const sig = await signClaim(env, p.identity as Address, data);
+    const txs: TxReq[] = [];
+    if (topic !== 0n && oldSig !== '0x') {
+      const revoked = decodeFunctionResult({ abi: CLAIM_ISSUER_ABI, functionName: 'isClaimRevoked', data: await ethCall(ch, issuer, encodeFunctionData({ abi: CLAIM_ISSUER_ABI, functionName: 'isClaimRevoked', args: [oldSig] })) });
+      if (!revoked) txs.push({ to: issuer, label: 'revoke_old_claim', investor: p.investor_id, gas: GAS.revoke, data: encodeFunctionData({ abi: CLAIM_ISSUER_ABI, functionName: 'revokeClaimBySignature', args: [oldSig] }) });
+    }
+    txs.push({
+      to: dep.contracts.onboarder, label: 're_issue_claim', investor: p.investor_id, gas: GAS.onboardBase,
+      data: encodeFunctionData({ abi: ONBOARDER_ABI, functionName: 'onboard', args: [p.wallet as Address, identitySalt(ws, p.investor_id), sig, data, []] }),
+    });
+    const { sent, error } = await sendAll(ch, admin, env, txs);
+    await recordSent(admin, job.id, sent);
+    job.payload = { ...job.payload, sent };
+    if (error || sent.length < txs.length) throw (error ?? new Error('Not every transaction was broadcast.'));
+    last = await waitReceipt(ch, sent[sent.length - 1].hash);
+    if (!last) return requeue(admin, job.id, 'Broadcast; waiting for the transaction to be mined.');
+  }
+  if (last.status !== 'success') return failedReceipt(ch, job, last);
+  await confirmJob(admin, job, last, null, [auditQ(admin, ws, SYSTEM, 'credential.chain_claim_reissued', p.investor_id, { identity: p.identity, wallet: p.wallet, lzid: p.lzid, expires_on: p.expires_on ?? cred.expires_on ?? null, tx_hash: last.hash, block: last.blockNumber, network: dep.network })]);
+}
+
 async function runPolicySync(admin: Sql, ch: Chain, env: Env, job: JobRow) {
   const dep = ch.dep; const ticker: string = job.payload.ticker; const fund = dep.funds[ticker];
   if (!fund) throw new Final(`${ticker} has no on-chain suite.`);
@@ -800,6 +866,40 @@ export async function simulateBreak(admin: Sql, env: Env, ws: string, investorId
   const jobId = await insertJob(admin, ws, 'break_demo', investorId, { investor_id: investorId, ticker, wallet: inv.chain_wallet, units });
   const job = await processChainJob(admin, env, jobId, { left: 30 });
   return { job, tx_url: txUrl(dep, job?.tx_hashes?.[0]) };
+}
+
+// ---------- Job retry and cancellation ----------
+/** Puts a failed (or stuck queued) job back on the queue and runs it now. Settlement jobs whose settlement already reverted are retried from the settlement instead. */
+export async function retryChainJob(admin: Sql, env: Env, ws: string, jobId: string, actor: Actor): Promise<JobRow> {
+  const [job] = (await admin`select * from chain_jobs where id = ${jobId} and workspace_id = ${ws}`) as JobRow[];
+  if (!job) throw new ApiError(404, 'not_found', `No chain job ${jobId} in this organization.`);
+  if (job.status === 'running') throw new ApiError(409, 'running', 'This job is running right now. Wait for it to finish.');
+  if (job.status === 'confirmed') throw new ApiError(409, 'confirmed', 'This job already confirmed on chain. There is nothing to retry.');
+  if (job.status === 'cancelled') throw new ApiError(409, 'cancelled', 'This job was cancelled. Request a new decision to settle again.');
+  if (job.kind === 'settle') {
+    const [stl] = await admin`select status from settlements where workspace_id = ${ws} and id = ${job.ref}`;
+    if (stl && stl.status !== 'pending') throw new ApiError(409, 'settlement_not_pending', `The settlement is ${stl.status}. Retry it from the settlement page (POST /v1/settlements/${job.ref}/retry), which re-checks the decision first.`);
+  }
+  await admin.transaction([
+    admin`update chain_jobs set status = 'queued', attempts = 0, error = null, retries = retries + 1, retried_at = now(), retried_by = ${actor.name}, updated_at = now() where id = ${job.id}`,
+    auditQ(admin, ws, actor, 'chain_job.retried', job.id, { kind: job.kind, ref: job.ref, previous_error: job.error }),
+  ]);
+  const after = await processChainJob(admin, env, job.id, { left: 30 });
+  return after ?? job;
+}
+
+/** Cancels a job that has not sent anything on chain. Returns the job, or throws when a transaction already went out. */
+export async function cancelChainJob(admin: Sql, ws: string, jobId: string, actor: Actor, reason: string): Promise<JobRow> {
+  const rows = (await admin`update chain_jobs set status = 'cancelled', error = ${reason}, cancelled_at = now(), cancelled_by = ${actor.name}, updated_at = now()
+    where id = ${jobId} and workspace_id = ${ws} and status in ('queued', 'failed') and cardinality(tx_hashes) = 0 returning *`) as JobRow[];
+  if (!rows.length) {
+    const [job] = (await admin`select * from chain_jobs where id = ${jobId} and workspace_id = ${ws}`) as JobRow[];
+    if (!job) throw new ApiError(404, 'not_found', `No chain job ${jobId} in this organization.`);
+    if (job.tx_hashes?.length) throw new ApiError(409, 'already_sent', 'A transaction for this job is already on chain, so it cannot be cancelled. Wait for the receipt.');
+    throw new ApiError(409, 'not_cancellable', `This job is ${job.status} and cannot be cancelled.`);
+  }
+  await auditQ(admin, ws, actor, 'chain_job.cancelled', jobId, { kind: rows[0].kind, ref: rows[0].ref, reason });
+  return rows[0];
 }
 
 // ---------- Reconciliation ----------
@@ -983,12 +1083,13 @@ export async function chainOverview(admin: Sql, env: Env) {
     { key: 'onboarder', name: 'LaissezOnboarder', address: c.onboarder, role: 'Creates the identity, adds the claim, registers it and mints opening balances in one transaction.' },
     { key: 'dvp', name: 'LaissezDvP', address: c.dvp, role: 'Settles subscribe, transfer and redeem atomically against test cash.' },
     { key: 'countryAllowModule', name: 'CountryAllowModule (T-REX)', address: c.countryAllowModule, role: 'Blocks transfers to countries outside each fund distribution list.' },
+    ...(c.claimExpiryModule ? [{ key: 'claimExpiryModule', name: 'ClaimExpiryModule', address: c.claimExpiryModule, role: `Blocks transfers and mints to a wallet whose claim ${dep.claimTopic} has expired. Redemptions still pass.` }] : []),
     { key: 'auditAnchor', name: 'AuditAnchor', address: c.auditAnchor, role: 'Holds one Merkle root per day over the audit log head of every organization.' },
     ...Object.entries(c.cash).map(([ccy, address]) => ({ key: `cash.${ccy}`, name: `LaissezCash t${ccy}`, address, role: 'Test cash with no value, used for the payment leg.' })),
   ].map((x) => ({ ...x, url: addressUrl(dep, x.address) }));
   return {
     enabled, network: dep.network, network_label: networkLabel(dep), chain_id: dep.chainId, explorer: dep.explorer, deployed_at: dep.deployedAt, blocks: dep.blocks,
-    operator: { address: dep.operator, balance_eth: balance, url: addressUrl(dep, dep.operator), funded: balance !== null && balance > 0 },
+    operator: { address: dep.operator, balance_eth: balance, url: addressUrl(dep, dep.operator), funded: balance !== null && balance > 0, low: balance !== null && balance < LOW_BALANCE_ETH, low_threshold_eth: LOW_BALANCE_ETH },
     claim_signer: dep.claimSigner, claim_topic: dep.claimTopic, contracts,
     funds: Object.entries(dep.funds).map(([ticker, f]) => ({
       ticker, name: f.name, currency: f.currency, token: f.token, token_url: addressUrl(dep, f.token), identity_registry: f.identityRegistry,

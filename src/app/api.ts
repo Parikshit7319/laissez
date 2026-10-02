@@ -116,6 +116,11 @@ export const when = (iso: string) => new Date(iso).toLocaleString('en-US', { mon
 export const day = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 export const shortHash = (h?: string | null, n = 10) => (h ? (h.length > n + 2 ? `${h.slice(0, n)}…` : h) : '');
 export const txUrl = (hash: string) => `https://sepolia.basescan.org/tx/${hash}`;
-export const JUR: Record<string, string> = { SG: 'Singapore', HK: 'Hong Kong', CH: 'Switzerland', DE: 'Germany (EU)', 'AE-DIFC': 'UAE (DIFC)', US: 'United States', IR: 'Iran', CU: 'Cuba', KP: 'North Korea', GB: 'United Kingdom', JP: 'Japan', 'AE-ADGM': 'UAE (ADGM)', LU: 'Luxembourg', IE: 'Ireland' };
-export const CLASS_LABEL: Record<string, string> = { SG_AI: 'SG accredited investor', HK_PI: 'HK professional investor', EU_PRO: 'EU professional client', EU_RETAIL: 'EU retail client', CH_PRO: 'CH professional client', DIFC_PRO: 'DIFC professional client', US_AI: 'US accredited investor', GB_PRO: 'UK professional client (per se)', GB_EPRO: 'UK elective professional client', JP_QII: 'JP qualified institutional investor', ADGM_PRO: 'ADGM professional client' };
-export const BOOKING: Record<string, string> = { HK: 'Hong Kong', SG: 'Singapore', ZRH: 'Zurich', DIFC: 'Dubai (DIFC)', NY: 'New York', LDN: 'London', TYO: 'Tokyo', ADGM: 'Abu Dhabi (ADGM)' };
+export const JUR: Record<string, string> = { SG: 'Singapore', HK: 'Hong Kong', CH: 'Switzerland', DE: 'Germany (EU)', 'AE-DIFC': 'UAE (DIFC)', US: 'United States', IR: 'Iran', CU: 'Cuba', KP: 'North Korea', GB: 'United Kingdom', JP: 'Japan', 'AE-ADGM': 'UAE (ADGM)', LU: 'Luxembourg', IE: 'Ireland', IN: 'India' };
+export const CLASS_LABEL: Record<string, string> = {
+  SG_AI: 'SG accredited investor', HK_PI: 'HK professional investor', EU_PRO: 'EU professional client', EU_RETAIL: 'EU retail client', CH_PRO: 'CH professional client', DIFC_PRO: 'DIFC professional client',
+  US_AI: 'US accredited investor', US_QP: 'US qualified purchaser', US_QIB: 'US qualified institutional buyer', US_IAI: 'US institutional accredited investor',
+  GB_PRO: 'UK professional client (per se)', GB_EPRO: 'UK elective professional client', JP_QII: 'JP qualified institutional investor', ADGM_PRO: 'ADGM professional client',
+  IN_AI: 'IN accredited investor (SEBI)', IN_LRS: 'IN resident individual (LRS)', IFSCA_PRO: 'GIFT City accredited investor (IFSCA)',
+};
+export const BOOKING: Record<string, string> = { HK: 'Hong Kong', SG: 'Singapore', ZRH: 'Zurich', DIFC: 'Dubai (DIFC)', NY: 'New York', LDN: 'London', TYO: 'Tokyo', ADGM: 'Abu Dhabi (ADGM)', GIFT: 'GIFT City (IFSC)' };

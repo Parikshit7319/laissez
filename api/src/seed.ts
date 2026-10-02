@@ -39,7 +39,8 @@ export function seedQueries(sql: Sql, ws: string) {
 export function lawDefaults(jur: string, regS: boolean) {
   const src = jur === 'US' ? funds.AGPC.distribution.US : (funds.TWLF.distribution as any)[jur] ?? EXTRA_LAW[jur];
   if (!src) return null;
-  return { lawRequires: src.lawRequires, lawText: src.lawText, lawRef: src.lawRef, lawSource: src.lawSource, basis: jur === 'US' ? 'Rule 506(c) private placement' : regS ? 'Regulation S offer' : src.basis, accepts: src.accepts };
+  const any = (src as { lawRequiresAny?: string[] | null }).lawRequiresAny;
+  return { lawRequires: src.lawRequires, lawRequiresAny: Array.isArray(any) && any.length ? any : src.lawRequires ? [src.lawRequires] : null, lawText: src.lawText, lawRef: src.lawRef, lawSource: src.lawSource, basis: jur === 'US' ? 'Rule 506(c) private placement' : regS ? 'Regulation S offer' : src.basis, accepts: src.accepts };
 }
 /** Launch rules for jurisdictions added after the first rule packs. Filled in by the rule-pack module. */
-export const EXTRA_LAW: Record<string, { accepts: string[]; basis: string; lawRequires: string | null; lawText: string; lawRef: string; lawSource: string }> = {};
+export const EXTRA_LAW: Record<string, { accepts: string[]; basis: string; lawRequires: string | null; lawRequiresAny?: string[] | null; lawText: string; lawRef: string; lawSource: string }> = {};

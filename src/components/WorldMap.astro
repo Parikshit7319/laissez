@@ -1,8 +1,10 @@
 ---
-// Build-time dotted world map with animated distribution corridors.
+// Build-time dotted world map with distribution corridors. Each corridor links to the matching
+// scenario in the guided demo (demo/#scenario=investor:fund:action), which the Console reads on load.
 import { feature } from 'topojson-client';
 import { geoNaturalEarth1, geoContains } from 'd3-geo';
 import land110 from 'world-atlas/land-110m.json';
+import { url } from '../lib/url';
 
 const W = 1400, H = 640;
 const topo: any = land110;
@@ -33,6 +35,8 @@ const cities: City[] = [
   { id: 'hk', name: 'Hong Kong', ll: [114.17, 22.32], label: 'r' },
 ];
 const notes: Record<string, [string, string]> = {
+  nyc: ['New York, SEC', 'Accredited investors (Reg D 501(a)) and qualified purchasers (ICA 2(a)(51)). Delaware LP domicile for private credit.'],
+  bvi: ['Tortola, BVI FSC', 'Fund domicile for professional funds sold under Regulation S to non-US investors.'],
   dub: ['Dublin, Central Bank of Ireland', 'Fund domicile for ICAVs and UCITS. EU professional clients meet 2 of 3 size tests under MiFID II.'],
   lux: ['Luxembourg, CSSF', 'Fund domicile for SICAVs and RAIFs. The AIFMD passport reaches professional investors across the EU.'],
   zrh: ['Zurich, FINMA', 'Swiss professional clients under FinSA: 2 of 3 of CHF 20M balance sheet, CHF 40M turnover, CHF 2M equity.'],
@@ -42,14 +46,24 @@ const notes: Record<string, [string, string]> = {
   hk: ['Hong Kong, SFC', 'Professional investors: a HK$8M portfolio for individuals, HK$40M total assets for corporations (Cap. 571D).'],
 };
 const P = Object.fromEntries(cities.map((c) => [c.id, proj(c.ll)!]));
-const routes: [string, string][] = [['nyc', 'sg'], ['dub', 'hk'], ['lux', 'dxb'], ['bvi', 'zrh'], ['nyc', 'fra'], ['dub', 'sg'], ['hk', 'dxb'], ['lux', 'sg']];
-const arcs = routes.map(([a, b], i) => {
-  const [x1, y1] = P[a], [x2, y2] = P[b];
+// Corridors run from the fund domicile to the investor. Each carries the demo scenario it opens.
+type Route = { from: string; to: string; scenario: string; title: string; outcome: 'ok' | 'no' };
+const routes: Route[] = [
+  { from: 'bvi', to: 'sg', scenario: 'lumen:TWLF:subscribe', title: 'Lumen Family Office subscribes to Tidewell Treasury Liquidity', outcome: 'ok' },
+  { from: 'dub', to: 'hk', scenario: 'meitan:NMEL:subscribe', title: 'Mei Tan subscribes to Northmere Euro Liquidity', outcome: 'ok' },
+  { from: 'nyc', to: 'dxb', scenario: 'qamar:AGPC:transfer', title: 'Qamar Holdings transfers Ashgrove Private Credit interests', outcome: 'no' },
+  { from: 'bvi', to: 'zrh', scenario: 'sorell:TWLF:subscribe', title: 'Sorell Pensionskasse subscribes to Tidewell Treasury Liquidity', outcome: 'ok' },
+  { from: 'dub', to: 'fra', scenario: 'kestrel:NMEL:subscribe', title: 'Kestrel Treasury subscribes to Northmere Euro Liquidity', outcome: 'ok' },
+  { from: 'dub', to: 'sg', scenario: 'lumen:NMEL:subscribe', title: 'Lumen Family Office subscribes to Northmere Euro Liquidity', outcome: 'ok' },
+  { from: 'bvi', to: 'hk', scenario: 'meitan:TWLF:subscribe', title: 'Mei Tan subscribes to Tidewell Treasury Liquidity', outcome: 'ok' },
+  { from: 'nyc', to: 'zrh', scenario: 'sorell:AGPC:subscribe', title: 'Sorell Pensionskasse subscribes to Ashgrove Private Credit', outcome: 'ok' },
+];
+const arcs = routes.map((r, i) => {
+  const [x1, y1] = P[r.from], [x2, y2] = P[r.to];
   const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-  const dx = x2 - x1, dy = y2 - y1, dist = Math.hypot(dx, dy);
+  const dist = Math.hypot(x2 - x1, y2 - y1);
   const lift = Math.min(dist * 0.32, 190);
-  const cx = mx + (dy / dist) * lift * (dx > 0 ? 1 : -1) * 0.0 , cy = my - lift;
-  return { d: `M${x1.toFixed(1)} ${y1.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`, i, r: `${a} ${b}` };
+  return { ...r, d: `M${x1.toFixed(1)} ${y1.toFixed(1)} Q${mx.toFixed(1)} ${(my - lift).toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`, i, pair: `${r.from} ${r.to}` };
 });
 // Crop to Europe, the Gulf and Asia; corridors from the Americas enter from the left edge.
 const X0 = proj([-28, 0])![0], X1 = proj([150, 0])![0];
@@ -57,18 +71,18 @@ const Y0 = Math.max(0, proj([20, 70])![1]), Y1 = proj([105, -14])![1];
 const CW = X1 - X0, CH = Y1 - Y0;
 const pct = (id: string) => ({ left: `${((P[id][0] - X0) / CW) * 100}%`, top: `${((P[id][1] - Y0) / CH) * 100}%` });
 const sg = pct('sg'), dxb = pct('dxb');
+const demo = url('demo/');
 ---
-<div class="map" style={`aspect-ratio:${CW.toFixed(0)} / ${CH.toFixed(0)}`} role="img" aria-label="World map showing tokenized fund corridors between New York, Tortola, Dublin, Luxembourg, Zurich, Frankfurt, Dubai, Singapore and Hong Kong">
-  <svg viewBox={`${X0.toFixed(1)} ${Y0.toFixed(1)} ${CW.toFixed(1)} ${CH.toFixed(1)}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-    <defs>
-      <linearGradient id="arc-g" x1="0" x2="1"><stop offset="0" stop-color="#c9a96e" stop-opacity="0.15" /><stop offset="0.5" stop-color="#e6d2a4" stop-opacity="0.75" /><stop offset="1" stop-color="#c9a96e" stop-opacity="0.15" /></linearGradient>
-      <radialGradient id="glow"><stop offset="0" stop-color="#e6d2a4" stop-opacity="0.55" /><stop offset="1" stop-color="#e6d2a4" stop-opacity="0" /></radialGradient>
-    </defs>
+<div class="map" style={`aspect-ratio:${CW.toFixed(0)} / ${CH.toFixed(0)}`}>
+  <svg viewBox={`${X0.toFixed(1)} ${Y0.toFixed(1)} ${CW.toFixed(1)} ${CH.toFixed(1)}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map showing tokenized fund corridors between New York, Tortola, Dublin, Luxembourg, Zurich, Frankfurt, Dubai, Singapore and Hong Kong. Each corridor opens a scenario in the guided demo.">
     <path d={dots} class="land" />
-    {arcs.map((a) => (<>
-      <path d={a.d} class="arc-base" data-r={a.r} />
-      <path d={a.d} class="arc-pulse" pathLength="100" style={`animation-delay:${(a.i * 0.9).toFixed(1)}s`} />
-    </>))}
+    {arcs.map((a) => (
+      <a href={`${demo}#scenario=${a.scenario}`} class="corridor" data-pair={a.pair} data-t={a.title} data-o={a.outcome} aria-label={`${a.title}. Open this corridor in the guided demo.`}>
+        <path d={a.d} class="arc-hit" />
+        <path d={a.d} class="arc-base" />
+        <path d={a.d} class="arc-pulse" pathLength="100" style={`animation-delay:${(a.i * 0.9).toFixed(1)}s`} />
+      </a>
+    ))}
     {cities.map((c) => {
       const [x, y] = P[c.id];
       const lx = c.label === 'l' ? x - 12 : c.label === 'r' ? x + 12 : x;
@@ -76,99 +90,123 @@ const sg = pct('sg'), dxb = pct('dxb');
       const anchor = c.label === 'l' ? 'end' : c.label === 'r' ? 'start' : 'middle';
       const n = notes[c.id];
       return (<g class="city" data-id={c.id} data-t={n?.[0]} data-n={n?.[1]} data-x={((x - X0) / CW * 100).toFixed(2)} data-y={((y - Y0) / CH * 100).toFixed(2)}>
-        <circle cx={x} cy={y} r="22" fill="url(#glow)" />
-        <circle cx={x} cy={y} r="20" class="hit" />
-        <circle cx={x} cy={y} r="3.6" class="node" />
-        <circle cx={x} cy={y} r="3.6" class="ring" />
+        <circle cx={x} cy={y} r="18" class="hit" />
+        <circle cx={x} cy={y} r="3.4" class="node" />
+        <circle cx={x} cy={y} r="3.4" class="ring" />
         {c.label ? <text x={lx} y={ly} text-anchor={anchor}>{c.name}</text> : null}
       </g>);
     })}
   </svg>
-  <div class="map-tip" hidden><strong></strong><span></span></div>
-  <div class="map-card ok" style={`left:${sg.left};top:${sg.top}`}>
+  <div class="map-tip" hidden><strong></strong><span></span><em></em></div>
+  <a class="map-card ok" style={`left:${sg.left};top:${sg.top}`} href={`${demo}#scenario=lumen:TWLF:subscribe`}>
     <span class="mc-k">TWLF subscription</span>
     <strong>Lumen Family Office</strong>
     <span class="mc-l">Singapore resident, booked in Hong Kong</span>
     <span class="mc-row"><span class="pill ok">Admitted</span><span>2 binding rules, 8 checks</span></span>
     <span class="mc-l">Settled atomically against USDC</span>
-  </div>
-  <div class="map-card no" style={`left:${dxb.left};top:${dxb.top}`}>
+  </a>
+  <a class="map-card no" style={`left:${dxb.left};top:${dxb.top}`} href={`${demo}#scenario=qamar:AGPC:transfer`}>
     <span class="mc-k">AGPC transfer</span>
     <strong>Refused before settlement</strong>
     <span class="mc-l">12-month lock-up ends 1 Jun 2027</span>
     <span class="mc-row"><span class="pill no">Refused</span><span>Nothing moved</span></span>
-  </div>
+  </a>
 </div>
 
 <script>
   for (const map of document.querySelectorAll<HTMLElement>('.map')) {
     const tip = map.querySelector<HTMLElement>('.map-tip')!;
-    const arcs = [...map.querySelectorAll<SVGPathElement>('.arc-base')];
+    const [tT, tN, tE] = [tip.querySelector('strong')!, tip.querySelector('span')!, tip.querySelector('em')!];
+    const corridors = [...map.querySelectorAll<SVGAElement>('.corridor')];
+    const show = (t: string, n: string, e: string, x: string, y: string) => {
+      tT.textContent = t; tN.textContent = n; tE.textContent = e;
+      tip.style.left = x + '%'; tip.style.top = y + '%'; tip.hidden = false;
+    };
+    const hide = () => { map.classList.remove('hovering'); corridors.forEach((a) => a.classList.remove('hot')); map.querySelectorAll('.city.hot').forEach((g) => g.classList.remove('hot')); tip.hidden = true; };
     for (const g of map.querySelectorAll<SVGGElement>('.city[data-t]')) {
-      g.addEventListener('pointerenter', () => {
+      const on = () => {
         const id = g.dataset.id!;
         map.classList.add('hovering');
         g.classList.add('hot');
-        arcs.forEach((a) => a.classList.toggle('hot', a.dataset.r!.split(' ').includes(id)));
-        tip.querySelector('strong')!.textContent = g.dataset.t!;
-        tip.querySelector('span')!.textContent = g.dataset.n!;
-        tip.style.left = g.dataset.x + '%';
-        tip.style.top = g.dataset.y + '%';
-        tip.hidden = false;
-      });
-      g.addEventListener('pointerleave', () => {
-        map.classList.remove('hovering');
-        g.classList.remove('hot');
-        arcs.forEach((a) => a.classList.remove('hot'));
-        tip.hidden = true;
-      });
+        corridors.forEach((a) => a.classList.toggle('hot', a.dataset.pair!.split(' ').includes(id)));
+        show(g.dataset.t!, g.dataset.n!, '', g.dataset.x!, g.dataset.y!);
+      };
+      g.addEventListener('pointerenter', on);
+      g.addEventListener('pointerleave', hide);
+    }
+    for (const a of corridors) {
+      const on = (e: Event) => {
+        map.classList.add('hovering');
+        corridors.forEach((c) => c.classList.toggle('hot', c === a));
+        const [from, to] = a.dataset.pair!.split(' ');
+        const city = (id: string) => map.querySelector<SVGGElement>(`.city[data-id="${id}"]`)!;
+        city(from).classList.add('hot'); city(to).classList.add('hot');
+        const tc = city(to);
+        const x = (parseFloat(city(from).dataset.x!) + parseFloat(tc.dataset.x!)) / 2;
+        const y = Math.min(parseFloat(city(from).dataset.y!), parseFloat(tc.dataset.y!)) - 4;
+        show(a.dataset.t!, a.dataset.o === 'ok' ? 'Admitted in the demo. Every rule passes and both legs settle.' : 'Refused in the demo. The lock-up has not ended, so nothing moves.', 'Click to open this corridor in the guided demo', String(x), String(Math.max(6, y)));
+        void e;
+      };
+      a.addEventListener('pointerenter', on);
+      a.addEventListener('focus', on);
+      a.addEventListener('pointerleave', hide);
+      a.addEventListener('blur', hide);
     }
   }
 </script>
 
 <style>
   .map { position: relative; width: 100%; max-width: 100%; }
-  .hit { fill: transparent; cursor: help; }
-  .arc-base { transition: stroke 200ms, opacity 200ms; }
-  .map.hovering .arc-base { opacity: 0.3; }
-  .map.hovering .arc-base.hot { opacity: 1; stroke: rgba(230, 210, 164, 0.85); stroke-width: 1.6; }
-  .map.hovering .map-card { opacity: 0.25; }
-  .map-card { transition: opacity 200ms; }
-  .city.hot text { fill: #ece8e1; }
-  .map-tip {
-    position: absolute; z-index: 3; transform: translate(-50%, calc(-100% - 1.1rem)); width: 17rem; pointer-events: none;
-    display: grid; gap: 0.25rem; background: #ece8e1; color: #2a2620; border-radius: 12px; padding: 0.75rem 0.9rem;
-    box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.8); font-size: 0.78rem; line-height: 1.45;
-  }
-  .map-tip strong { font-size: 0.86rem; font-weight: 620; color: #151412; }
   .map svg { width: 100%; height: 100%; overflow: hidden; }
-  .land { stroke: rgba(205, 195, 178, 0.34); stroke-width: 2.6; stroke-linecap: round; fill: none; }
-  .arc-base { fill: none; stroke: rgba(201, 169, 110, 0.22); stroke-width: 1.1; }
-  .arc-pulse { fill: none; stroke: url(#arc-g); stroke: #e6d2a4; stroke-width: 1.8; stroke-linecap: round; stroke-dasharray: 9 100; stroke-dashoffset: 109; opacity: 0.95; animation: travel 7.2s linear infinite; filter: drop-shadow(0 0 4px rgba(230, 210, 164, 0.7)); }
+  .land { stroke: #bdb7aa; stroke-width: 2.6; stroke-linecap: round; fill: none; }
+  .hit { fill: transparent; cursor: help; }
+  .corridor { cursor: pointer; outline: none; }
+  .arc-hit { fill: none; stroke: transparent; stroke-width: 14; }
+  .arc-base { fill: none; stroke: rgba(15, 92, 74, 0.28); stroke-width: 1.1; transition: stroke 200ms, opacity 200ms, stroke-width 200ms; }
+  .arc-pulse { fill: none; stroke: #0f5c4a; stroke-width: 1.8; stroke-linecap: round; stroke-dasharray: 9 100; stroke-dashoffset: 109; opacity: 0.9; animation: travel 7.2s linear infinite; }
   @keyframes travel { from { stroke-dashoffset: 109; } to { stroke-dashoffset: 0; } }
-  .node { fill: #ece8e1; }
-  .ring { fill: none; stroke: #e6d2a4; stroke-width: 1.2; transform-box: fill-box; transform-origin: center; animation: ping 3.6s ease-out infinite; }
+  .map.hovering .arc-base { opacity: 0.35; }
+  .map.hovering .corridor.hot .arc-base { opacity: 1; stroke: #0f5c4a; stroke-width: 2; }
+  .map.hovering .corridor:not(.hot) .arc-pulse { opacity: 0.2; }
+  .corridor:focus-visible .arc-base { stroke: #0f5c4a; stroke-width: 2.4; opacity: 1; }
+  .map.hovering .map-card { opacity: 0.35; }
+  .map-card { transition: opacity 200ms; }
+  .node { fill: #14161a; }
+  .ring { fill: none; stroke: #0f5c4a; stroke-width: 1.2; transform-box: fill-box; transform-origin: center; animation: ping 3.6s ease-out infinite; }
   .city:nth-of-type(2n) .ring { animation-delay: 1.2s; }
   .city:nth-of-type(3n) .ring { animation-delay: 2.1s; }
-  @keyframes ping { 0% { transform: scale(1); opacity: 0.9; } 70%, 100% { transform: scale(4.2); opacity: 0; } }
-  .city text { font: 500 13px var(--f-ui); fill: #b5afa5; letter-spacing: 0.01em; }
-  .map-card {
-    position: absolute; transform: translate(-50%, 1.6rem); display: grid; gap: 0.15rem; width: 14.5rem;
-    background: rgba(22, 21, 19, 0.86); border: 1px solid var(--hair-2); border-radius: 14px; padding: 0.85rem 1rem;
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 24px 48px -24px rgba(0, 0, 0, 0.7); font-size: 0.78rem; line-height: 1.4; color: var(--text-2);
+  @keyframes ping { 0% { transform: scale(1); opacity: 0.8; } 70%, 100% { transform: scale(4); opacity: 0; } }
+  .city text { font: 500 13px var(--f-ui); fill: #4a4f57; }
+  .city.hot text { fill: #14161a; font-weight: 600; }
+  .city.hot .node { fill: #0f5c4a; }
+  .map-tip {
+    position: absolute; z-index: 3; transform: translate(-50%, calc(-100% - 1rem)); width: 17rem; pointer-events: none;
+    display: grid; gap: 0.25rem; background: #14161a; color: #d9d6cf; border-radius: 8px; padding: 0.7rem 0.85rem;
+    box-shadow: 0 16px 36px -16px rgba(20, 22, 26, 0.5); font-size: 0.78rem; line-height: 1.45;
   }
+  .map-tip[hidden] { display: none; }
+  .map-tip strong { font-size: 0.84rem; font-weight: 600; color: #fff; }
+  .map-tip em { font-style: normal; color: #a8d8c6; font-size: 0.74rem; }
+  .map-tip em:empty { display: none; }
+  .map-card {
+    position: absolute; transform: translate(-50%, 1.6rem); display: grid; gap: 0.15rem; width: 14.5rem; text-decoration: none;
+    background: rgba(255, 255, 255, 0.94); border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 0.95rem;
+    box-shadow: var(--shadow); font-size: 0.78rem; line-height: 1.4; color: var(--ink-2);
+  }
+  .map-card:hover { border-color: var(--line-2); }
   .map-card.no { transform: translate(-96%, 2.2rem); }
   .map-card.ok { transform: translate(-58%, 2rem); }
-  .map-card strong { color: var(--text); font-weight: 560; font-size: 0.95rem; }
-  .mc-k { color: var(--text-3); font-size: 0.75rem; }
+  .map-card strong { color: var(--ink); font-weight: 600; font-size: 0.92rem; }
+  .mc-k { color: var(--ink-3); font-size: 0.74rem; }
   .mc-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0 0.1rem; }
   .pill { font-weight: 650; font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 999px; }
-  .pill.ok { color: #0b1a14; background: var(--verdigris); }
-  .pill.no { color: #24100b; background: var(--coral); }
+  .pill.ok { color: var(--white); background: var(--green); }
+  .pill.no { color: var(--white); background: var(--coral); }
   @media (max-width: 760px) {
-    .map-card { position: static; transform: none !important; margin-top: 0.75rem; }
+    .map-card { position: static; transform: none !important; margin-top: 0.75rem; width: auto; }
     .map { aspect-ratio: auto !important; }
     .map svg { height: auto; }
+    .map-tip { display: none; }
   }
   @media (prefers-reduced-motion: reduce) { .arc-pulse { animation: none; stroke-dasharray: none; opacity: 0.35; } .ring { animation: none; opacity: 0; } }
 </style>

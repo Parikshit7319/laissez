@@ -43,6 +43,7 @@ function ctxFor(c: RegressionCase): { ctx: Ctx; issued: string[] } {
   const cp = c.counterparty ? materialize(c.counterparty) : null;
   const fund = clone(FUNDS[c.fund]);
   fund.distribution = { ...fund.distribution, ...clone(c.distribution ?? {}) };
+  Object.assign(fund, clone(c.fund_patch ?? {}));
   const hitName = c.screenHit === 'investor' ? inv.investor.name : c.screenHit === 'counterparty' ? cp?.investor.name : undefined;
   const ctx: Ctx = {
     ...base,
@@ -117,7 +118,10 @@ for (const c of NEW_CLASSES) {
   check(sourceIds.has(c.source_id), `${c.code} source ${c.source_id} is on /sources`);
   check(knownJur.has(c.jurisdiction), `${c.code} jurisdiction exists`);
 }
-const testSubjects: Record<string, string[]> = { GB_PRO: ['entity'], GB_EPRO: ['individual', 'entity'], JP_QII: ['individual', 'entity'], ADGM_PRO: ['individual', 'entity'] };
+const testSubjects: Record<string, string[]> = {
+  GB_PRO: ['entity'], GB_EPRO: ['individual', 'entity'], JP_QII: ['individual', 'entity'], ADGM_PRO: ['individual', 'entity'],
+  US_QP: ['individual', 'entity'], US_QIB: ['entity'], US_IAI: ['entity'], IN_AI: ['individual', 'entity'], IN_LRS: ['individual'], IFSCA_PRO: ['individual', 'entity'],
+};
 for (const [code, subjects] of Object.entries(testSubjects)) for (const s of subjects) check(TESTS.some((t) => t.code === code && t.subject === s), `${code} has an ${s} threshold test`);
 for (const [j, l] of Object.entries(NEW_LAW)) {
   check(sourceIds.has(l.lawSource), `${j} law source ${l.lawSource} is on /sources`);
@@ -126,7 +130,13 @@ for (const [j, l] of Object.entries(NEW_LAW)) {
   const d = lawDefaults(j, true);
   check(!!d && d.lawRequires === l.lawRequires && d.basis === 'Regulation S offer', `${j} registered into EXTRA_LAW for issuers`);
 }
-for (const b of NEW_BOOKING_CENTERS) check(sourceIds.has(b.source) && (!b.requires || !!base.classInfo[b.requires]), `${b.id} booking center references exist`);
+for (const b of NEW_BOOKING_CENTERS) check(sourceIds.has(b.source) && (!b.requires || !!base.classInfo[b.requires]) && ((b as any).requiresAny ?? []).every((c: string) => !!base.classInfo[c]), `${b.id} booking center references exist`);
+check(!!base.classInfo.SG_AI.requiresOptIn && base.classInfo.SG_AI.optInLabel === 'opt-in', 'SG_AI carries its opt-in label');
+check(!!base.classInfo.GB_EPRO.requiresOptIn && base.classInfo.GB_EPRO.optInLabel === 'written opt-up', 'GB_EPRO carries its written opt-up label');
+check(!base.classInfo.JP_QII.requiresOptIn && base.classInfo.JP_QII.optInLabel === 'FSA notification', 'JP_QII records the FSA notification label without a separate consent step');
+check(NEW_LAW.GB.lawRequiresAny?.length === 2 && NEW_LAW.GB.accepts.includes('GB_EPRO'), 'GB law accepts per se or elective professional clients');
+check(packsAsOf(RULE_PACKS, '2026-10-02')['US/eligibility'] === '2026.10.0' && packsAsOf(RULE_PACKS, '2026-10-02')['IN/eligibility'] === '2026.10.0', 'US 2026.10.0 and IN 2026.10.0 in force from 2026-10-02');
+check(packsAsOf(RULE_PACKS, '2025-01-15')['global/sanctions'] === '2024-01-01' && packsAsOf(RULE_PACKS, '2025-08-25')['global/sanctions'] === '2025-08-25' && packsAsOf(RULE_PACKS, '2026-09-30')['global/sanctions'] === '2025-08-25', 'sanctions pack history resolves by date');
 
 // Threshold boundaries for the new classes.
 const t = (code: string, kind: string, e: Record<string, number | boolean>) => findTest(code, kind)!.check(e).pass;
@@ -139,9 +149,21 @@ check(t('JP_QII', 'Corporate', { securities_balance: 1_000_000_000, fsa_notifica
 check(!t('JP_QII', 'Corporate', { securities_balance: 5_000_000_000 }), 'JP_QII corporation needs FSA notification');
 check(!t('ADGM_PRO', 'Corporate', { balance_sheet: 20_000_000, own_funds: 999_999 }), 'ADGM_PRO entity fails at 1 of 3 without experience');
 check(t('ADGM_PRO', 'Corporate', { own_funds: 1_000_000, experience: true }), 'ADGM_PRO assessed undertaking at exactly US$1M with experience');
+check(t('US_QP', 'Individual', { investments: 5_000_000 }) && !t('US_QP', 'Individual', { investments: 4_999_999 }), 'US_QP individual at $5M, not one dollar under');
+check(t('US_QP', 'Corporate', { family_company: true, investments: 5_000_000 }) && !t('US_QP', 'Corporate', { investments: 24_999_999 }) && t('US_QP', 'Corporate', { investments: 25_000_000 }), 'US_QP family company at $5M, other entities at $25M');
+check(t('US_QIB', 'Corporate', { securities: 100_000_000 }) && !t('US_QIB', 'Corporate', { securities: 99_999_999 }), 'US_QIB at $100M');
+check(t('US_QIB', 'Corporate', { registered_dealer: true, securities: 10_000_000 }) && !t('US_QIB', 'Corporate', { bank: true, securities: 100_000_000, net_worth: 24_999_999 }), 'US_QIB dealer at $10M; bank needs $25M net worth');
+check(t('US_IAI', 'Corporate', { total_assets: 5_000_001 }) && !t('US_IAI', 'Corporate', { total_assets: 5_000_000 }), 'US_IAI organization needs total assets over $5M');
+check(t('IN_AI', 'Individual', { annual_income: 20_000_000 }) && !t('IN_AI', 'Individual', { annual_income: 9_999_999, net_worth: 74_999_999, financial_assets: 37_500_000 }), 'IN_AI individual at INR 2 crore income, not under; net worth needs INR 7.5 crore');
+check(t('IN_AI', 'Individual', { net_worth: 75_000_000, financial_assets: 37_500_000 }) && !t('IN_AI', 'Individual', { net_worth: 75_000_000, financial_assets: 37_499_999 }), 'IN_AI net worth route needs INR 3.75 crore financial');
+check(t('IN_AI', 'Individual', { annual_income: 10_000_000, net_worth: 50_000_000, financial_assets: 25_000_000 }) && !t('IN_AI', 'Individual', { annual_income: 10_000_000, net_worth: 50_000_000, financial_assets: 24_999_999 }), 'IN_AI combined route: INR 1 crore income plus INR 5 crore net worth, half financial');
+check(t('IN_AI', 'Corporate', { net_worth: 500_000_000 }) && !t('IN_AI', 'Corporate', { net_worth: 499_999_999 }), 'IN_AI body corporate at INR 50 crore');
+check(t('IN_LRS', 'Individual', { resident_individual: true, pan: true, remitted_this_fy_usd: 249_999 }) && !t('IN_LRS', 'Individual', { resident_individual: true, pan: true, remitted_this_fy_usd: 250_000 }) && !t('IN_LRS', 'Individual', { resident_individual: true, remitted_this_fy_usd: 0 }), 'IN_LRS needs a resident individual with PAN and allowance left');
+check(t('IFSCA_PRO', 'Individual', { annual_income: 200_000 }) && !t('IFSCA_PRO', 'Individual', { annual_income: 199_999, net_assets: 1_000_000, financial_assets: 499_999 }) && t('IFSCA_PRO', 'Individual', { net_assets: 1_000_000, financial_assets: 500_000 }), 'IFSCA_PRO individual at US$200K income or US$1M net assets with US$500K financial');
+check(t('IFSCA_PRO', 'Corporate', { net_worth: 5_000_000 }) && !t('IFSCA_PRO', 'Corporate', { net_worth: 4_999_999 }), 'IFSCA_PRO body corporate at US$5M');
 
 // Placement limits cover every jurisdiction the reporting module uses.
-for (const j of ['SG', 'HK', 'CH', 'DE', 'AE-DIFC', 'US', 'GB', 'JP', 'AE-ADGM', 'LU', 'IE']) check(PLACEMENT_LIMITS.some((l) => l.jurisdiction === j), `placement limits cover ${j}`);
+for (const j of ['SG', 'HK', 'CH', 'DE', 'AE-DIFC', 'US', 'GB', 'JP', 'AE-ADGM', 'LU', 'IE', 'IN']) check(PLACEMENT_LIMITS.some((l) => l.jurisdiction === j), `placement limits cover ${j}`);
 for (const l of PLACEMENT_LIMITS) {
   check(/^https:\/\//.test(l.source_url), `${l.jurisdiction} ${l.citation} has an https source`);
   check(l.number === null || l.unit !== null, `${l.jurisdiction} ${l.citation} gives a unit for its number`);

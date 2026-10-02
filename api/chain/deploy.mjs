@@ -79,6 +79,8 @@ export async function deploy({ rpcUrl, operatorKey, claimKey, custodySeed, outFi
   // Shared compliance module (one proxy; it keeps allowed countries per compliance contract).
   const camImpl = await deployStep('countryAllowModuleImplementation', 'CountryAllowModule');
   const cam = await deployStep('countryAllowModule', 'ModuleProxy', [camImpl, encodeFunctionData({ abi: A.CountryAllowModule.abi, functionName: 'initialize' })]);
+  // Laissez claim expiry module (plug and play, shared by every fund compliance): blocks receivers whose claim has expired.
+  const claimExpiryModule = await deployStep('claimExpiryModule', 'ClaimExpiryModule');
 
   // Laissez contracts.
   const cash = {};
@@ -115,6 +117,7 @@ export async function deploy({ rpcUrl, operatorKey, claimKey, custodySeed, outFi
     const token = await deployStep(p('token'), 'Token');
     await callStep(p('token.init'), token, 'Token', 'init', [ir, mc, f.name, f.symbol, DECIMALS, zeroAddress]);
     await callStep(p('compliance.addCountryModule'), mc, 'ModularCompliance', 'addModule', [cam]);
+    await callStep(p('compliance.addClaimExpiryModule'), mc, 'ModularCompliance', 'addModule', [claimExpiryModule]);
     const countries = countriesFor(f.jurisdictions);
     await callStep(p('compliance.allowCountries'), mc, 'ModularCompliance', 'callModuleFunction', [encodeFunctionData({ abi: A.CountryAllowModule.abi, functionName: 'batchAllowCountries', args: [countries] }), cam]);
     for (const [who, addr] of [['operator', operator.address], ['onboarder', onboarder]]) await callStep(p(`identityRegistry.agent.${who}`), ir, 'IdentityRegistry', 'addAgent', [addr]);
@@ -130,7 +133,7 @@ export async function deploy({ rpcUrl, operatorKey, claimKey, custodySeed, outFi
   const blocks = Object.values(state.steps).map((s) => s.block);
   state.deployment = {
     network: net.network, chainId, explorer: net.explorer, operator: operator.address, claimSigner, claimTopic: Number(CLAIM_TOPIC),
-    contracts: { identityImplementation: identityImpl, identityImplementationAuthority: identityIA, idFactory, claimIssuer, countryAllowModuleImplementation: camImpl, countryAllowModule: cam, onboarder, dvp, auditAnchor, multicall3, cash },
+    contracts: { identityImplementation: identityImpl, identityImplementationAuthority: identityIA, idFactory, claimIssuer, countryAllowModuleImplementation: camImpl, countryAllowModule: cam, claimExpiryModule, onboarder, dvp, auditAnchor, multicall3, cash },
     identityInitCodeHash: identityInitCodeHash(identityIA, idFactory),
     autoFundTestCash,
     funds,

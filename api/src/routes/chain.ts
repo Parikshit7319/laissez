@@ -3,7 +3,8 @@
 import { z } from 'zod';
 import { router, need, body } from '../http';
 import { ApiError } from '../util';
-import { loadDeployment, chainOverview, investorChainView, runRecon, resolveBreak, simulateBreak, txUrl, addressUrl, verifyProof } from '../chain';
+import { loadDeployment, chainOverview, investorChainView, runRecon, resolveBreak, simulateBreak, retryChainJob, cancelChainJob, txUrl, addressUrl, verifyProof } from '../chain';
+import { pageParams, pageOut } from '../pagination';
 
 export const routes = router();
 
@@ -17,14 +18,40 @@ routes.get('/chain/investors/:id', async (c) => {
   return c.json(await investorChainView(c.get('admin'), c.env, c.get('ws'), c.req.param('id')));
 });
 
+const jobOut = (dep: any, r: any) => ({ ...r, transactions: (r.tx_hashes ?? []).map((h: string) => ({ hash: h, url: txUrl(dep, h) })), retryable: r.status === 'failed' || (r.status === 'queued' && r.attempts > 0), cancellable: (r.status === 'queued' || r.status === 'failed') && !(r.tx_hashes ?? []).length });
+
+/** Chain jobs, newest first. Filters: status, kind. Cursor pagination (limit, cursor). */
 routes.get('/chain/jobs', async (c) => {
   need(c, 'read');
-  const admin = c.get('admin');
+  const admin = c.get('admin'); const ws = c.get('ws');
+  const page = pageParams(c, 50, 200);
+  const status = c.req.query('status') || null; const kind = c.req.query('kind') || null;
   const [dep, rows] = await Promise.all([
     loadDeployment(admin),
-    admin`select id, kind, ref, status, attempts, tx_hashes, block, error, created_at, updated_at, payload - 'sent' as payload from chain_jobs where workspace_id = ${c.get('ws')} order by created_at desc limit 50`,
+    admin`select id, kind, ref, status, attempts, retries, retried_at, retried_by, cancelled_at, cancelled_by, tx_hashes, block, error, created_at, updated_at, payload - 'sent' as payload
+      from chain_jobs where workspace_id = ${ws}
+        and (${status}::text is null or status = ${status}) and (${kind}::text is null or kind = ${kind})
+        and (${page.at}::timestamptz is null or (created_at, id) < (${page.at}::timestamptz, ${page.id}))
+      order by created_at desc, id desc limit ${page.limit + 1}`,
   ]);
-  return c.json({ data: rows.map((r: any) => ({ ...r, transactions: (r.tx_hashes ?? []).map((h: string) => ({ hash: h, url: txUrl(dep, h) })) })) });
+  const out = pageOut(rows as any[], page);
+  const [counts] = await admin`select count(*) filter (where status = 'queued')::int as queued, count(*) filter (where status = 'running')::int as running, count(*) filter (where status = 'failed')::int as failed from chain_jobs where workspace_id = ${ws}`;
+  return c.json({ ...out, data: out.data.map((r: any) => jobOut(dep, r)), counts });
+});
+
+routes.post('/chain/jobs/:id/retry', async (c) => {
+  const a = need(c, 'compliance:write');
+  const job = await retryChainJob(c.get('admin'), c.env, c.get('ws'), c.req.param('id'), a);
+  const dep = await loadDeployment(c.get('admin'));
+  return c.json(jobOut(dep, job));
+});
+
+routes.post('/chain/jobs/:id/cancel', async (c) => {
+  const a = need(c, 'compliance:write');
+  const { reason } = await body(c, z.object({ reason: z.string().trim().max(300).optional() }));
+  const job = await cancelChainJob(c.get('admin'), c.get('ws'), c.req.param('id'), a, reason || `Cancelled by ${a.name} before anything was sent on chain.`);
+  const dep = await loadDeployment(c.get('admin'));
+  return c.json(jobOut(dep, job));
 });
 
 routes.post('/reconciliation/run', async (c) => {
@@ -49,7 +76,9 @@ routes.get('/reconciliation', async (c) => {
 routes.post('/reconciliation/breaks/:id/resolve', async (c) => {
   const a = need(c, 'compliance:write');
   const b = await body(c, z.object({ resolution: z.enum(['adjust_register', 'investigated']), note: z.string().trim().max(500).optional() }));
-  return c.json(await resolveBreak(c.get('admin'), c.env, c.get('ws'), c.req.param('id'), b.resolution, b.note ?? null, a));
+  // Every resolution carries a note: the audit log has to say what was found, not only what was done.
+  if (!b.note || b.note.length < 3) throw new ApiError(422, 'note_required', 'Write a short note on what you found before resolving the break. It goes in the audit log with your name.');
+  return c.json(await resolveBreak(c.get('admin'), c.env, c.get('ws'), c.req.param('id'), b.resolution, b.note, a));
 });
 
 routes.post('/reconciliation/simulate-break', async (c) => {

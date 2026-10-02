@@ -4,11 +4,30 @@
 // stricter one binds and the trace says which.
 
 import {
-  SIM_DATE, type Jur, type ClassCode, type Fund, type Investor, type BookingCenter,
+  SIM_DATE, type Jur, type ClassCode, type Fund, type Investor, type BookingCenter, type Classification,
   classInfo, bookingCenters, funds as FUNDS, investors as INVESTORS, jurName, sanctionedJurisdictions,
 } from './data';
 
-export type ClassMeta = { label: string; stamp: string; jur: Jur; rule: string; source: string; threshold: string };
+export type ClassMeta = {
+  label: string; stamp: string; jur: Jur; rule: string; source: string; threshold: string;
+  /** The class only counts once the investor has consented (SG_AI opt-in, GB_EPRO written opt-up, JP_QII FSA notification). */
+  requiresOptIn?: boolean;
+  /** How that consent is described in checks and remedies, for example "opt-in" or "written opt-up". */
+  optInLabel?: string;
+};
+/** A fund's distribution entry. lawRequiresAny lists the classes the law accepts (any one suffices); lawRequires stays for compatibility. */
+export type DistEntry = NonNullable<Fund['distribution'][string]> & { lawRequiresAny?: ClassCode[] | null };
+/** Fund fields added after the launch data model. The API fills them from the fund record; the demo leaves them unset. */
+export type FundExt = Fund & {
+  /** Regulation S issuer category (Rule 903(b)). Category 3 carries a distribution compliance period on resales to U.S. persons. */
+  regSCategory?: number | null;
+  /** Date the Regulation S offering began; the distribution compliance period runs from it. */
+  offeringDate?: string | null;
+  /** Debt securities carry a 40-day period, equity one year (Rule 903(b)(3)). Fund units are equity unless stated. */
+  regSSecurityType?: 'debt' | 'equity' | null;
+};
+/** Public holidays by calendar key (the fund's cutoffTz), as ISO dates. Weekends are never dealing days regardless. */
+export type Calendars = Record<string, readonly string[]>;
 /** A potential watchlist match. score is a 0 to 1 name similarity; source is the list (OFAC-SDN, UN, EU, UK). */
 export type ScreenHit = { entry: string; program: string; score?: number; source?: string };
 /** A fund document an investor must acknowledge before receiving units. */
@@ -42,6 +61,10 @@ export type Ctx = {
   redeemedInPeriod?: Record<string, number>;
   /** Pending redemption notices keyed `${investorId}:${ticker}`. */
   notices?: Record<string, Notice[]>;
+  /** Public holidays keyed by the fund's cutoffTz. When present, dealing dates skip them. */
+  calendars?: Calendars;
+  /** USD already remitted this Indian financial year under the LRS, keyed by investor id. Overrides the figure recorded on the IN_LRS classification. */
+  lrsRemitted?: Record<string, number>;
 };
 export const defaultCtx: Ctx = {
   investors: INVESTORS, funds: FUNDS, classInfo, bookingCenters, jurName, sanctioned: sanctionedJurisdictions as Record<string, string>, today: SIM_DATE,
@@ -88,7 +111,11 @@ export type Check = {
   subject?: string;
 };
 
-export type Requirement = { jur: Jur; code: ClassCode; optIn: boolean; layer: Layer; ruleRef: string; source: string; text: string };
+/**
+ * A class requirement from one layer. `codes` lists the classes that satisfy it (any one suffices); `code` is the
+ * class the investor met, or the first listed when none was met. `optIn` is true when the met (or first) class needs consent.
+ */
+export type Requirement = { jur: Jur; code: ClassCode; codes: ClassCode[]; optIn: boolean; layer: Layer; ruleRef: string; source: string; text: string };
 
 export type Outcome = 'ALLOW' | 'DENY' | 'FREEZE';
 export type Decision = {
@@ -126,6 +153,67 @@ function validClass(inv: Investor, code: ClassCode) {
 function anyClass(inv: Investor, code: ClassCode) {
   return inv.classifications.find((c) => c.code === code);
 }
+/** Whether a class only counts with the investor's consent, and what that consent is called. Falls back to the launch rule (SG_AI opt-in). */
+function optInRule(code: ClassCode): { required: boolean; label: string } {
+  const meta = C.classInfo[code];
+  const required = meta?.requiresOptIn ?? code === 'SG_AI';
+  return { required, label: meta?.optInLabel || 'opt-in' };
+}
+const classLabel = (code: ClassCode) => C.classInfo[code]?.label ?? code;
+/** "Accredited investor with opt-in" style label for one class. */
+function classWithConsent(code: ClassCode): string {
+  const o = optInRule(code);
+  return `${classLabel(code)}${o.required ? ` with ${o.label}` : ''}`;
+}
+/**
+ * Tests a class requirement that any one of `codes` satisfies, honoring each class's consent rule.
+ * Returns the class that was met, a lapsed one if any, and the pass flag.
+ */
+function meetsAny(inv: Investor, codes: ClassCode[]): { pass: boolean; met?: ClassCode; metOn?: Classification; lapsed?: Classification; consentMissing?: ClassCode } {
+  let lapsed: Classification | undefined;
+  let consentMissing: ClassCode | undefined;
+  for (const code of codes) {
+    const cl = validClass(inv, code);
+    if (cl) {
+      const o = optInRule(code);
+      if (!o.required || cl.optIn) return { pass: true, met: code, metOn: cl };
+      consentMissing ??= code;
+      continue;
+    }
+    lapsed ??= anyClass(inv, code);
+  }
+  return { pass: false, lapsed, consentMissing };
+}
+/** Classes a distribution entry's law accepts: lawRequiresAny when present, else lawRequires. */
+function lawCodes(dist: DistEntry): ClassCode[] {
+  if (Array.isArray(dist.lawRequiresAny) && dist.lawRequiresAny.length) return dist.lawRequiresAny;
+  return dist.lawRequires ? [dist.lawRequires] : [];
+}
+const joinOr = (xs: string[]) => xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs[xs.length - 1]}`;
+
+// ---------- India: Liberalised Remittance Scheme ----------
+/** RBI LRS ceiling per resident individual per Indian financial year (April to March), in USD. Master Direction No. 7/2015-16. */
+export const LRS_LIMIT_USD = 250_000;
+/** Fixed demo rate for EUR-denominated funds. The LRS counts USD equivalents; a live deployment would use the remitting bank's rate. */
+export const DEMO_EUR_USD = 1.10;
+/** Indian financial year label for a date, for example "2026-27" for any date from 2026-04-01 to 2027-03-31. */
+export function indianFinancialYear(date: string): string {
+  const y = Number(date.slice(0, 4)); const m = Number(date.slice(5, 7));
+  const start = m >= 4 ? y : y - 1;
+  return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
+}
+/** USD already remitted this financial year: the context override, else the figure recorded on the IN_LRS classification. */
+function lrsRemittedOf(inv: Investor): number {
+  const o = C.lrsRemitted?.[inv.id];
+  if (typeof o === 'number' && Number.isFinite(o)) return o;
+  const cl = anyClass(inv, 'IN_LRS') as (Classification & { evidence?: Record<string, unknown> }) | undefined;
+  const ev = cl?.evidence?.remitted_this_fy_usd;
+  if (typeof ev === 'number' && Number.isFinite(ev)) return ev;
+  const m = /remitted_this_fy_usd\s*[=:]\s*([\d.]+)/.exec(cl?.basis ?? '');
+  return m ? Number(m[1]) : 0;
+}
+/** Order amount in USD for the LRS test. */
+const usdOf = (amount: number, ccy: string) => (ccy === 'EUR' ? Math.round(amount * DEMO_EUR_USD * 100) / 100 : amount);
 
 function applyWhatIfs(order: Order, whatIfs: WhatIf[]) {
   const investor = clone(C.investors[order.investorId]);
@@ -154,7 +242,7 @@ function applyWhatIfs(order: Order, whatIfs: WhatIf[]) {
 }
 
 /** Eligibility of one party to receive units, across fund, residence and booking layers. */
-function eligibilityChecks(inv: Investor, fund: Fund, layerPrefix: '' | 'Counterparty', isExistingHolder: boolean): { checks: Check[]; reqs: Requirement[] } {
+function eligibilityChecks(inv: Investor, fund: Fund, layerPrefix: '' | 'Counterparty', isExistingHolder: boolean, orderAmount = 0): { checks: Check[]; reqs: Requirement[] } {
   const checks: Check[] = [];
   const reqs: Requirement[] = [];
   const who = inv.short;
@@ -171,7 +259,7 @@ function eligibilityChecks(inv: Investor, fund: Fund, layerPrefix: '' | 'Counter
   }
 
   // Fund policy: distribution list
-  const dist = fund.distribution[inv.residence];
+  const dist = fund.distribution[inv.residence] as DistEntry | undefined;
   if (!dist) {
     checks.push({ id: 'dist', layer: L('Fund policy'), subject: who, label: `Offered in ${C.jurName[inv.residence]}`, result: 'fail',
       detail: `The issuer has not approved ${fund.short} for investors resident in ${C.jurName[inv.residence]}.`,
@@ -196,34 +284,67 @@ function eligibilityChecks(inv: Investor, fund: Fund, layerPrefix: '' | 'Counter
       remedy: lapsed ? `Re-verify ${C.classInfo[lapsed.code].label} status with current evidence.` : `Only investors who qualify as ${fundNeed} can hold this fund in ${C.jurName[inv.residence]}.` });
   }
 
-  // Residence law
-  if (dist.lawRequires) {
-    const code = dist.lawRequires;
-    const needOptIn = code === 'SG_AI';
-    const cl = validClass(inv, code);
-    const pass = !!cl && (!needOptIn || !!cl.optIn);
-    reqs.push({ jur: inv.residence, code, optIn: needOptIn, layer: L('Residence law'), ruleRef: dist.lawRef, source: dist.lawSource, text: dist.lawText });
-    checks.push({ id: 'law', layer: L('Residence law'), subject: who, label: `${C.jurName[inv.residence]}: ${C.classInfo[code].label}${needOptIn ? ' with opt-in' : ''}`,
-      result: pass ? 'pass' : 'fail',
-      detail: pass ? `${dist.lawText} ${needOptIn ? `Opt-in recorded on ${cl!.optIn}.` : ''}`.trim() : dist.lawText,
+  // Residence law. The law may accept more than one class (GB: per se or elective professional); any one suffices.
+  const codes = lawCodes(dist);
+  if (codes.length) {
+    const m = meetsAny(inv, codes);
+    const primary = m.met ?? codes[0];
+    const o = optInRule(primary);
+    const need = joinOr(codes.map(classWithConsent));
+    reqs.push({ jur: inv.residence, code: primary, codes, optIn: o.required, layer: L('Residence law'), ruleRef: dist.lawRef, source: dist.lawSource, text: dist.lawText });
+    const consentNote = m.pass && o.required ? ` ${classLabel(primary)} ${o.label} recorded on ${m.metOn!.optIn}.` : '';
+    const whyNot = !m.pass && m.consentMissing ? ` ${who} holds ${classLabel(m.consentMissing)} status but no ${optInRule(m.consentMissing).label} is recorded.` : !m.pass && m.lapsed ? ` ${who}'s ${classLabel(m.lapsed.code)} status expired on ${m.lapsed.expires}.` : '';
+    checks.push({ id: 'law', layer: L('Residence law'), subject: who, label: `${C.jurName[inv.residence]}: ${need}`,
+      result: m.pass ? 'pass' : 'fail',
+      detail: `${dist.lawText}${consentNote}${whyNot}`.trim(),
       ruleRef: dist.lawRef, source: dist.lawSource,
-      remedy: pass ? undefined : `Investor must qualify as ${C.classInfo[code].label} in ${C.jurName[inv.residence]}.` });
+      remedy: m.pass ? undefined : m.consentMissing ? `Record the investor's ${optInRule(m.consentMissing).label} for ${classLabel(m.consentMissing)} status in ${C.jurName[inv.residence]}.` : `Investor must qualify as ${need} in ${C.jurName[inv.residence]}.` });
   } else {
     checks.push({ id: 'law', layer: L('Residence law'), subject: who, label: `${C.jurName[inv.residence]}: no investor-class restriction`, result: 'pass', detail: dist.lawText, ruleRef: dist.lawRef, source: dist.lawSource });
   }
 
-  // Booking-center licence
-  const bc = C.bookingCenters[inv.booking];
-  if (bc?.requires) {
-    const cl = validClass(inv, bc.requires);
-    const optIn = bc.requires === 'SG_AI';
-    const pass = !!cl && (!optIn || !!cl.optIn);
-    reqs.push({ jur: bc.jur, code: bc.requires, optIn, layer: L('Booking-center licence'), ruleRef: bc.ruleRef, source: bc.source, text: bc.ruleText });
-    checks.push({ id: 'booking', layer: L('Booking-center licence'), subject: who, label: `Booked in ${bc.name}: ${C.classInfo[bc.requires].label}`, result: pass ? 'pass' : 'fail',
-      detail: bc.ruleText, ruleRef: bc.ruleRef, source: bc.source,
-      remedy: pass ? undefined : `Classify the client as ${C.classInfo[bc.requires].label} under ${bc.ruleRef}, or book the order through a center whose rules the client meets.` });
+  // India: a resident individual acquires foreign fund units out of the LRS allowance (USD 250,000 per financial year, April to March).
+  if (inv.residence === 'IN' && (inv.kind.toLowerCase() === 'individual' || anyClass(inv, 'IN_LRS'))) {
+    const remitted = lrsRemittedOf(inv);
+    const thisOrder = usdOf(orderAmount, fund.currency);
+    const total = Math.round((remitted + thisOrder) * 100) / 100;
+    const pass = total <= LRS_LIMIT_USD;
+    const fy = indianFinancialYear(C.today);
+    const conv = fund.currency === 'EUR' ? ` (${money(orderAmount, 'EUR')} at a fixed demo rate of ${DEMO_EUR_USD} USD per EUR)` : '';
+    const headroom = Math.max(0, LRS_LIMIT_USD - remitted);
+    checks.push({ id: 'lrs', layer: L('Residence law'), subject: who, label: `RBI Liberalised Remittance Scheme: USD ${fmt(LRS_LIMIT_USD)} per financial year`, result: pass ? 'pass' : 'fail',
+      detail: pass
+        ? `${fmt(remitted, 'USD ')} already remitted in FY ${fy} plus ${fmt(thisOrder, 'USD ')} for this order${conv} is ${fmt(total, 'USD ')}, within the USD 250,000 ceiling for a resident individual.`
+        : `${fmt(remitted, 'USD ')} already remitted in FY ${fy} plus ${fmt(thisOrder, 'USD ')} for this order${conv} is ${fmt(total, 'USD ')}, over the USD 250,000 ceiling. Units of a foreign fund are an overseas portfolio investment a resident individual may only make within the LRS (FEM (Overseas Investment) Rules 2022, Schedule III).`,
+      ruleRef: 'RBI MD 7/2015-16 (LRS); OI Rules 2022 Sch. III', source: 'rbi-lrs',
+      remedy: pass ? undefined : headroom > 0 ? `Reduce the order to ${fmt(Math.floor(headroom / (fund.currency === 'EUR' ? DEMO_EUR_USD : 1)), fund.currency === 'EUR' ? '€' : '$')} or less, or place the balance after April 1 when the next financial year's allowance opens.` : `The investor has used the full LRS allowance for FY ${fy}. Place the order after April 1, when the next financial year's allowance opens.` });
   }
 
+  // Booking-center licence
+  const bc = C.bookingCenters[inv.booking] as (BookingCenter & { requiresAny?: ClassCode[] | null }) | undefined;
+  if (bc?.requires) {
+    const bcodes = Array.isArray(bc.requiresAny) && bc.requiresAny.length ? bc.requiresAny : [bc.requires];
+    const m = meetsAny(inv, bcodes);
+    const primary = m.met ?? bcodes[0];
+    const o = optInRule(primary);
+    const need = joinOr(bcodes.map(classWithConsent));
+    reqs.push({ jur: bc.jur, code: primary, codes: bcodes, optIn: o.required, layer: L('Booking-center licence'), ruleRef: bc.ruleRef, source: bc.source, text: bc.ruleText });
+    checks.push({ id: 'booking', layer: L('Booking-center licence'), subject: who, label: `Booked in ${bc.name}: ${need}`, result: m.pass ? 'pass' : 'fail',
+      detail: `${bc.ruleText}${!m.pass && m.consentMissing ? ` ${who} holds ${classLabel(m.consentMissing)} status but no ${optInRule(m.consentMissing).label} is recorded.` : ''}`, ruleRef: bc.ruleRef, source: bc.source,
+      remedy: m.pass ? undefined : m.consentMissing ? `Record the client's ${optInRule(m.consentMissing).label} for ${classLabel(m.consentMissing)} status, or book the order through a center whose rules the client meets.` : `Classify the client as ${need} under ${bc.ruleRef}, or book the order through a center whose rules the client meets.` });
+  }
+
+  // Section 3(c)(7) funds (qualified purchasers) have no 100-owner cap, but Exchange Act 12(g) registration starts at 2,000 holders of record.
+  if (!fund.holderCap && fund.usAccepts?.includes('US_QP')) {
+    const limit = 2000;
+    const after = isExistingHolder ? fund.holders : fund.holders + 1;
+    const pass = after < limit;
+    checks.push({ id: 'cap12g', layer: L('Fund policy'), subject: who, label: 'Holders of record under 2,000', result: pass ? 'pass' : 'fail',
+      detail: pass
+        ? `${fund.short} relies on Section 3(c)(7), so there is no 100-owner cap. ${fund.holders} holders of record${isExistingHolder ? `; ${who} is already one` : `, ${after} with ${who}`}. Registration under Exchange Act 12(g) is due once a class is held of record by 2,000 persons and assets exceed $10M.`
+        : `${fund.holders} holders of record. Adding ${who} reaches ${after}, the Exchange Act 12(g) threshold at which the fund must register its units (assets over $10M).`,
+      ruleRef: 'ICA §3(c)(7); Exchange Act §12(g)', source: 'us-12g', remedy: pass ? undefined : 'Place the order on the waitlist, or have the issuer confirm it will register under Section 12(g).' });
+  }
   // Holder cap applies to new holders only
   if (fund.holderCap) {
     if (isExistingHolder) {
@@ -239,21 +360,24 @@ function eligibilityChecks(inv: Investor, fund: Fund, layerPrefix: '' | 'Counter
 }
 
 function resolve(reqs: Requirement[], checks: Check[]) {
-  // Group by jurisdiction + class; opt-in variant is stricter than plain status.
+  // Group by jurisdiction + accepted classes. Within a jurisdiction a requirement that accepts fewer classes is
+  // stricter than one accepting a superset (GB_PRO alone binds over "GB_PRO or GB_EPRO"); the consent variant is
+  // stricter than plain status.
   const byKey = new Map<string, Requirement>();
   for (const r of reqs) {
-    const key = `${r.jur}:${r.code}`;
+    const key = `${r.jur}:${[...r.codes].sort().join('|')}`;
     const cur = byKey.get(key);
     if (!cur || (r.optIn && !cur.optIn)) byKey.set(key, r);
   }
-  const resolved = [...byKey.values()].map((r) => ({
-    text: `${C.classInfo[r.code].label}${r.optIn ? ' with opt-in' : ''} in ${C.jurName[r.jur]}`,
+  const kept = [...byKey.values()].filter((r) => !([...byKey.values()].some((o) => o !== r && o.jur === r.jur && o.codes.length < r.codes.length && o.codes.every((c) => r.codes.includes(c)))));
+  const resolved = kept.map((r) => ({
+    text: `${joinOr(r.codes.map(classWithConsent))} in ${C.jurName[r.jur]}`,
     layer: r.layer,
     ruleRef: r.ruleRef,
   }));
   // Mark the binding checks: the resolved requirement's source check
-  for (const r of byKey.values()) {
-    const target = checks.find((c) => c.layer === r.layer && (c.id === 'law' || c.id === 'booking') && c.label.includes(C.classInfo[r.code].label));
+  for (const r of kept) {
+    const target = checks.find((c) => c.layer === r.layer && (c.id === 'law' || c.id === 'booking') && c.label.includes(classLabel(r.code)));
     if (target) target.binding = true;
   }
   return resolved;
@@ -304,30 +428,40 @@ function addDaysISO(d: string, n: number): string {
   x.setUTCDate(x.getUTCDate() + n);
   return x.toISOString().slice(0, 10);
 }
-const isBusinessDay = (d: string) => { const w = new Date(d + 'T00:00:00Z').getUTCDay(); return w > 0 && w < 6; };
-function nextBusinessDay(d: string): string {
+/** Public holidays to skip, as a list of ISO dates or a predicate. Weekends are always skipped. */
+export type Holidays = readonly string[] | ((d: string) => boolean) | null | undefined;
+const holidayTest = (h: Holidays): ((d: string) => boolean) => {
+  if (!h) return () => false;
+  if (typeof h === 'function') return h;
+  const set = new Set(h);
+  return (d) => set.has(d);
+};
+const isBusinessDay = (d: string, hol: (d: string) => boolean = () => false) => { const w = new Date(d + 'T00:00:00Z').getUTCDay(); return w > 0 && w < 6 && !hol(d); };
+function nextBusinessDay(d: string, hol: (d: string) => boolean): string {
   let x = addDaysISO(d, 1);
-  while (!isBusinessDay(x)) x = addDaysISO(x, 1);
+  while (!isBusinessDay(x, hol)) x = addDaysISO(x, 1);
   return x;
 }
 /** Last business day of month m (1-12, may run past 12 into later years). */
-function lastBusinessDay(y: number, m: number): string {
+function lastBusinessDay(y: number, m: number, hol: (d: string) => boolean): string {
   const yy = y + Math.floor((m - 1) / 12);
   const mm = (((m - 1) % 12) + 12) % 12 + 1;
   let x = new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10);
-  while (!isBusinessDay(x)) x = addDaysISO(x, -1);
+  while (!isBusinessDay(x, hol)) x = addDaysISO(x, -1);
   return x;
 }
 /**
  * The dealing date an order received on `date` gets. `open` is true when the order arrived before the
- * cut-off, so `date` itself still counts if it is a dealing day.
+ * cut-off, so `date` itself still counts if it is a dealing day. `holidays` lists the fund's non-dealing
+ * days beyond weekends (see api/src/calendars.ts); without it, only weekends are skipped.
  */
-export function dealingDateFor(freq: DealingFrequency, date: string, open: boolean): string {
-  if (freq === 'daily') return isBusinessDay(date) && open ? date : nextBusinessDay(date);
+export function dealingDateFor(freq: DealingFrequency, date: string, open: boolean, holidays?: Holidays): string {
+  const hol = holidayTest(holidays);
+  if (freq === 'daily') return isBusinessDay(date, hol) && open ? date : nextBusinessDay(date, hol);
   const y = Number(date.slice(0, 4)); const m = Number(date.slice(5, 7));
   const endM = freq === 'monthly' ? m : Math.ceil(m / 3) * 3;
-  const cur = lastBusinessDay(y, endM);
-  return date < cur || (date === cur && open) ? cur : lastBusinessDay(y, endM + (freq === 'monthly' ? 1 : 3));
+  const cur = lastBusinessDay(y, endM, hol);
+  return date < cur || (date === cur && open) ? cur : lastBusinessDay(y, endM + (freq === 'monthly' ? 1 : 3), hol);
 }
 /** Wall-clock date and time at the fund's cut-off time zone. Falls back to UTC for an unknown zone. */
 export function fundClock(iso: string, tz: string): { date: string; hhmm: string; minutes: number; tz: string } | null {
@@ -362,18 +496,20 @@ function fundTermChecks(inv: Investor, fund: Fund, o: Order, units: number): { c
   const clock = C.now && cut !== null ? fundClock(C.now, fund.cutoffTz ?? 'UTC') : null;
   const localDate = clock?.date ?? C.today;
   const beforeCutoff = clock ? clock.minutes < cut! : true;
-  const dd = dealingDateFor(freq, localDate, beforeCutoff);
+  const hol = C.calendars?.[fund.cutoffTz ?? ''] ?? null;
+  const dd = dealingDateFor(freq, localDate, beforeCutoff, hol);
   let dealingDate: string | undefined;
   if (clock) {
     dealingDate = dd;
+    const skipped = hol && dealingDateFor(freq, localDate, beforeCutoff) !== dd ? ` A public holiday in the fund's calendar (${fund.cutoffTz}) moved the dealing date.` : '';
     checks.push({ id: 'dealing', layer: 'Fund terms', label: `Dealing cut-off ${fund.cutoffTime} (${clock.tz})`, result: 'info',
-      detail: `${FREQ_TEXT[freq]} Received ${clock.date} at ${clock.hhmm} fund time, ${beforeCutoff ? 'before' : 'after'} the cut-off, so the order deals on ${dd} at that day's NAV.` });
+      detail: `${FREQ_TEXT[freq]} Received ${clock.date} at ${clock.hhmm} fund time, ${beforeCutoff ? 'before' : 'after'} the cut-off, so the order deals on ${dd} at that day's NAV.${skipped}` });
   }
   if (o.action !== 'redeem') return { checks, dealingDate };
 
   const n = fund.noticeDays ?? 0;
   if (n > 0) {
-    const fromToday = dealingDateFor(freq, addDaysISO(localDate, n), true);
+    const fromToday = dealingDateFor(freq, addDaysISO(localDate, n), true, hol);
     const earliest = fromToday > dd ? fromToday : dd;
     const covering = (C.notices?.[`${inv.id}:${fund.ticker}`] ?? []).filter((x) => x.dealingDate <= dd);
     const covered = r2(covering.reduce((s, x) => s + Number(x.units), 0));
@@ -391,7 +527,7 @@ function fundTermChecks(inv: Investor, fund: Fund, o: Order, units: number): { c
     const used = r2(C.redeemedInPeriod?.[fund.ticker] ?? 0);
     const headroom = Math.max(0, r2(limit - used));
     const pass = r2(used + o.amount) <= limit;
-    const nextPeriod = dealingDateFor(freq, dd, false);
+    const nextPeriod = dealingDateFor(freq, dd, false, hol);
     const m = (x: number) => money(x, fund.currency);
     checks.push({ id: 'gate', layer: 'Fund terms', label: `Redemption gate: ${fund.gatePct}% of assets per dealing period`, result: pass ? 'pass' : 'fail',
       detail: pass
@@ -450,7 +586,7 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = [], ctx: Ctx = defaul
 
   // ---------- Action-specific ----------
   if (o.action === 'subscribe') {
-    const r = eligibilityChecks(inv, fund, '', !!holding);
+    const r = eligibilityChecks(inv, fund, '', !!holding, o.amount);
     checks.push(...r.checks); reqs = r.reqs;
     checks.push({ id: 'min', layer: 'Fund policy', subject: inv.short, label: `Minimum subscription ${money(fund.minSubscription, fund.currency)}`, result: o.amount >= fund.minSubscription ? 'pass' : 'fail',
       detail: `Order is ${money(o.amount, fund.currency)}.`, remedy: o.amount >= fund.minSubscription ? undefined : `Increase the order to at least ${money(fund.minSubscription, fund.currency)}.` });
@@ -480,8 +616,21 @@ export function evaluate(order: Order, whatIfs: WhatIf[] = [], ctx: Ctx = defaul
     const senderEligible = fund.distribution[inv.residence]?.accepts.some((c) => validClass(inv, c));
     checks.push({ id: 'senderStatus', layer: 'Transfer controls', subject: inv.short, label: 'Sender may transfer out', result: 'pass',
       detail: senderEligible ? `${inv.short} is an eligible holder.` : `${inv.short} is redemption-only, but outbound transfers to an eligible buyer are permitted. The buyer’s status is what the law tests.` });
+    // Regulation S distribution compliance period: a Category 3 issuer may not let offshore-bought units resell to a
+    // U.S. person for 40 days (debt) or one year (equity) from the start of the offering (Rule 903(b)(3)).
+    const ext = fund as FundExt;
+    if (ext.regSCategory === 3 && ext.offeringDate && cp.usPerson && !inv.usPerson) {
+      const debt = ext.regSSecurityType === 'debt';
+      const ends = debt ? addDaysISO(ext.offeringDate, 40) : addMonths(ext.offeringDate, 12);
+      const pass = C.today >= ends;
+      checks.push({ id: 'regSPeriod', layer: 'Transfer controls', subject: cp.short, label: `Regulation S distribution compliance period (${debt ? '40 days' : 'one year'})`, result: pass ? 'pass' : 'fail',
+        detail: pass
+          ? `${fund.short} is a Category 3 Regulation S offering that began ${ext.offeringDate}. The ${debt ? '40-day' : 'one-year'} distribution compliance period ended ${ends}, so units may now pass to a U.S. person under an available exemption.`
+          : `${fund.short} is a Category 3 Regulation S offering that began ${ext.offeringDate}. Until ${ends}, units bought offshore may not be resold to a U.S. person (${cp.short}, ${cp.city}), and the issuer must refuse to register such a transfer.`,
+        ruleRef: 'Reg S Rule 903(b)(3)', source: 'reg-s-903', remedy: pass ? undefined : `Transfers to U.S. persons open on ${ends}. Until then, transfer only to non-U.S. persons in an offshore transaction.` });
+    }
     // Receiver side
-    const r = eligibilityChecks(cp, fund, 'Counterparty', !!cp.holdings[fund.id]);
+    const r = eligibilityChecks(cp, fund, 'Counterparty', !!cp.holdings[fund.id], o.amount);
     checks.push(...r.checks); reqs = r.reqs;
     if (C.documents) checks.push(...documentChecks(cp, fund));
     if (o.amount >= 1000) {
@@ -585,6 +734,10 @@ export type Snapshot = {
   notices: Record<string, Notice[]> | null;
   /** Screening result for each involved name, as it was at decision time. */
   screen: Record<string, ScreenHit | null>;
+  /** Public holidays for the fund's calendar, when the context had one. Older snapshots lack the field. */
+  calendars?: Calendars | null;
+  /** LRS remittances for the involved investors, when the context had them. */
+  lrsRemitted?: Record<string, number> | null;
 };
 
 const pick = <T,>(src: Record<string, T> | undefined, keys: Iterable<string>): Record<string, T> => {
@@ -604,7 +757,7 @@ export function snapshotFor(order: Order, ctx: Ctx, whatIfs: WhatIf[] = []): Sna
   const jurs = new Set<string>(['US', 'IR', ...invs.map((i) => i.residence), ...Object.keys(fund?.distribution ?? {})]);
   for (const b of bookings) if (ctx.bookingCenters[b]) jurs.add(ctx.bookingCenters[b].jur);
   const classes = new Set<string>([...(fund?.usAccepts ?? []), ...invs.flatMap((i) => i.classifications.map((c) => c.code))]);
-  for (const d of Object.values(fund?.distribution ?? {})) { d?.accepts.forEach((c) => classes.add(c)); if (d?.lawRequires) classes.add(d.lawRequires); }
+  for (const d of Object.values(fund?.distribution ?? {}) as (DistEntry | undefined)[]) { d?.accepts.forEach((c) => classes.add(c)); if (d?.lawRequires) classes.add(d.lawRequires); d?.lawRequiresAny?.forEach((c) => classes.add(c)); }
   for (const b of bookings) { const r = ctx.bookingCenters[b]?.requires; if (r) classes.add(r); }
   const noticeKeys = invs.map((i) => `${i.id}:${ticker}`);
   const snap: Snapshot = {
@@ -627,6 +780,9 @@ export function snapshotFor(order: Order, ctx: Ctx, whatIfs: WhatIf[] = []): Sna
     notices: ctx.notices ? pick(ctx.notices, noticeKeys) : null,
     screen: Object.fromEntries(invs.map((i) => [i.name, ctx.screen?.(i.name) ?? null])),
   };
+  const tz = fund?.cutoffTz;
+  if (ctx.calendars && tz && ctx.calendars[tz]) snap.calendars = { [tz]: [...ctx.calendars[tz]] };
+  if (ctx.lrsRemitted) snap.lrsRemitted = pick(ctx.lrsRemitted, ids);
   return JSON.parse(JSON.stringify(snap));
 }
 
@@ -637,6 +793,7 @@ export function ctxFromSnapshot(snap: Snapshot): Ctx {
     jurName: snap.jurName, sanctioned: snap.sanctioned, today: snap.today,
     now: snap.now ?? undefined, rulePacks: snap.rulePacks ?? undefined, documents: snap.documents ?? undefined, acks: snap.acks ?? undefined,
     aum: snap.aum ?? undefined, redeemedInPeriod: snap.redeemedInPeriod ?? undefined, notices: snap.notices ?? undefined,
+    calendars: snap.calendars ?? undefined, lrsRemitted: snap.lrsRemitted ?? undefined,
     screen: (name: string) => screens[name] ?? null,
   };
 }

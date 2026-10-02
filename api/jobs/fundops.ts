@@ -1,12 +1,12 @@
 // Daily fund operations for every fund in every active organization and sandbox:
 //   1. strike the day's simulated NAV if none is recorded (daily funds on business days, monthly-valued funds at month end),
 //   2. run income accruals for distributing funds (idempotent per day and holder),
-//   3. on the last calendar day of the month, pay the month's accrued income as a distribution.
+//   3. on the last calendar day of the period (month, or quarter for quarterly funds), pay the accrued income as a distribution.
 // Run from api/: npx tsx jobs/fundops.ts [YYYY-MM-DD]   (the date defaults to today in UTC)
 import type { Sql } from '../src/db';
 import type { Actor } from '../src/http';
 import { ApiError, today } from '../src/util';
-import { loadFundRows, simulateNav, strikeNav, runAccruals, payDistribution, isLastDayOfMonth, firstDayOfMonth } from '../src/fundops-core';
+import { loadFundRows, simulateNav, strikeNav, runAccruals, payDistribution, isLastDayOfMonth, distributionDueOn, distributionPeriodStart } from '../src/fundops-core';
 import { db, log, pool, fmt } from './lib';
 
 const JOB: Actor = { kind: 'system', id: 'fundops-daily', name: 'Laissez daily fund operations' };
@@ -38,16 +38,14 @@ async function runWorkspace(sql: Sql, ws: { id: string; name: string }, date: st
       if (a.skipped) r.skipped.push(`${a.ticker}: ${a.skipped}`);
       else if (a.inserted) r.accrued.push({ ticker: a.ticker, holders: a.inserted, amount: a.amount, currency: ccy[a.ticker] });
     }
-    // 3. Month-end distributions
-    if (isLastDayOfMonth(date)) {
-      for (const f of funds.filter((x) => x.shareClassType === 'distributing')) {
-        try {
-          const d = await payDistribution(sql, ws.id, f.ticker, firstDayOfMonth(date), date, JOB);
-          r.paid.push({ ticker: f.ticker, id: d.id, amount: d.total_amount, holders: d.holders, currency: f.currency });
-        } catch (e) {
-          if (e instanceof ApiError && (e.code === 'nothing_to_pay' || e.code === 'no_nav')) r.skipped.push(`${f.ticker}: ${e.message}`);
-          else throw e;
-        }
+    // 3. Period-end distributions: month end for daily and monthly funds, quarter end for quarterly funds.
+    for (const f of funds.filter((x) => x.shareClassType === 'distributing' && distributionDueOn(x, date) === date)) {
+      try {
+        const d = await payDistribution(sql, ws.id, f.ticker, distributionPeriodStart(f, date), date, JOB);
+        r.paid.push({ ticker: f.ticker, id: d.id, amount: d.total_amount, holders: d.holders, currency: f.currency });
+      } catch (e) {
+        if (e instanceof ApiError && (e.code === 'nothing_to_pay' || e.code === 'no_nav')) r.skipped.push(`${f.ticker}: ${e.message}`);
+        else throw e;
       }
     }
   } catch (e: any) {

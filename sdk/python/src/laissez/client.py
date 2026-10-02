@@ -14,7 +14,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence, Union
 
-SDK_VERSION = "0.1.0"
+SDK_VERSION = "2026.10.2"
 DEFAULT_BASE_URL = "https://laissez-api.laissez.workers.dev"
 DEFAULT_API_VERSION = "2026-10-02"
 

@@ -11,7 +11,16 @@ import {
 } from './engine';
 import '../styles/proto.css';
 
-type Props = { sourcesHref: string };
+type Props = { sourcesHref: string; appHref?: string };
+
+/** Reads demo/#scenario=investor:fund:action from the URL, set by corridor links on the home page. */
+function scenarioFromHash(): { investorId: InvestorId; fundId: FundId; action: Action } | null {
+  if (typeof location === 'undefined') return null;
+  const m = /scenario=([a-z]+):([A-Z]+):(subscribe|transfer|redeem)/.exec(location.hash);
+  if (!m) return null;
+  if (!(m[1] in investors) || !(m[2] in funds)) return null;
+  return { investorId: m[1] as InvestorId, fundId: m[2] as FundId, action: m[3] as Action };
+}
 
 const LAYER_ORDER: Layer[] = ['Credential', 'Fund policy', 'Residence law', 'Booking-center licence', 'Transfer controls', 'Counterparty', 'Global screens'];
 const LAYER_NOTE: Record<Layer, string> = {
@@ -76,9 +85,10 @@ const TOUR: TourStep[] = [
   },
 ];
 
-export default function Console({ sourcesHref }: Props) {
+export default function Console({ sourcesHref, appHref = '../app/' }: Props) {
+  const initialScenario = useMemo(scenarioFromHash, []);
   const [view, setView] = useState<'distributor' | 'issuer'>('distributor');
-  const [tour, setTour] = useState<number | null>(0);
+  const [tour, setTour] = useState<number | null>(initialScenario ? null : 0);
   const [investorId, setInvestor] = useState<InvestorId>('lumen');
   const [fundId, setFundRaw] = useState<FundId>('TWLF');
   const [action, setActionRaw] = useState<Action>('subscribe');
@@ -165,6 +175,27 @@ export default function Console({ sourcesHref }: Props) {
 
   useEffect(() => () => clearTimers(), []);
 
+  // A corridor link on the home page opens straight into its decision, skipping the tour.
+  const applyScenario = (sc: { investorId: InvestorId; fundId: FundId; action: Action } | null) => {
+    if (!sc) return;
+    setTour(null); setView('distributor');
+    setInvestor(sc.investorId); setFundRaw(sc.fundId); setActionRaw(sc.action);
+    const amt = defaultAmount(sc.fundId, sc.action);
+    const as = funds[sc.fundId].assets[0];
+    setAmount(amt); setAsset(as); setWhatIfs([]);
+    const cp = sc.action === 'transfer' ? ((Object.keys(investors) as InvestorId[]).find((id) => id !== sc.investorId) ?? 'qamar') : undefined;
+    if (cp) setCounterparty(cp);
+    runWith({ action: sc.action, investorId: sc.investorId, fundId: sc.fundId, amount: amt, asset: as, counterpartyId: cp }, []);
+    window.setTimeout(() => document.querySelector('.console')?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' }), 50);
+  };
+  useEffect(() => {
+    applyScenario(initialScenario);
+    const on = () => applyScenario(scenarioFromHash());
+    addEventListener('hashchange', on);
+    return () => removeEventListener('hashchange', on);
+  }, []);
+  const sandboxHref = `${appHref}#/orders/new?investor=${investorId}&fund=${fundId}&amount=${amount}${action !== 'subscribe' ? `&action=${action}` : ''}`;
+
   const counterpartyOptions = (Object.keys(investors) as InvestorId[]).filter((id) => id !== investorId);
   useEffect(() => { if (counterpartyId === investorId) setCounterparty(counterpartyOptions[0]); }, [investorId]);
 
@@ -212,6 +243,7 @@ export default function Console({ sourcesHref }: Props) {
             </button>
           </div>
           <span class="sim-badge" title="All entities and data in this console are fictional">Simulated</span>
+          <a class="btn open-sandbox" href={sandboxHref}>Open this scenario in the sandbox</a>
         </div>
 
         {view === 'distributor' ? (

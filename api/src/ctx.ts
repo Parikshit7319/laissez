@@ -18,9 +18,9 @@ export async function loadGlobals(sql: Sql): Promise<Globals> {
     sql`select id, version, jurisdiction, status, effective_from::text, effective_to::text from rule_packs`,
   ]);
   const classInfo: Record<string, ClassMeta> = {};
-  for (const c of cls) classInfo[c.code] = { label: c.label, stamp: c.stamp, jur: c.jurisdiction, rule: c.rule_ref, source: c.source_id, threshold: c.threshold };
+  for (const c of cls) classInfo[c.code] = { label: c.label, stamp: c.stamp, jur: c.jurisdiction, rule: c.rule_ref, source: c.source_id, threshold: c.threshold, requiresOptIn: !!c.requires_opt_in, optInLabel: c.opt_in_label ?? undefined };
   const bookingCenters: Record<string, BookingCenter> = {};
-  for (const b of bcs) bookingCenters[b.id] = { id: b.id, name: b.name, jur: b.jurisdiction, licence: b.licence, requires: b.requires_class, ruleText: b.rule_text, ruleRef: b.rule_ref, source: b.source_id } as BookingCenter;
+  for (const b of bcs) bookingCenters[b.id] = { id: b.id, name: b.name, jur: b.jurisdiction, licence: b.licence, requires: b.requires_class, requiresAny: Array.isArray(b.requires_any) && b.requires_any.length ? b.requires_any : undefined, ruleText: b.rule_text, ruleRef: b.rule_ref, source: b.source_id } as BookingCenter;
   const jurName: Record<string, string> = {};
   const sanctioned: Record<string, string> = {};
   for (const j of jurs) { jurName[j.code] = j.name; if (j.comprehensive_sanctions) sanctioned[j.code] = j.comprehensive_sanctions; }
@@ -101,8 +101,8 @@ export async function loadFunds(sql: Sql, ws: string, ticker: string | null): Pr
       nav: Number(f.navf), regS: f.reg_s, usAccepts: f.us_accepts, minSubscription: Number(f.minf), holderCap: f.holder_cap, holders: f.holders,
       lockupMonths: f.lockup_months, assets: f.assets, chains: f.chains, issuer: f.issuer, policyVersion: f.policy_version,
       shareClassType: f.share_class_type, cutoffTime: f.cutoff_time, cutoffTz: f.cutoff_tz, dealingFrequency: f.dealing_frequency, noticeDays: f.notice_days, gatePct: f.gatef, yieldBps: f.yieldf,
-      chainToken: f.chain_token,
-      distribution: Object.fromEntries(dist.filter((d) => d.ticker === f.ticker).map((d) => [d.jurisdiction, { accepts: d.accepts, basis: d.basis, lawRequires: d.law_requires, lawText: d.law_text, lawRef: d.law_ref, lawSource: d.law_source }])),
+      chainToken: f.chain_token, regSCategory: f.reg_s_category ?? null, offeringDate: f.offering_date ? String(f.offering_date).slice(0, 10) : null,
+      distribution: Object.fromEntries(dist.filter((d) => d.ticker === f.ticker).map((d) => [d.jurisdiction, { accepts: d.accepts, basis: d.basis, lawRequires: d.law_requires, lawRequiresAny: Array.isArray(d.law_requires_any) && d.law_requires_any.length ? d.law_requires_any : null, lawText: d.law_text, lawRef: d.law_ref, lawSource: d.law_source }])),
     } as Fund;
   }
   return out;

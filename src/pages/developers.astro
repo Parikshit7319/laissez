@@ -50,21 +50,20 @@ const errors = [
 <Layout title="Developers" description="The Laissez API: scoped keys, versioned endpoints, idempotent writes, signed webhooks, an OpenAPI reference and SDKs for TypeScript and Python." path="developers/">
   <section class="page-hero">
     <div class="wrap">
-      <p class="eyebrow">Developers</p>
       <h1>Compliance as one API call before every order.</h1>
       <p class="lede">REST with JSON over HTTPS. {opCount} operations across {tags.length} resource groups, signed decision receipts, signed webhooks, a hash-chained audit log. The sandbox is live at <code class="base">{API}</code> and needs no account.</p>
       <div class="hero-cta">
-        <a class="btn brass" href="#quickstart">Quickstart</a>
+        <a class="btn primary" href={url('app/')}>Try the sandbox</a>
+        <a class="btn" href="#quickstart">Quickstart</a>
         <a class="btn" href={url('developers/reference/')}>API reference</a>
         <a class="btn" href={url('developers/sdks/')}>SDKs</a>
-        <a class="btn" href={url('status/')}>Status</a>
       </div>
     </div>
   </section>
 
   <section class="band" id="quickstart">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">Quickstart</p><h2>Sandbox to settled order in three calls.</h2></div><p class="lede">Every sandbox is a 7-day organization seeded with fictional investors across six jurisdictions, two funds and teammates for two-person approvals. Ten per hour per network.</p></div>
+      <div class="sec-head"><h2>Sandbox to settled order in three calls.</h2><p class="lede">Every sandbox is a 7-day organization seeded with fictional investors across six jurisdictions, two funds and teammates for two-person approvals. Ten per hour per network.</p></div>
       <ol class="steps qs">
         <li><div><h4>Open a sandbox</h4><p>Returns a test API key with every scope and a session token. Both are shown once.</p>
 <pre class="codeblock"><code><span class="c"># no auth</span>
@@ -104,7 +103,7 @@ curl -X POST {API}/v1/sandboxes \
 
   <section class="band light" id="authentication">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">Authentication</p><h2>Two kinds of bearer token.</h2></div><p class="lede">Send <code>Authorization: Bearer &lt;token&gt;</code>. A person's session acts with their role. An API key acts with its scopes. Some actions are reserved for people.</p></div>
+      <div class="sec-head"><h2>Two kinds of bearer token.</h2><p class="lede">Send <code>Authorization: Bearer &lt;token&gt;</code>. A person's session acts with their role. An API key acts with its scopes. Some actions are reserved for people.</p></div>
       <div class="cols-2">
         <div class="item"><span class="k">Sessions</span><h4><code>lz_sess_</code> from passkeys or single sign-on</h4><p>Issued by <code>POST /v1/auth/login/verify</code> or <code>POST /v1/auth/sso/exchange</code>. Valid for 7 days, or 12 hours of inactivity outside sandboxes. Sessions carry the person's role and are the only credential for human-only actions: approving or rejecting a policy change, managing members and SSO. 600 requests per minute.</p></div>
         <div class="item"><span class="k">API keys</span><h4><code>lz_test_</code> with explicit scopes</h4><p>Created by <code>POST /v1/api-keys</code> with a name, scopes, an optional IP allowlist (IPv4, IPv6 or CIDR) and an optional expiry. The key is shown once. Up to 10 active keys per organization. A key can only mint keys with scopes it has itself. 300 requests per minute.</p></div>
@@ -120,7 +119,7 @@ curl -X POST {API}/v1/sandboxes \
 
   <section class="band" id="conventions">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">Conventions</p><h2>Versioned, idempotent, predictable.</h2></div></div>
+      <div class="sec-head"><h2>Versioned, idempotent, predictable.</h2></div>
       <div class="cols-2">
         <div id="versioning">
           <h3>Versioning</h3>
@@ -146,7 +145,7 @@ curl -X POST {API}/v1/sandboxes \
 
   <section class="band light" id="errors">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">Errors</p><h2>One shape, stable codes, a sentence that says what to do.</h2></div>
+      <div class="sec-head"><h2>One shape, stable codes, a sentence that says what to do.</h2>
 <pre class="codeblock"><code>&#123; <span class="k">"error"</span>: &#123;
     <span class="k">"code"</span>: <span class="s">"insufficient_scope"</span>,
     <span class="k">"message"</span>: <span class="s">"This API key is not allowed to place orders or settle. Add the right scope or use another key."</span>,
@@ -158,7 +157,7 @@ curl -X POST {API}/v1/sandboxes \
 
   <section class="band" id="webhooks">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">Webhooks</p><h2>Signed events for everything that changes.</h2></div><p class="lede">Register an HTTPS endpoint with <code>POST /v1/webhooks</code> and the event types you want, or <code>*</code>. The <code>whsec_</code> secret is returned once. Any 2xx acknowledges; Laissez tries three times, about 1 and 3 seconds apart, then records the delivery for replay.</p></div>
+      <div class="sec-head"><h2>Signed events for everything that changes.</h2><p class="lede">Register an HTTPS endpoint with <code>POST /v1/webhooks</code> and the event types you want, or <code>*</code>. The <code>whsec_</code> secret is returned once. Any 2xx acknowledges; Laissez tries three times, about 1 and 3 seconds apart, then records the delivery for replay.</p></div>
       <div class="cols-2">
         <div>
           <h3>Verify every delivery</h3>
@@ -202,7 +201,7 @@ hmac.compare_digest(expected, v1) <span class="k">and</span> abs(time.time() - t
 
   <section class="band raised" id="next">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">Next</p><h2>Reference, SDKs and status.</h2></div></div>
+      <div class="sec-head"><h2>Reference, SDKs and status.</h2></div>
       <div class="cols-3">
         <a class="panel link" href={url('developers/reference/')}><span class="k">API reference</span><h4>Every operation, rendered from the OpenAPI document</h4><p>{opCount} operations with permissions, parameters, request fields, response codes and curl examples. The same document is served at <code>GET /v1/openapi.json</code> for code generators and API clients.</p></a>
         <a class="panel link" href={url('developers/sdks/')}><span class="k">SDKs</span><h4>TypeScript and Python, dependency-free</h4><p>Resource namespaces, automatic idempotency keys, retries with backoff on 429 and 5xx, typed errors, settlement polling and webhook verification. Tested against mocked transports.</p></a>
@@ -217,19 +216,19 @@ hmac.compare_digest(expected, v1) <span class="k">and</span> abs(time.time() - t
   </section>
 </Layout>
 <style>
-  .base { font-size: 0.9em; color: var(--brass-2); }
-  .ev { color: var(--brass-2); font-size: 0.86rem; }
-  .band.light code { color: var(--ink); }
-  .band:not(.light) code:not(.codeblock code) { color: var(--brass-2); }
+  .base { font-size: 0.9em; color: var(--ink); background: var(--white); border: 1px solid var(--line); border-radius: 6px; padding: 0.1rem 0.4rem; }
+  .ev { color: var(--ink); font-size: 0.86rem; }
+  
+  .band code:not(.codeblock code) { color: var(--ink); }
   .qs li { grid-template-columns: 3rem minmax(0, 1fr); }
   .qs .codeblock { margin-top: 1rem; }
   .err td.num { font-family: var(--f-mono); font-size: 0.9rem; }
   h3 { margin-bottom: 0.9rem; }
   .panel.link { display: block; text-decoration: none; color: inherit; transition: border-color 160ms ease, transform 160ms ease; }
-  .panel.link:hover { border-color: var(--brass); transform: translateY(-2px); }
-  .panel.link .k { display: block; color: var(--brass); font-size: 0.82rem; font-weight: 500; margin-bottom: 0.75rem; }
+  .panel.link:hover { border-color: var(--green); }
+  .panel.link .k { display: block; color: var(--ink-3); font-size: 0.82rem; font-weight: 500; margin-bottom: 0.75rem; }
   .panel.link h4 { margin-bottom: 0.6rem; }
-  .panel.link p { color: var(--text-2); font-size: 0.95rem; margin: 0; line-height: 1.6; }
+  .panel.link p { color: var(--ink-2); font-size: 0.95rem; margin: 0; line-height: 1.6; }
   .sec-head .codeblock { align-self: start; }
   @media (max-width: 600px) { .qs li { grid-template-columns: 2rem minmax(0, 1fr); gap: 0.6rem; } }
 </style>

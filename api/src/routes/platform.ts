@@ -81,14 +81,26 @@ export const idempotency: Mw = async (c, next) => {
 const keyRow = (r: any, current?: string) => ({
   id: r.id, name: r.name, prefix: r.prefix, scopes: r.scopes, ip_allowlist: r.ip_allowlist, expires_at: r.expires_at, created_at: r.created_at, last_used_at: r.last_used_at,
   rotated_from: r.rotated_from, ...(current !== undefined ? { current: r.id === current } : {}),
+  last_used_from: r.last_used_at ? { country: r.last_used_country ?? null, user_agent: r.last_used_ua ?? null, network: r.last_used_ip_hash ? String(r.last_used_ip_hash).slice(0, 8) : null } : null,
+  known_networks: Array.isArray(r.known_ip_hashes) ? r.known_ip_hashes.length : 0,
 });
 const scopesZ = z.array(z.string()).min(1).max(Object.keys(SCOPES).length).refine((s) => s.every((x) => x in SCOPES), { message: `Each scope must be one of: ${Object.keys(SCOPES).join(', ')}` });
 
 routes.get('/api-keys', async (c) => {
   const a = need(c, 'keys:admin');
-  const rows = await c.get('sql')`select id, name, prefix, scopes, ip_allowlist, expires_at, created_at, last_used_at, rotated_from from api_keys
-    where workspace_id = ${c.get('ws')} and (expires_at is null or expires_at > now()) order by created_at`;
-  return c.json({ data: rows.map((r) => keyRow(r, a.keyId ?? '')), scopes: Object.entries(SCOPES).map(([k, v]) => ({ id: k, label: v.label })), max_keys: MAX_KEYS });
+  const sql = c.get('sql'); const ws = c.get('ws');
+  const [rows, [w], [q]] = await Promise.all([
+    sql`select id, name, prefix, scopes, ip_allowlist, expires_at, created_at, last_used_at, rotated_from, last_used_ip_hash, last_used_country, last_used_ua, known_ip_hashes from api_keys
+      where workspace_id = ${ws} and (expires_at is null or expires_at > now()) order by created_at`,
+    sql`select monthly_quota from workspaces where id = ${ws}`,
+    sql`select count, month::text as month from quotas where workspace_id = ${ws} and month = date_trunc('month', now())::date`,
+  ]);
+  const used = Number(q?.count ?? 0); const quota = Number(w?.monthly_quota ?? 100000);
+  const resets = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1)).toISOString();
+  return c.json({
+    data: rows.map((r) => keyRow(r, a.keyId ?? '')), scopes: Object.entries(SCOPES).map(([k, v]) => ({ id: k, label: v.label })), max_keys: MAX_KEYS,
+    usage: { month: q?.month ?? new Date().toISOString().slice(0, 7) + '-01', used, quota, remaining: Math.max(0, quota - used), resets_at: resets, rate_limits: { session_per_minute: 600, key_per_minute: 300 } },
+  });
 });
 routes.post('/api-keys', async (c) => {
   const a = need(c, 'keys:admin');
@@ -320,12 +332,28 @@ function utcDays(n: number, now = Date.now()): string[] {
 }
 const STATUS_DAYS = 90;
 const INCIDENT_DAYS = 30;
+// Error budget: 99.9 percent over a rolling 30 days, measured on the request path (the api and database checks).
+// A check interval counts as down when either failed; each interval stands for 10 minutes, the check cadence.
+const SLO_OBJECTIVE = 99.9;
+const SLO_DAYS = 30;
+const CHECK_INTERVAL_MIN = 10;
+const LATENCY_HOURS = 24;
 let statusCache: { at: number; data: unknown } | null = null;
 publicRoutes.get('/status', async (c) => {
   if (statusCache && Date.now() - statusCache.at < 30_000) { c.header('Cache-Control', 'public, max-age=30'); return c.json(statusCache.data as any); }
   const admin = adminSql(c.env.DATABASE_URL);
   const days = utcDays(STATUS_DAYS);
-  const [checks, sources, [mon], dailyRows, incidentRows] = await Promise.all([
+  // Sampled request log: present once migrate-011 has run. Missing table or empty window both read as "no samples".
+  const latencyRows = Promise.all([
+    admin`select count(*)::int as samples,
+        percentile_cont(0.5) within group (order by ms)::float8 as p50, percentile_cont(0.95) within group (order by ms)::float8 as p95, percentile_cont(0.99) within group (order by ms)::float8 as p99,
+        count(*) filter (where status >= 500)::int as server_errors, count(*) filter (where status >= 400 and status < 500)::int as client_errors,
+        min(ts) as first_sample_at
+      from request_log_samples where ts > now() - make_interval(hours => ${LATENCY_HOURS})`,
+    admin`select path, count(*)::int as samples, percentile_cont(0.95) within group (order by ms)::float8 as p95, count(*) filter (where status >= 500)::int as server_errors
+      from request_log_samples where ts > now() - make_interval(hours => ${LATENCY_HOURS}) group by path order by samples desc limit 8`,
+  ]).catch(() => [[{ samples: 0, p50: null, p95: null, p99: null, server_errors: 0, client_errors: 0, first_sample_at: null }], []] as [any[], any[]]);
+  const [checks, sources, [mon], dailyRows, incidentRows, [slo], [[lat], latByRoute]] = await Promise.all([
     admin`select component,
         (array_agg(ok order by checked_at desc))[1] as ok, max(checked_at) as last_checked_at,
         (array_agg(latency_ms order by checked_at desc))[1] as latency_ms, (array_agg(detail order by checked_at desc))[1] as detail,
@@ -352,6 +380,13 @@ publicRoutes.get('/status', async (c) => {
       select component, min(checked_at) as started_at, max(checked_at) as last_failed_at, count(*)::int as failed_checks,
         (array_agg(next_at order by checked_at desc))[1] as resolved_at, (array_agg(detail order by checked_at))[1] as detail
       from c where not ok group by component, grp order by started_at desc limit 50`,
+    // Error budget: one row per check batch on the request path, down when api or database failed.
+    admin`with b as (
+        select checked_at, bool_and(ok) as up from uptime_checks
+        where component in ('api', 'database') and checked_at > now() - make_interval(days => ${SLO_DAYS}) group by checked_at
+      )
+      select count(*)::int as intervals, count(*) filter (where not up)::int as failed_intervals, min(checked_at) as first_check_at from b`,
+    latencyRows,
   ]);
   const components = COMPONENTS.map((k) => {
     const r = checks.find((x: any) => x.component === k.id);
@@ -378,8 +413,33 @@ publicRoutes.get('/status', async (c) => {
       duration_seconds: Math.round(((end ?? nowMs) - start) / 1000), failed_checks: r.failed_checks, detail: r.detail ?? null,
     };
   });
+  const intervals = Number(slo?.intervals ?? 0);
+  const failedIntervals = Number(slo?.failed_intervals ?? 0);
+  const availability = intervals ? pct((intervals - failedIntervals) / intervals) : null;
+  const allowedMinutes = Math.round(SLO_DAYS * 1440 * (1 - SLO_OBJECTIVE / 100) * 10) / 10;
+  const usedMinutes = failedIntervals * CHECK_INTERVAL_MIN;
+  const remainingMinutes = Math.round((allowedMinutes - usedMinutes) * 10) / 10;
+  const coveredDays = slo?.first_check_at ? Math.min(SLO_DAYS, Math.ceil((nowMs - new Date(slo.first_check_at).getTime()) / DAY_MS)) : 0;
+  const errorBudget = {
+    objective: SLO_OBJECTIVE, window_days: SLO_DAYS, covered_days: coveredDays,
+    availability, intervals, failed_intervals: failedIntervals, interval_minutes: CHECK_INTERVAL_MIN,
+    allowed_downtime_minutes: allowedMinutes, used_downtime_minutes: usedMinutes, remaining_minutes: remainingMinutes,
+    remaining_share: allowedMinutes ? Math.max(0, Math.round((remainingMinutes / allowedMinutes) * 1000) / 1000) : null,
+    state: !intervals ? 'no_data' : remainingMinutes <= 0 ? 'exhausted' : remainingMinutes < allowedMinutes * 0.25 ? 'warning' : 'ok',
+    definition: `Availability is the share of ${CHECK_INTERVAL_MIN}-minute check intervals in the last ${SLO_DAYS} days where both the API and database checks passed. The objective is ${SLO_OBJECTIVE} percent, which allows ${allowedMinutes} minutes of downtime per ${SLO_DAYS} days. Each failed interval spends ${CHECK_INTERVAL_MIN} minutes of that budget.`,
+  };
+  const latency = {
+    window_hours: LATENCY_HOURS, sample_rate: 20, samples: Number(lat?.samples ?? 0),
+    p50_ms: lat?.p50 == null ? null : Math.round(lat.p50), p95_ms: lat?.p95 == null ? null : Math.round(lat.p95), p99_ms: lat?.p99 == null ? null : Math.round(lat.p99),
+    server_errors: Number(lat?.server_errors ?? 0), client_errors: Number(lat?.client_errors ?? 0),
+    server_error_rate: lat?.samples ? Math.round((Number(lat.server_errors) / Number(lat.samples)) * 100_000) / 1000 : null,
+    first_sample_at: lat?.first_sample_at ?? null,
+    by_route: (latByRoute as any[]).map((r) => ({ path: r.path, samples: r.samples, p95_ms: r.p95 == null ? null : Math.round(r.p95), server_errors: r.server_errors })),
+    definition: `Measured inside the Worker from the first byte of the request to the response, on 1 in 20 requests over the last ${LATENCY_HOURS} hours. Network time between the client and Cloudflare is not included. Preflight requests and this endpoint are excluded.`,
+  };
   const data = {
     status: overall, checked_at: new Date().toISOString(), components,
+    error_budget: errorBudget, latency,
     sanctions: { sources, oldest_list_hours: sources.filter((s: any) => s.source !== 'LAISSEZ-TEST' && s.age_hours != null).reduce((m: number | null, s: any) => (m == null || s.age_hours > m ? s.age_hours : m), null) },
     monitoring: { last_run_finished_at: mon?.last_finished_at ?? null, runs_24h: mon?.runs_24h ?? 0 },
     daily_window_days: STATUS_DAYS, daily,

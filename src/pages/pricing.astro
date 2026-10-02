@@ -5,9 +5,9 @@ import { url } from '../lib/url';
 <Layout title="Pricing" description="Indicative Laissez pricing: free design partner pilots, a platform fee plus basis points for distributors, and no charge for issuers." path="pricing/">
   <section class="page-hero">
     <div class="wrap">
-      <p class="eyebrow">Pricing</p>
       <h1>Distributors pay for reach. Issuers integrate free.</h1>
-      <p class="lede">Indicative pricing for 2027. The value shows up when a distributor sells a fund it could not sell before, so most of the price scales with value settled, not seats.</p>
+      <p class="lede">Indicative pricing for 2027. The value shows up when a distributor sells a fund it could not sell before, so most of the price scales with value settled, not seats. The sandbox is free and needs no account.</p>
+      <div class="hero-cta"><a class="btn primary" href={url('app/')}>Try the sandbox</a><a class="arrow-link" href={url('access/')}>Talk to us about a pilot</a></div>
     </div>
   </section>
   <section class="band">
@@ -16,29 +16,29 @@ import { url } from '../lib/url';
         <h3>Design partner</h3>
         <p class="price">No platform fee</p>
         <p class="muted">For the first distributors and issuers taking one fund through one corridor.</p>
-        <ul class="ticks"><li>Sandbox and testnet access</li><li>Two jurisdictions, one fund</li><li>Direct input into launch rule packs</li><li>Founder-led integration</li></ul>
-        <a class="btn" href={url('access/')}>Apply</a>
+        <ul class="ticks"><li>Sandbox and testnet access</li><li>Two jurisdictions, one fund, your corridor</li><li>Direct input into launch rule packs</li><li>Founder-led integration</li></ul>
+        <a class="arrow-link" href={url('access/')}>Apply</a>
       </div>
       <div class="tier feat">
         <span class="tag">For distributors</span>
         <h3>Platform</h3>
         <p class="price">From $60K a year<span>plus 1.5 bps of value settled</span></p>
         <p class="muted">For distributors selling tokenized funds across booking centers.</p>
-        <ul class="ticks"><li>All launch rule packs</li><li>Unlimited credentials and decisions</li><li>Atomic settlement in USDC, EURC and deposit tokens</li><li>Signed evidence receipts and exports</li></ul>
-        <a class="btn brass" href={url('access/')}>Request access</a>
+        <ul class="ticks"><li>All rule packs, all jurisdictions</li><li>Credential network, investor portal, Travel Rule</li><li>Unlimited credentials and decisions</li><li>Atomic settlement in USDC, EURC and deposit tokens</li><li>Signed evidence receipts and exports</li></ul>
+        <a class="arrow-link" href={url('access/')}>Request access</a>
       </div>
       <div class="tier">
         <h3>Enterprise</h3>
         <p class="price">Custom</p>
         <p class="muted">For networks, fund administrators and banks running many corridors.</p>
         <ul class="ticks"><li>Private rule packs and policy templates</li><li>Dedicated environments</li><li>Volume pricing on settled value</li><li>Uptime and response commitments</li></ul>
-        <a class="btn" href={url('access/')}>Contact us</a>
+        <a class="arrow-link" href={url('access/')}>Contact us</a>
       </div>
     </div>
   </section>
   <section class="band light">
     <div class="wrap cols-2">
-      <div><p class="eyebrow">Why this model</p><h2>Price where the value lands.</h2></div>
+      <div><h2>Price where the value lands.</h2></div>
       <div class="faq">
         <h4>Why are issuers free?</h4><p class="muted">The network is only useful if funds are on it. Charging issuers would slow the supply side that makes Laissez valuable to distributors.</p>
         <h4>Why basis points?</h4><p class="muted">A distributor’s gain is new cross-border volume it could not serve before. A small share of settled value aligns our revenue with that gain. At 1.5 bps, $1B settled costs $150K.</p>
@@ -49,14 +49,14 @@ import { url } from '../lib/url';
 </Layout>
 <style>
   .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; align-items: stretch; }
-  .tier { display: flex; flex-direction: column; gap: 0.9rem; background: var(--night-2); border: 1px solid var(--hair-2); border-radius: 22px; padding: 2rem; }
-  .tier.feat { border-color: rgba(230, 210, 164, 0.5); background: linear-gradient(180deg, rgba(201, 169, 110, 0.09), var(--night-2) 40%); }
-  .tag { align-self: flex-start; font-size: 0.75rem; font-weight: 600; color: var(--brass-2); border: 1px solid rgba(230, 210, 164, 0.4); border-radius: 999px; padding: 0.15rem 0.6rem; }
-  .price { font-family: var(--f-display); font-size: 2rem; font-weight: 300; margin: 0.25rem 0 0; color: var(--text); line-height: 1.15; }
-  .price span { display: block; font: 400 0.92rem var(--f-ui); color: var(--text-2); margin-top: 0.35rem; }
+  .tier { display: flex; flex-direction: column; gap: 0.9rem; background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 1.75rem; }
+  .tier.feat { border-color: var(--green); box-shadow: var(--shadow); }
+  .tag { align-self: flex-start; font-size: 0.78rem; font-weight: 600; color: var(--green); background: var(--green-wash); border-radius: 999px; padding: 0.2rem 0.65rem; }
+  .price { font-family: var(--f-display); font-size: 1.8rem; font-weight: 400; margin: 0.25rem 0 0; color: var(--ink); line-height: 1.15; letter-spacing: -0.015em; }
+  .price span { display: block; font: 400 0.9rem var(--f-ui); color: var(--ink-2); margin-top: 0.35rem; }
   .tier .ticks { margin-bottom: 1rem; }
-  .tier .btn { margin-top: auto; }
-  .faq h4 { color: var(--ink); margin: 0 0 0.4rem; }
-  .faq p { margin: 0 0 1.6rem; }
+  .tier .arrow-link { margin-top: auto; }
+  .faq h4 { margin: 0 0 0.4rem; }
+  .faq p { margin: 0 0 1.5rem; }
   @media (max-width: 960px) { .tiers { grid-template-columns: 1fr; } }
 </style>

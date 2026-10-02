@@ -77,13 +77,14 @@ try {
     lumen: { lzid: 'LZ-LMN1-SG01-AAAA', country: ISO_NUMERIC.SG, opening: 3_250_000 },
     qamar: { lzid: 'LZ-QMR1-AE01-BBBB', country: ISO_NUMERIC['AE-DIFC'], opening: 0 },
     reyes: { lzid: 'LZ-RYS1-US01-CCCC', country: ISO_NUMERIC.US, opening: 0 },
+    harlow: { lzid: 'LZ-HRL1-SG02-EEEE', country: ISO_NUMERIC.SG, opening: 0 },
   };
   const expires = Math.floor(Date.parse('2027-03-14T00:00:00Z') / 1000);
   const onboard = async (id, opts = {}) => {
     const i = inv[id];
     i.wallet = investorWallet(seed, ws, id);
     i.identity = predictIdentity(C.idFactory, d.identityInitCodeHash, identitySalt(ws, id));
-    i.data = claimData(credentialHash(opts.lzid ?? i.lzid), expires);
+    i.data = claimData(credentialHash(opts.lzid ?? i.lzid), opts.expires ?? expires);
     i.sig = await signClaim(DEV_KEYS.claim, i.identity, i.data);
     return send(C.onboarder, A.LaissezOnboarder.abi, 'onboard', [i.wallet, identitySalt(ws, id), i.sig, i.data, [{ token: tw.token, country: i.country, openingUnits: units6(opts.opening ?? i.opening) }]], 2_500_000n);
   };
@@ -150,6 +151,55 @@ try {
     return `gas ${r.gasUsed}`;
   });
 
+  await step('Claim expiry module is bound to every fund compliance', async () => {
+    for (const [t, f] of Object.entries(d.funds)) {
+      assert(await pub.readContract({ address: f.compliance, abi: A.ModularCompliance.abi, functionName: 'isModuleBound', args: [C.claimExpiryModule] }), `${t} compliance is not bound to the claim expiry module`);
+    }
+    const exp = await pub.readContract({ address: C.claimExpiryModule, abi: A.ClaimExpiryModule.abi, functionName: 'claimExpiry', args: [tw.token, inv.lumen.wallet] });
+    assert(Number(exp) === expires, `Lumen's claim expiry on-chain is ${exp}, expected ${expires}`);
+    return `Lumen's claim expires at ${new Date(Number(exp) * 1000).toISOString().slice(0, 10)}`;
+  });
+
+  await step('Expired claim: Harlow is verified by the registry, but the compliance module blocks units reaching the wallet', async () => {
+    const past = Math.floor(Date.now() / 1000) - 86_400;
+    const r = await onboard('harlow', { expires: past });
+    assert(r.status === 'success', 'onboarding reverted');
+    assert(await verified(inv.harlow.wallet), 'the registry should still verify a signed claim whose expiry it does not read');
+    const ok = await pub.readContract({ address: tw.compliance, abi: A.ModularCompliance.abi, functionName: 'canTransfer', args: [inv.lumen.wallet, inv.harlow.wallet, units6(1_000)] });
+    assert(ok === false, 'canTransfer should be false for an expired claim');
+    let why = '';
+    try {
+      await pub.simulateContract({ account: operator, address: C.dvp, abi: A.LaissezDvP.abi, functionName: 'transfer', args: [tw.token, inv.lumen.wallet, inv.harlow.wallet, units6(1_000), usd, units6(1_000), dh('dec_expired')] });
+    } catch (e) { why = reason(e); }
+    assert(/fund compliance/.test(why), `expected a fund compliance revert, got: ${why || 'no revert'}`);
+    let whySub = '';
+    try {
+      await pub.simulateContract({ account: operator, address: C.dvp, abi: A.LaissezDvP.abi, functionName: 'subscribe', args: [tw.token, inv.harlow.wallet, units6(1_000), usd, units6(1_000), tw.treasury, dh('dec_expired_sub')] });
+    } catch (e) { whySub = reason(e); }
+    assert(whySub.length > 0, 'a subscription to an expired claim should revert at mint');
+    assert((await bal(inv.harlow.wallet)) === 0, 'units reached the expired wallet');
+    return `transfer: ${why}; subscribe: ${whySub}`;
+  });
+
+  await step('A transfer to an expired claim reverts on-chain, and a renewed claim lets it settle', async () => {
+    await pub.request({ method: 'evm_setAutomine', params: [false] });
+    let r;
+    try {
+      const hash = await wallet.writeContract({ address: C.dvp, abi: A.LaissezDvP.abi, functionName: 'transfer', args: [tw.token, inv.lumen.wallet, inv.harlow.wallet, units6(1_000), usd, units6(1_000), dh('dec_expired2')], gas: 600_000n });
+      await pub.request({ method: 'evm_mine', params: [] });
+      r = await pub.waitForTransactionReceipt({ hash, pollingInterval: 50 });
+    } finally { await pub.request({ method: 'evm_setAutomine', params: [true] }); }
+    assert(r.status === 'reverted', `expected a reverted receipt, got ${r.status}`);
+    assert((await bal(inv.harlow.wallet)) === 0, 'balances changed on a reverted transfer');
+    // The renewed credential replaces the claim (same issuer and topic, so the same claim id) with a future expiry.
+    const renew = await onboard('harlow', { lzid: 'LZ-HRL2-SG02-FFFF' });
+    assert(renew.status === 'success', 'claim renewal reverted');
+    const r2 = await send(C.dvp, A.LaissezDvP.abi, 'transfer', [tw.token, inv.lumen.wallet, inv.harlow.wallet, units6(1_000), usd, units6(1_000), dh('dec_renewed')], 600_000n);
+    assert(r2.status === 'success', 'transfer after renewal reverted');
+    assert((await bal(inv.harlow.wallet)) === 1_000, 'units did not move after renewal');
+    return `reverted tx ${r.transactionHash.slice(0, 12)}..., then settled in block ${r2.blockNumber}`;
+  });
+
   await step('Fund compliance blocks a transfer to a US investor (TWLF is not distributed in the US)', async () => {
     try {
       await pub.simulateContract({ account: operator, address: C.dvp, abi: A.LaissezDvP.abi, functionName: 'transfer', args: [tw.token, inv.lumen.wallet, inv.reyes.wallet, units6(1_000), usd, units6(1_000), dh('dec_us')] });
@@ -166,6 +216,7 @@ try {
 
   await step('A transfer to the revoked investor now reverts on-chain', async () => {
     // Hardhat rejects reverting transactions at submission when automining, so mine this one manually to get a real receipt.
+    const lumenBefore = await bal(inv.lumen.wallet);
     await pub.request({ method: 'evm_setAutomine', params: [false] });
     let r;
     try {
@@ -177,7 +228,7 @@ try {
     let why = '';
     try { await pub.simulateContract({ account: operator, address: C.dvp, abi: A.LaissezDvP.abi, functionName: 'transfer', args: [tw.token, inv.lumen.wallet, inv.qamar.wallet, units6(10_000), usd, units6(10_000), dh('dec_revoked')] }); } catch (e) { why = reason(e); }
     assert(/not verified/.test(why), `unexpected reason: ${why}`);
-    assert((await bal(inv.qamar.wallet)) === 400_000 && (await bal(inv.lumen.wallet)) === 4_750_000, 'balances changed');
+    assert((await bal(inv.qamar.wallet)) === 400_000 && (await bal(inv.lumen.wallet)) === lumenBefore, 'balances changed');
     return `tx ${r.transactionHash.slice(0, 12)}... status reverted: ${why || 'reverted'}`;
   });
 

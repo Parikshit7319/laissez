@@ -3,19 +3,24 @@
 import { z } from 'zod';
 import {
   evaluate, holderStatus, inputsHash, snapshotFor, ctxFromSnapshot, replaySnapshot, WHAT_IFS,
-  type WhatIf, type Decision, type Ctx, type Order, type Snapshot,
+  type WhatIf, type Decision, type Ctx, type Order, type Snapshot, type DocReq,
 } from '../../../src/proto/engine';
 import type { Investor, Fund } from '../../../src/proto/data';
 import { findTest } from '../../../src/proto/thresholds';
 import { adminSql, type Sql } from '../db';
-import { ApiError, id, rand, digits, today, addDays, lzid, signReceipt, publicKey, verifyReceipt } from '../util';
+import { ApiError, id, rand, digits, today, addDays, lzid, sha256, signReceipt, publicKey, verifyReceipt } from '../util';
 import { type C, type Actor, router, body, bg, need, audit, auditQ, actorRef } from '../http';
 import { buildCtx, loadGlobals, loadInvestors, loadFunds, packsAsOf, emit } from '../ctx';
 import { screenNames, recordHits, type Match } from '../sanctions';
 import { lawDefaults } from '../seed';
 import { docsCtx, lifecycleCtx, noticeExecutionQueries } from '../fundops-core';
-import { chainEnabled, queueSettlement, onCredentialRevoked, onPolicyPublished } from '../chain';
+import { calendarsCtx } from '../calendars';
+import { receiptPdf } from '../receipt-pdf';
+import { chainEnabled, queueSettlement, onCredentialRevoked, onCredentialIssued, onPolicyPublished } from '../chain';
+import { placementCapCheck } from './compliance2';
+import { notifyRoles, APPROVER_ROLES } from '../notifications';
 import { startTravelRule, travelRuleApproved, travelRuleConfirm } from './travel';
+import { pageParams, pageOut } from '../pagination';
 
 export const routes = router();
 /** Reference data the engine reads. Public: no organization data. */
@@ -89,12 +94,46 @@ function credentialStatus(i: Investor, t: string) {
   if (i.expires < t) return 'lapsed';
   return i.classifications.some((x) => x.expires < t) ? 'partly_lapsed' : 'active';
 }
+const CRED_FILTERS = ['active', 'none', 'lapsed', 'share_pending'] as const;
+/**
+ * Clients, newest first, with cursor pagination. Filters: q (name, city, id or passport number), residence,
+ * booking_center, credential_status (active, none, lapsed, share_pending). Without limit or cursor the first 50 come back.
+ */
 routes.get('/investors', async (c) => {
   need(c, 'read');
   const sql = c.get('sql'); const ws = c.get('ws');
-  const [invs, g] = await Promise.all([loadInvestors(sql, ws, null, adminOf(c)), loadGlobals(sql)]);
+  const page = pageParams(c, 50, 200);
+  const q = (c.req.query('q') ?? '').trim().slice(0, 80) || null;
+  const residence = c.req.query('residence') || null; const booking = c.req.query('booking_center') || null;
+  const credRaw = c.req.query('credential_status') || null;
+  if (credRaw && !(CRED_FILTERS as readonly string[]).includes(credRaw)) throw new ApiError(400, 'invalid_filter', `credential_status must be one of ${CRED_FILTERS.join(', ')}.`);
+  const cred = credRaw as (typeof CRED_FILTERS)[number] | null;
+  const like = q ? `%${q.replace(/[%_\\]/g, (m) => `\\${m}`)}%` : null;
+  // The credential filter is decided in SQL from the active credential or the relied-on share, so pages stay full.
+  const ids = await sql`select i.id, i.created_at from investors i
+      left join lateral (select expires_on from credentials c where c.workspace_id = i.workspace_id and c.investor_id = i.id and c.status = 'active' order by c.created_at desc limit 1) c on true
+      left join credential_shares sh on sh.id = i.relied_share
+    where i.workspace_id = ${ws}
+      and (${like}::text is null or i.name ilike ${like} or i.city ilike ${like} or i.id ilike ${like}
+        or exists (select 1 from credentials cx where cx.workspace_id = i.workspace_id and cx.investor_id = i.id and cx.lzid ilike ${like}))
+      and (${residence}::text is null or i.residence = ${residence})
+      and (${booking}::text is null or i.booking_center = ${booking})
+      and (${cred}::text is null
+        or (${cred} = 'none' and c.expires_on is null and i.relied_share is null)
+        or (${cred} = 'lapsed' and c.expires_on is not null and c.expires_on < current_date)
+        or (${cred} = 'share_pending' and sh.status = 'pending')
+        or (${cred} = 'active' and ((c.expires_on is not null and c.expires_on >= current_date) or sh.status = 'active')))
+      and (${page.at}::timestamptz is null or (i.created_at, i.id) < (${page.at}::timestamptz, ${page.id}))
+    order by i.created_at desc, i.id desc limit ${page.limit + 1}`;
+  const out = pageOut(ids as any[], page);
+  const keep = out.data.map((r: any) => r.id as string);
+  const [invs, g] = await Promise.all([keep.length ? loadInvestors(sql, ws, keep, adminOf(c)) : Promise.resolve({} as Record<string, Investor>), loadGlobals(sql)]);
   const t = today();
-  return c.json({ data: Object.values(invs).map((i) => ({ ...i, credential_status: credentialStatus(i, t), residence_name: g.jurName[i.residence] })) });
+  return c.json({
+    ...out,
+    data: keep.map((id) => invs[id]).filter(Boolean).map((i) => ({ ...i, credential_status: credentialStatus(i, t), residence_name: g.jurName[i.residence] })),
+    filters: { q, residence, booking_center: booking, credential_status: cred },
+  });
 });
 routes.post('/investors', async (c) => {
   const a = need(c, 'clients:write');
@@ -135,10 +174,17 @@ const credentialIn = z.object({
   valid_months: z.number().int().min(1).max(24).default(12),
   classifications: z.array(z.object({ class_code: z.string(), evidence: z.record(z.string(), z.union([z.number(), z.boolean()])).default({}), evidence_ref: z.string().max(200).optional() })).max(10),
 });
-routes.post('/credentials', async (c) => {
-  const a = need(c, 'clients:write');
+export type CredentialInput = z.input<typeof credentialIn>;
+/**
+ * Verifies each classification against its legal threshold and issues a new credential, revoking the investor's
+ * active one. Shared by POST /v1/credentials and evidence accept-and-issue. Callers check permissions first.
+ */
+export type CarriedClass = { class_code: string; basis: string; opt_in_on: string | null };
+export async function issueCredential(c: C, input: CredentialInput, a: Actor = c.get('actor'), opts: { carry?: CarriedClass[] } = {}) {
   const sql = c.get('sql'); const ws = c.get('ws');
-  const b = await body(c, credentialIn);
+  const b = credentialIn.parse(input);
+  // Classifications carried over from the credential being replaced keep their basis; they are not re-tested.
+  const carry = (opts.carry ?? []).filter((x) => !b.classifications.some((y) => y.class_code === x.class_code));
   const [g, invs, [w]] = await Promise.all([loadGlobals(sql), loadInvestors(sql, ws, [b.investor_id]), sql`select name, brand_name from workspaces where id = ${ws}`]);
   const inv = invs[b.investor_id];
   if (!inv) throw new ApiError(404, 'not_found', `No investor ${b.investor_id} in this organization.`);
@@ -160,12 +206,22 @@ routes.post('/credentials', async (c) => {
     sql`insert into credentials (workspace_id, id, investor_id, issued_on, expires_on, lzid, issuer_name) values (${ws}, ${credId}, ${inv.id}, ${start}, ${end}, ${passport}, ${issuer})`,
     ...b.classifications.map((x, i) => sql`insert into classifications (workspace_id, credential_id, class_code, basis, verified_on, expires_on, opt_in_on)
       values (${ws}, ${credId}, ${x.class_code}, ${x.evidence_ref ? `${results[i].reason} Evidence: ${x.evidence_ref}` : results[i].reason}, ${start}, ${end}, ${x.evidence.opt_in ? start : null})`),
+    ...carry.map((x) => sql`insert into classifications (workspace_id, credential_id, class_code, basis, verified_on, expires_on, opt_in_on)
+      values (${ws}, ${credId}, ${x.class_code}, ${x.basis}, ${start}, ${end}, ${x.opt_in_on})`),
     // Issuing your own credential replaces any credential relied on from another distributor.
     sql`update investors set relied_share = null where workspace_id = ${ws} and id = ${inv.id}`,
-    auditQ(sql, ws, a, 'credential.issued', credId, { investor: inv.id, lzid: passport, classes: b.classifications.map((x) => x.class_code), replaced: inv.credentialId || null, relied_share_cleared: inv.reliedShare ?? null }),
+    auditQ(sql, ws, a, 'credential.issued', credId, { investor: inv.id, lzid: passport, classes: [...b.classifications.map((x) => x.class_code), ...carry.map((x) => x.class_code)], carried: carry.map((x) => x.class_code), replaced: inv.credentialId || null, relied_share_cleared: inv.reliedShare ?? null }),
   ]);
-  bg(c, emit(sql, ws, 'credential.issued', { credential: credId, lzid: passport, investor: inv.id }));
-  return c.json({ credential_id: credId, lzid: passport, issuer_name: issuer, issued_on: start, expires_on: end, checks: results, investor: (await loadInvestors(sql, ws, [inv.id]))[inv.id] }, 201);
+  bg(c, Promise.all([
+    emit(sql, ws, 'credential.issued', { credential: credId, lzid: passport, investor: inv.id }),
+    // A renewal re-issues the on-chain claim with the new expiry for an onboarded investor.
+    onCredentialIssued(c, inv.id),
+  ]));
+  return { credential_id: credId, lzid: passport, issuer_name: issuer, issued_on: start, expires_on: end, checks: results, investor: (await loadInvestors(sql, ws, [inv.id]))[inv.id] };
+}
+routes.post('/credentials', async (c) => {
+  const a = need(c, 'clients:write');
+  return c.json(await issueCredential(c, await body(c, credentialIn), a), 201);
 });
 routes.get('/credentials', async (c) => {
   need(c, 'read');
@@ -205,6 +261,14 @@ const termsIn = {
   gate_pct: z.number().positive().max(100).nullable().optional(),
   share_class_type: z.enum(['distributing', 'accumulating']).optional(),
 };
+const initialDocIn = z.object({
+  doc_type: z.string().regex(/^[a-z][a-z0-9_]{1,39}$/, 'Use a lowercase type such as offering_memorandum.'),
+  title: z.string().trim().min(3).max(140),
+  content: z.string().min(50, 'Document content is too short.').max(200_000),
+  jurisdiction: z.string().max(12).nullable().optional(),
+  audience: z.enum(['all', 'retail', 'professional']).default('all'),
+  required: z.boolean().optional(),
+});
 const fundIn = z.object({
   ticker: z.string().regex(/^[A-Z]{3,6}$/), name: z.string().trim().min(3).max(140), domicile: z.string().trim().min(2).max(80), structure: z.string().trim().min(3).max(160),
   currency: z.enum(['USD', 'EUR']), nav: z.number().positive(), reg_s: z.boolean(), min_subscription: z.number().nonnegative(),
@@ -212,6 +276,9 @@ const fundIn = z.object({
   assets: z.array(z.string().min(2).max(20)).min(1).max(8), chains: z.array(z.string().min(2).max(40)).min(1).max(8), issuer: z.string().trim().min(2).max(120),
   distribution: z.array(z.object({ jurisdiction: z.string(), accepts: z.array(z.string()).min(1) })).min(1),
   ...termsIn,
+  yield_bps: z.number().min(0).max(5000).nullable().optional(),
+  /** Initial documents, published as version 1 with the fund. */
+  documents: z.array(initialDocIn).max(12).default([]),
 });
 function validTz(tz: string) { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; } }
 
@@ -233,22 +300,31 @@ routes.post('/funds', async (c) => {
   }
   if (b.reg_s && b.distribution.some((d) => d.jurisdiction === 'US')) throw new ApiError(422, 'conflict', 'A Regulation S fund cannot be offered to U.S. investors. Remove US or turn off Regulation S.');
   if (b.cutoff_tz && !validTz(b.cutoff_tz)) throw new ApiError(422, 'invalid_time_zone', `${b.cutoff_tz} is not an IANA time zone. Use a name like America/New_York.`);
+  for (const d of b.documents) {
+    if (d.jurisdiction && !g.jurName[d.jurisdiction]) throw new ApiError(422, 'unknown_jurisdiction', `Document "${d.title}" names unknown jurisdiction ${d.jurisdiction}. Leave it empty for a document that applies everywhere.`);
+  }
+  const docKeys = b.documents.map((d) => `${d.doc_type}|${d.jurisdiction ?? ''}`);
+  if (new Set(docKeys).size !== docKeys.length) throw new ApiError(422, 'duplicate_document', 'Each document type can appear once per jurisdiction at creation. Publish later versions from the fund page.');
+  const docRows = await Promise.all(b.documents.map(async (d) => ({ ...d, id: id('doc', 12), jurisdiction: d.jurisdiction || null, required: d.required ?? d.doc_type !== 'factsheet', sha256: await sha256(d.content) })));
   const exists = await sql`select 1 from funds where workspace_id = ${ws} and ticker = ${b.ticker}`;
   if (exists.length) throw new ApiError(409, 'exists', `A fund with ticker ${b.ticker} already exists. Pick another ticker.`);
   const dist = Object.fromEntries(b.distribution.map((d) => { const l = lawDefaults(d.jurisdiction, b.reg_s)!; return [d.jurisdiction, { accepts: d.accepts, basis: l.basis, lawRequires: l.lawRequires, lawText: l.lawText, lawRef: l.lawRef, lawSource: l.lawSource }]; }));
   const usAccepts = b.reg_s ? null : b.distribution.find((d) => d.jurisdiction === 'US')?.accepts ?? null;
   await sql.transaction([
     sql`insert into funds (workspace_id, ticker, name, short_name, domicile, structure, currency, nav, reg_s, us_accepts, min_subscription, holder_cap, holders, lockup_months, assets, chains, issuer,
-        cutoff_time, cutoff_tz, dealing_frequency, notice_days, gate_pct, share_class_type)
+        cutoff_time, cutoff_tz, dealing_frequency, notice_days, gate_pct, share_class_type, yield_bps)
       values (${ws}, ${b.ticker}, ${b.name}, ${b.name.split(',')[0].slice(0, 60)}, ${b.domicile}, ${b.structure}, ${b.currency}, ${b.nav}, ${b.reg_s}, ${usAccepts}, ${b.min_subscription}, ${b.holder_cap}, 0, ${b.lockup_months}, ${b.assets}, ${b.chains}, ${b.issuer},
-        ${b.cutoff_time ?? '16:00'}, ${b.cutoff_tz ?? 'America/New_York'}, ${b.dealing_frequency ?? 'daily'}, ${b.notice_days ?? 0}, ${b.gate_pct ?? null}, ${b.share_class_type ?? 'distributing'})`,
-    ...Object.entries(dist).map(([j, l]) => sql`insert into fund_distribution (workspace_id, ticker, jurisdiction, accepts, basis, law_requires, law_text, law_ref, law_source)
-      values (${ws}, ${b.ticker}, ${j}, ${l.accepts}, ${l.basis}, ${l.lawRequires}, ${l.lawText}, ${l.lawRef}, ${l.lawSource})`),
+        ${b.cutoff_time ?? '16:00'}, ${b.cutoff_tz ?? 'America/New_York'}, ${b.dealing_frequency ?? 'daily'}, ${b.notice_days ?? 0}, ${b.gate_pct ?? null}, ${b.share_class_type ?? 'distributing'}, ${b.yield_bps ?? null})`,
+    ...docRows.map((d) => sql`insert into fund_documents (workspace_id, id, ticker, doc_type, title, version, jurisdiction, audience, content, sha256, required, published_by)
+      values (${ws}, ${d.id}, ${b.ticker}, ${d.doc_type}, ${d.title}, 1, ${d.jurisdiction}, ${d.audience}, ${d.content}, ${d.sha256}, ${d.required}, ${a.name})`),
+    ...docRows.map((d) => auditQ(sql, ws, a, 'document.published', d.id, { ticker: b.ticker, doc_type: d.doc_type, title: d.title, version: 1, jurisdiction: d.jurisdiction, audience: d.audience, required: d.required, sha256: d.sha256, supersedes: null, at_creation: true })),
+    ...Object.entries(dist).map(([j, l]) => sql`insert into fund_distribution (workspace_id, ticker, jurisdiction, accepts, basis, law_requires, law_requires_any, law_text, law_ref, law_source)
+      values (${ws}, ${b.ticker}, ${j}, ${l.accepts}, ${l.basis}, ${l.lawRequires}, ${(l as any).lawRequiresAny ?? (l.lawRequires ? [l.lawRequires] : null)}, ${l.lawText}, ${l.lawRef}, ${l.lawSource})`),
     sql`insert into fund_policy_versions (workspace_id, ticker, version, distribution, min_subscription, holder_cap, lockup_months, published_by)
       values (${ws}, ${b.ticker}, 1, ${JSON.stringify(dist)}, ${b.min_subscription}, ${b.holder_cap}, ${b.lockup_months}, ${a.name})`,
-    auditQ(sql, ws, a, 'fund.created', b.ticker, { name: b.name, distribution: Object.keys(dist) }),
+    auditQ(sql, ws, a, 'fund.created', b.ticker, { name: b.name, distribution: Object.keys(dist), chains: b.chains, documents: docRows.map((d) => d.id), terms: { cutoff_time: b.cutoff_time ?? '16:00', cutoff_tz: b.cutoff_tz ?? 'America/New_York', dealing_frequency: b.dealing_frequency ?? 'daily', notice_days: b.notice_days ?? 0, gate_pct: b.gate_pct ?? null, share_class_type: b.share_class_type ?? 'distributing', yield_bps: b.yield_bps ?? null } }),
   ]);
-  return c.json((await loadFunds(sql, ws, b.ticker))[b.ticker], 201);
+  return c.json({ ...(await loadFunds(sql, ws, b.ticker))[b.ticker], documents: docRows.map((d) => ({ id: d.id, doc_type: d.doc_type, title: d.title, version: 1, jurisdiction: d.jurisdiction, required: d.required, sha256: d.sha256 })) }, 201);
 });
 
 async function registerFor(c: C, ticker: string) {
@@ -325,6 +401,10 @@ routes.post('/funds/:ticker/policy/changes', async (c) => {
     sql`insert into policy_changes (workspace_id, id, ticker, proposed_by, proposed_by_user, status, changes, impact) values (${ws}, ${pcId}, ${ticker}, ${a.name}, ${a.userId ?? null}, 'draft', ${JSON.stringify(p)}, ${JSON.stringify(impact)})`,
     auditQ(sql, ws, a, 'policy.proposed', pcId, { ticker, removed: impact.removed, added: impact.added, holders_affected: impact.holders_affected.length }),
   ]);
+  bg(c, notifyRoles(sql, ws, APPROVER_ROLES, {
+    kind: 'policy.proposed', title: `Policy change for ${ticker} needs a second approver`, link: '#/policy-changes',
+    body: `${a.name} proposed ${pcId}: ${impact.holders_affected.length} holder${impact.holders_affected.length === 1 ? '' : 's'} affected${impact.added.length ? `, adds ${impact.added.join(', ')}` : ''}${impact.removed.length ? `, removes ${impact.removed.join(', ')}` : ''}. Nothing changes until someone else approves it.`,
+  }, a.userId ?? null));
   return c.json({ id: pcId, status: 'draft', ticker, proposed_by: a.name, impact }, 201);
 });
 routes.get('/policy-changes', async (c) => {
@@ -355,8 +435,8 @@ routes.post('/policy-changes/:id/approve', async (c) => {
       // Fails with division by zero if another approver got there first, which aborts the whole transaction.
       sql`select 1 / count(*)::int from (select 1 from policy_changes where workspace_id = ${ws} and id = ${pc.id} and status = 'draft' for update) x`,
       sql`delete from fund_distribution where workspace_id = ${ws} and ticker = ${pc.ticker}`,
-      ...Object.entries(dist).map(([j, l]) => sql`insert into fund_distribution (workspace_id, ticker, jurisdiction, accepts, basis, law_requires, law_text, law_ref, law_source)
-        values (${ws}, ${pc.ticker}, ${j}, ${l!.accepts}, ${l!.basis}, ${l!.lawRequires}, ${l!.lawText}, ${l!.lawRef}, ${l!.lawSource})`),
+      ...Object.entries(dist).map(([j, l]) => sql`insert into fund_distribution (workspace_id, ticker, jurisdiction, accepts, basis, law_requires, law_requires_any, law_text, law_ref, law_source)
+        values (${ws}, ${pc.ticker}, ${j}, ${l!.accepts}, ${l!.basis}, ${l!.lawRequires}, ${(l as any).lawRequiresAny ?? (l!.lawRequires ? [l!.lawRequires] : null)}, ${l!.lawText}, ${l!.lawRef}, ${l!.lawSource})`),
       sql`update funds set policy_version = policy_version + 1, min_subscription = ${next.minSubscription}, holder_cap = ${next.holderCap}, lockup_months = ${next.lockupMonths} where workspace_id = ${ws} and ticker = ${pc.ticker}`,
       sql`insert into fund_policy_versions (workspace_id, ticker, version, effective_at, distribution, min_subscription, holder_cap, lockup_months, published_by)
         select workspace_id, ticker, policy_version, now(), ${JSON.stringify(dist)}, min_subscription, holder_cap, lockup_months, ${a.name} from funds where workspace_id = ${ws} and ticker = ${pc.ticker}`,
@@ -406,6 +486,7 @@ export async function liveCtx(c: C, ids: string[], ticker: string): Promise<{ ct
   ctx.aum = life?.aum ?? {};
   ctx.redeemedInPeriod = life?.redeemedInPeriod ?? {};
   ctx.notices = life?.notices ?? {};
+  ctx.calendars = calendarsCtx(ctx.funds[ticker]?.cutoffTz);
   ctx.now = new Date().toISOString();
   return { ctx, matches };
 }
@@ -473,6 +554,19 @@ export async function createDecision(c: C, input: DecisionInput) {
   const whatIfs = b.what_ifs.filter((w): w is WhatIf => WHAT_IFS.some((x) => x.id === w));
   const order = orderOf({ ...b, counterparty_id: b.action === 'transfer' ? b.counterparty_id : undefined });
   const d = evaluate(order, whatIfs, ctx);
+  // Hard cap: a new holder who would take the fund past a numeric placement limit for their jurisdiction is refused.
+  if (b.action === 'subscribe' && !whatIfs.length && d.outcome !== 'FREEZE') {
+    const inv = ctx.investors[b.investor_id];
+    const cap = await placementCapCheck(sql, ws, b.fund, inv.residence, !((inv.holdings[b.fund]?.units ?? 0) > 0));
+    if (cap) {
+      d.checks.push(cap.check);
+      if (cap.check.result === 'fail') {
+        d.outcome = 'DENY';
+        d.headline = `Subscription denied. ${cap.check.detail}`;
+        if (cap.check.remedy) d.remedies.push(cap.check.remedy);
+      }
+    }
+  }
   const hash = await inputsHash(d);
   const out = decisionOut(d, hash, whatIfs);
 
@@ -502,15 +596,26 @@ routes.post('/decisions', async (c) => {
   const res = await createDecision(c, await body(c, decisionIn));
   return c.json(res, res.persisted ? 201 : 200);
 });
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** Decisions, newest first, with cursor pagination. Filters: outcome (ALLOW, DENY, FREEZE), fund, investor_id, action, from and to (YYYY-MM-DD, inclusive). */
 routes.get('/decisions', async (c) => {
   need(c, 'read');
-  const limit = Math.max(1, Math.min(200, Number(c.req.query('limit') ?? 100) || 100));
-  const ticker = c.req.query('fund') ?? null; const inv = c.req.query('investor_id') ?? null;
-  return c.json({ data: await c.get('sql')`select d.id, d.action, d.investor_id, i.name as investor, d.counterparty_id, d.ticker, d.amount::float8 as amount, d.asset, d.outcome, d.headline, d.what_ifs,
+  const page = pageParams(c, 50, 200);
+  const ticker = c.req.query('fund') || null; const inv = c.req.query('investor_id') || null;
+  const outcome = (c.req.query('outcome') || '').toUpperCase() || null; const action = c.req.query('action') || null;
+  const from = c.req.query('from') || null; const to = c.req.query('to') || null;
+  if (outcome && !['ALLOW', 'DENY', 'FREEZE'].includes(outcome)) throw new ApiError(400, 'invalid_filter', 'outcome must be ALLOW, DENY or FREEZE.');
+  if ((from && !DATE.test(from)) || (to && !DATE.test(to))) throw new ApiError(400, 'invalid_filter', 'from and to must be dates like 2026-10-01.');
+  const toExclusive = to ? addDays(to, 1) : null;
+  const rows = await c.get('sql')`select d.id, d.action, d.investor_id, i.name as investor, d.counterparty_id, d.ticker, d.amount::float8 as amount, d.asset, d.outcome, d.headline, d.what_ifs,
       d.dealing_date::text, d.actor, d.created_at, s.id as settlement_id, s.status as settlement_status
     from decisions d join investors i on i.workspace_id = d.workspace_id and i.id = d.investor_id left join settlements s on s.workspace_id = d.workspace_id and s.decision_id = d.id
     where d.workspace_id = ${c.get('ws')} and (${ticker}::text is null or d.ticker = ${ticker}) and (${inv}::text is null or d.investor_id = ${inv} or d.counterparty_id = ${inv})
-    order by d.created_at desc limit ${limit}` });
+      and (${outcome}::text is null or d.outcome = ${outcome}) and (${action}::text is null or d.action = ${action})
+      and (${from}::date is null or d.created_at >= ${from}::date) and (${toExclusive}::date is null or d.created_at < ${toExclusive}::date)
+      and (${page.at}::timestamptz is null or (d.created_at, d.id) < (${page.at}::timestamptz, ${page.id}))
+    order by d.created_at desc, d.id desc limit ${page.limit + 1}`;
+  return c.json({ ...pageOut(rows as any[], page), filters: { fund: ticker, investor_id: inv, outcome, action, from, to } });
 });
 routes.get('/decisions/:id', async (c) => {
   need(c, 'read');
@@ -526,6 +631,37 @@ routes.get('/decisions/:id', async (c) => {
   return c.json({ ...row, actor_name: who[0]?.actor_name ?? null, replayable: !!row.snapshot, receipt, signature });
 });
 
+routes.get('/decisions/:id/receipt.pdf', async (c) => {
+  need(c, 'read');
+  const sql = c.get('sql'); const ws = c.get('ws'); const decId = c.req.param('id');
+  const [[row], who] = await Promise.all([
+    sql`select d.*, d.amount::float8 as amount, d.units::float8 as units, d.dealing_date::text as dealing_date,
+        i.name as investor_name, i.residence as investor_residence, i.booking_center as investor_booking,
+        cp.name as counterparty_name, cp.residence as counterparty_residence, cp.booking_center as counterparty_booking,
+        f.name as fund_name, f.currency as fund_currency, f.issuer as fund_issuer, s.id as settlement_id, s.status as settlement_status, w.name as workspace_name
+      from decisions d join investors i on i.workspace_id = d.workspace_id and i.id = d.investor_id
+      left join investors cp on cp.workspace_id = d.workspace_id and cp.id = d.counterparty_id
+      left join funds f on f.workspace_id = d.workspace_id and f.ticker = d.ticker
+      left join settlements s on s.workspace_id = d.workspace_id and s.decision_id = d.id
+      left join workspaces w on w.id = d.workspace_id
+      where d.workspace_id = ${ws} and d.id = ${decId}`,
+    sql`select actor_name from audit_events where workspace_id = ${ws} and subject = ${decId} and type = 'decision.created' order by seq limit 1`,
+  ]);
+  if (!row) throw new ApiError(404, 'not_found', `No decision ${decId} in this organization.`);
+  const { signature } = await signed(c, row);
+  const bytes = receiptPdf({
+    decisionId: row.id, outcome: row.outcome, headline: row.headline, action: row.action, createdAt: new Date(row.created_at).toISOString(),
+    workspace: row.workspace_name ?? ws.slice(0, 8), actor: who[0]?.actor_name ?? null,
+    investor: { name: row.investor_name, residence: row.investor_residence, booking: row.investor_booking },
+    counterparty: row.counterparty_name ? { name: row.counterparty_name, residence: row.counterparty_residence, booking: row.counterparty_booking } : null,
+    fund: { ticker: row.ticker, name: row.fund_name ?? row.ticker, currency: row.fund_currency ?? (row.asset === 'EURC' || row.asset === 'AVB-EUR' ? 'EUR' : 'USD'), issuer: row.fund_issuer ?? null },
+    amount: Number(row.amount), units: Number(row.units), asset: row.asset, dealingDate: row.dealing_date ?? null,
+    bindingRules: (row.resolved as any[]) ?? [], checks: (row.checks as any[]) ?? [], rulePacks: row.rule_packs ?? [], inputsHash: row.inputs_sha256,
+    signature, whatIfs: row.what_ifs ?? [], settlement: row.settlement_id ? { id: row.settlement_id, status: row.settlement_status } : null,
+  });
+  return new Response(bytes, { status: 200, headers: { 'content-type': 'application/pdf', 'content-disposition': `attachment; filename="laissez-receipt-${row.id}.pdf"`, 'cache-control': 'private, no-store' } });
+});
+
 // ---------- Point-in-time: replay, as-of evaluation, policy backtest ----------
 routes.get('/decisions/:id/replay', async (c) => {
   need(c, 'read');
@@ -533,14 +669,34 @@ routes.get('/decisions/:id/replay', async (c) => {
   const [row] = await c.get('sql')`select id, outcome, inputs_sha256, rule_packs, snapshot, created_at from decisions where workspace_id = ${c.get('ws')} and id = ${decId}`;
   if (!row) throw new ApiError(404, 'not_found', `No decision ${decId} in this organization.`);
   if (!row.snapshot) throw new ApiError(409, 'no_snapshot', 'This decision was made before Laissez stored decision snapshots, so it cannot be replayed. Decisions made from now on can.');
-  const d = replaySnapshot(row.snapshot as Snapshot);
+  const snap = row.snapshot as Snapshot;
+  const d = replaySnapshot(snap);
   const hash = await inputsHash(d);
+  // Fresh evaluation of the same order against today's state, to show what has changed since the decision.
+  const ids = [snap.order.investorId, ...(snap.order.counterpartyId ? [snap.order.counterpartyId] : [])];
+  let live: Decision | null = null; let liveNote: string;
+  try {
+    const { ctx } = await liveCtx(c, ids, snap.order.fundId);
+    if (ids.every((i) => ctx.investors[i]) && ctx.funds[snap.order.fundId]) { live = evaluate(snap.order, snap.whatIfs ?? [], ctx); liveNote = 'Evaluated again against the register, credentials, policy, rule packs, documents and screening lists as they are now.'; }
+    else liveNote = 'The investor, counterparty or fund on this decision no longer exists, so there is no live evaluation to compare.';
+  } catch (e: any) { liveNote = `Live evaluation unavailable: ${e?.message ?? 'error'}.`; }
+  const diff: { id: string; layer: string; label: string; before: { result: string; detail: string } | null; after: { result: string; detail: string } | null }[] = [];
+  if (live) {
+    const ids2 = [...new Set([...d.checks.map((x) => x.id), ...live.checks.map((x) => x.id)])];
+    for (const cid of ids2) {
+      const b = d.checks.find((x) => x.id === cid); const a = live.checks.find((x) => x.id === cid);
+      if (b && a && b.result === a.result) continue;
+      diff.push({ id: cid, layer: (a ?? b)!.layer, label: (a ?? b)!.label, before: b ? { result: b.result, detail: b.detail } : null, after: a ? { result: a.result, detail: a.detail } : null });
+    }
+  }
   return c.json({
     decision_id: row.id, decided_at: row.created_at,
     reproduced: d.outcome === row.outcome && hash === row.inputs_sha256,
     stored_outcome: row.outcome, replayed_outcome: d.outcome, stored_hash: row.inputs_sha256, replayed_hash: hash,
     rule_packs: d.rulePacks, stored_rule_packs: row.rule_packs, headline: d.headline, dealing_date: d.dealingDate ?? null, checks: d.checks,
-    note: 'Replayed from the inputs stored with the decision: the same register, credential, policy, rule-pack, document and screening state the engine saw at the time.',
+    live: live ? { outcome: live.outcome, headline: live.headline, inputs_sha256: await inputsHash(live), rule_packs: live.rulePacks, evaluated_at: new Date().toISOString() } : null,
+    diff, live_note: liveNote,
+    note: 'Replayed from the inputs stored with the decision: the same register, credential, policy, rule-pack, document and screening state the engine saw at the time. diff lists the checks whose result differs between that replay and a fresh evaluation today.',
   });
 });
 
@@ -554,13 +710,24 @@ routes.post('/evaluate/as-of', async (c) => {
   if (b.action === 'transfer' && !b.counterparty_id) throw new ApiError(422, 'counterparty_required', 'A transfer needs counterparty_id, the investor receiving the units.');
   const ids = [b.investor_id, ...(b.action === 'transfer' && b.counterparty_id ? [b.counterparty_id] : [])];
   const endOfDay = addDays(b.as_of, 1) + 'T00:00:00Z';
-  const [g, investors, funds, [pv], creds] = await Promise.all([
+  const [g, investors, funds, [pv], creds, stls, docs, acks, hits] = await Promise.all([
     loadGlobals(sql), loadInvestors(sql, ws, ids, adminOf(c)), loadFunds(sql, ws, b.fund),
     sql`select version, effective_at, distribution, min_subscription::float8 as min_subscription, holder_cap, lockup_months, published_by from fund_policy_versions
       where workspace_id = ${ws} and ticker = ${b.fund} and effective_at < ${endOfDay}::timestamptz order by effective_at desc, version desc limit 1`,
     sql`select distinct on (investor_id) id, investor_id, lzid, issuer_name, issued_on::text, expires_on::text, status, revoked_at from credentials
       where workspace_id = ${ws} and investor_id = any(${ids}) and issued_on <= ${b.as_of}::date and (revoked_at is null or revoked_at::date > ${b.as_of}::date)
       order by investor_id, issued_on desc, created_at desc`,
+    // Settlements of this fund after the as-of date that touched the involved investors, newest first, to unwind.
+    sql`select s.id, s.created_at, d.action, d.investor_id, d.counterparty_id, d.units::float8 as units from settlements s
+      join decisions d on d.workspace_id = s.workspace_id and d.id = s.decision_id
+      where s.workspace_id = ${ws} and s.status in ('settled', 'pending') and d.ticker = ${b.fund} and s.created_at >= ${endOfDay}::timestamptz
+        and (d.investor_id = any(${ids}) or d.counterparty_id = any(${ids})) order by s.created_at desc`,
+    sql`select id, ticker, title, doc_type, version, sha256, jurisdiction, audience, required from fund_documents
+      where workspace_id = ${ws} and ticker = ${b.fund} and published_at < ${endOfDay}::timestamptz and (superseded_at is null or superseded_at >= ${endOfDay}::timestamptz) order by doc_type, jurisdiction nulls first`,
+    sql`select investor_id, document_id, sha256 from doc_acknowledgments where workspace_id = ${ws} and investor_id = any(${ids}) and acknowledged_at < ${endOfDay}::timestamptz`,
+    sql`select investor_id, screened_name, matched_name, programs, source, score::float8 as score, status, created_at, decided_at from screening_hits
+      where workspace_id = ${ws} and investor_id = any(${ids}) and created_at < ${endOfDay}::timestamptz
+        and (status = 'open' or decided_at is null or decided_at >= ${endOfDay}::timestamptz) order by score desc`,
   ]);
   for (const i of ids) if (!investors[i]) throw new ApiError(404, 'not_found', `No investor ${i} in this organization.`);
   const f = funds[b.fund];
@@ -579,8 +746,42 @@ routes.post('/evaluate/as-of', async (c) => {
       : { credentialId: '', issued: '', expires: '0000-00-00', classifications: [] });
     used[i] = cr ? { id: cr.id, lzid: cr.lzid, issued_on: cr.issued_on, expires_on: cr.expires_on, status_today: cr.status, revoked_at: cr.revoked_at } : null;
   }
+  // Holdings as of the date: today's register with every later settlement of this fund unwound, newest first.
+  const unwound: { settlement_id: string; action: string; units: number; at: string }[] = [];
+  const adjust = (invId: string | null | undefined, delta: number) => {
+    const inv = invId ? investors[invId] : undefined;
+    if (!inv) return;
+    const h = inv.holdings[b.fund];
+    const units = Math.round(((h?.units ?? 0) + delta) * 100) / 100;
+    if (units <= 0.0001) delete inv.holdings[b.fund];
+    else inv.holdings[b.fund] = { units, since: h?.since ?? b.as_of };
+  };
+  for (const s of stls) {
+    const u = Number(s.units);
+    if (s.action === 'subscribe') adjust(s.investor_id, -u);
+    else if (s.action === 'redeem') adjust(s.investor_id, u);
+    else if (s.action === 'transfer') { adjust(s.investor_id, u); adjust(s.counterparty_id, -u); }
+    unwound.push({ settlement_id: s.id, action: s.action, units: u, at: new Date(s.created_at).toISOString() });
+  }
+  // Documents and acknowledgments as of the date.
+  const documents: Record<string, DocReq[]> = { [b.fund]: docs.map((d: any): DocReq => ({
+    id: d.id, ticker: d.ticker, title: d.title, docType: d.doc_type, version: Number(d.version), sha256: d.sha256,
+    jurisdiction: d.jurisdiction ?? null, audience: d.audience === 'retail' || d.audience === 'professional' ? d.audience : 'all', required: !!d.required,
+  })) };
+  const ackMap: Record<string, Record<string, string>> = Object.fromEntries(ids.map((i) => [i, {}]));
+  for (const a of acks) (ackMap[a.investor_id] ??= {})[a.document_id] = a.sha256;
+  // Screening hits that were open on the date (recorded before it and not yet dispositioned, or dispositioned later).
+  const openHits: Record<string, any> = {};
+  for (const h of hits) {
+    const inv = ids.map((i) => investors[i]).find((x) => x.id === h.investor_id || x.name === h.screened_name);
+    if (inv && !openHits[inv.name]) openHits[inv.name] = { entry: h.matched_name, program: h.programs ?? '', source: h.source, score: Number(h.score), status_today: h.status, recorded_at: h.created_at };
+  }
   const fundAsOf = { ...f, distribution: pv.distribution, minSubscription: pv.min_subscription == null ? f.minSubscription : Number(pv.min_subscription), holderCap: pv.holder_cap, lockupMonths: pv.lockup_months, policyVersion: pv.version } as Fund;
-  const ctx: Ctx = { classInfo: g.classInfo, bookingCenters: g.bookingCenters, jurName: g.jurName, sanctioned: g.sanctioned, investors, funds: { [b.fund]: fundAsOf }, today: b.as_of, rulePacks: packsAsOf(g, b.as_of) };
+  const ctx: Ctx = {
+    classInfo: g.classInfo, bookingCenters: g.bookingCenters, jurName: g.jurName, sanctioned: g.sanctioned, investors, funds: { [b.fund]: fundAsOf }, today: b.as_of, rulePacks: packsAsOf(g, b.as_of),
+    documents, acks: ackMap, calendars: calendarsCtx(f.cutoffTz),
+    screen: (name: string) => { const h = openHits[name]; return h ? { entry: h.entry, program: h.program, source: h.source, score: h.score } : null; },
+  };
   const order = orderOf({ ...b, counterparty_id: b.action === 'transfer' ? b.counterparty_id : undefined });
   const d = evaluate(order, [], ctx);
   const hash = await inputsHash(d);
@@ -588,7 +789,12 @@ routes.post('/evaluate/as-of', async (c) => {
     ...decisionOut(d, hash, []), persisted: false, as_of: b.as_of,
     policy_version_used: pv.version, policy_version_detail: { version: pv.version, effective_at: pv.effective_at, published_by: pv.published_by },
     credential_used: ids.length === 1 ? used[ids[0]] : used,
-    note: 'Fund policy, credentials and rule packs are taken as they stood on the as-of date. Holdings, documents, sanctions screening and fund liquidity are read as they are today.',
+    reconstructed: {
+      holdings: Object.fromEntries(ids.map((i) => [i, investors[i].holdings[b.fund] ?? null])), settlements_unwound: unwound,
+      documents_in_force: docs.length, acknowledgments: Object.fromEntries(ids.map((i) => [i, Object.keys(ackMap[i] ?? {}).length])),
+      open_screening_hits: Object.values(openHits).length,
+    },
+    note: `Fund policy, credentials, rule packs, holdings, fund documents, acknowledgments and open screening hits are taken as they stood on ${b.as_of}: holdings are today's register with ${unwound.length} later settlement${unwound.length === 1 ? '' : 's'} of ${b.fund} unwound, and a hit counts if it was recorded by then and not yet cleared. Still read as of today: the holder count and sanctions list contents, relied-on credentials from other organizations, redemption notices, NAV and the fund's liquidity state (assets, gate usage), and reinvested distributions, so the Fund terms layer is not evaluated. Dates follow the fund calendar in force now.`,
   });
 });
 
@@ -643,6 +849,21 @@ const stepsFor = (action: string) => {
     : [{ step: 'decision_signed', at: at(200) }, { step: 'cash_locked', at: at(12_000), block: 1 }, { step: 'registry_confirmed', at: at(12_000), block: 1 }, { step: 'atomic_swap', at: at(12_000), block: 1 }, { step: 'final', at: at(780_000) }];
 };
 
+/** Register updates for the simulated settlement path: credit, debit, holder count and redemption notices. */
+async function simulatedLegQueries(sql: Sql, ws: string, ctx: Ctx, dec: any, u: number, t: string): Promise<any[]> {
+  const inv = ctx.investors[dec.investor_id]; const cp = dec.counterparty_id ? ctx.investors[dec.counterparty_id] : null;
+  const q: any[] = []; let holderDelta = 0;
+  const now = today();
+  const credit = (who: Investor) => { if (!who.holdings[t]) holderDelta++; q.push(sql`insert into holdings (workspace_id, investor_id, ticker, units, since) values (${ws}, ${who.id}, ${t}, ${u}, ${now}) on conflict (workspace_id, investor_id, ticker) do update set units = holdings.units + excluded.units`); };
+  const debit = (who: Investor) => { const left = (who.holdings[t]?.units ?? 0) - u; if (left <= 0.0001) { holderDelta--; q.push(sql`delete from holdings where workspace_id = ${ws} and investor_id = ${who.id} and ticker = ${t}`); } else q.push(sql`update holdings set units = units - ${u} where workspace_id = ${ws} and investor_id = ${who.id} and ticker = ${t}`); };
+  if (dec.action === 'subscribe') credit(inv);
+  if (dec.action === 'redeem') debit(inv);
+  if (dec.action === 'transfer' && cp) { debit(inv); credit(cp); }
+  if (holderDelta) q.push(sql`update funds set holders = greatest(0, holders + ${holderDelta}) where workspace_id = ${ws} and ticker = ${t}`);
+  if (dec.action === 'redeem') q.push(...(await noticeExecutionQueries(sql, ws, dec.investor_id, t, u, '9999-12-31')));
+  return q;
+}
+
 /**
  * Settles an allowed decision. Re-checks the order against current state first. With on-chain settlement
  * configured (and API version 2026-10-02), queues the chain job and returns 202 pending; otherwise runs the
@@ -655,7 +876,8 @@ export async function executeSettlement(c: C, dec: any): Promise<{ httpStatus: 2
   if (Date.now() - new Date(dec.created_at).getTime() > SETTLE_WINDOW_MS) throw new ApiError(409, 'expired', 'Settlement instructions expire 15 minutes after the decision. Request a new decision.');
   const done = await sql`select id, status from settlements where workspace_id = ${ws} and decision_id = ${dec.id}`;
   if (done.length) {
-    if (done[0].status === 'reverted') throw new ApiError(409, 'reverted', `The settlement of this decision (${done[0].id}) reverted. Request a new decision and settle that one.`);
+    if (done[0].status === 'reverted') throw new ApiError(409, 'reverted', `The settlement of this decision (${done[0].id}) reverted. Retry it from the settlement page, or request a new decision and settle that one.`);
+    if (done[0].status === 'cancelled') throw new ApiError(409, 'cancelled', `The settlement of this decision (${done[0].id}) was cancelled. Request a new decision and settle that one.`);
     throw new ApiError(409, 'already_settled', `This decision already settled as ${done[0].id} (${done[0].status}).`);
   }
   const amount = Number(dec.amount);
@@ -700,16 +922,7 @@ export async function executeSettlement(c: C, dec: any): Promise<{ httpStatus: 2
   }
 
   // Simulated atomic settlement: both legs move in one database transaction, or neither does.
-  const inv = ctx.investors[dec.investor_id]; const cp = dec.counterparty_id ? ctx.investors[dec.counterparty_id] : null;
-  const q: any[] = []; let holderDelta = 0;
-  const now = today();
-  const credit = (who: Investor) => { if (!who.holdings[t]) holderDelta++; q.push(sql`insert into holdings (workspace_id, investor_id, ticker, units, since) values (${ws}, ${who.id}, ${t}, ${u}, ${now}) on conflict (workspace_id, investor_id, ticker) do update set units = holdings.units + excluded.units`); };
-  const debit = (who: Investor) => { const left = (who.holdings[t]?.units ?? 0) - u; if (left <= 0.0001) { holderDelta--; q.push(sql`delete from holdings where workspace_id = ${ws} and investor_id = ${who.id} and ticker = ${t}`); } else q.push(sql`update holdings set units = units - ${u} where workspace_id = ${ws} and investor_id = ${who.id} and ticker = ${t}`); };
-  if (dec.action === 'subscribe') credit(inv);
-  if (dec.action === 'redeem') debit(inv);
-  if (dec.action === 'transfer' && cp) { debit(inv); credit(cp); }
-  if (holderDelta) q.push(sql`update funds set holders = greatest(0, holders + ${holderDelta}) where workspace_id = ${ws} and ticker = ${t}`);
-  if (dec.action === 'redeem') q.push(...(await noticeExecutionQueries(sql, ws, dec.investor_id, t, u, '9999-12-31')));
+  const q = await simulatedLegQueries(sql, ws, ctx, dec, u, t);
   const steps = stepsFor(dec.action);
   q.push(sql`insert into settlements (workspace_id, id, decision_id, status, steps) values (${ws}, ${stlId}, ${dec.id}, 'settled', ${JSON.stringify({ simulated: true, chain: 'Ethereum', recheck, steps })})`);
   q.push(auditQ(sql, ws, a, 'settlement.completed', stlId, { decision: dec.id, action: dec.action, units: u, fund: t, simulated: true }));
@@ -737,18 +950,130 @@ routes.post('/settlements', async (c) => {
   const r = await executeSettlement(c, dec);
   return c.json(r.settlement, r.httpStatus);
 });
+const SETTLEMENT_STATES = ['pending', 'settled', 'reverted', 'cancelled'];
+/** Settlements, newest first, with cursor pagination. Filter: status (pending, settled, reverted, cancelled). Each row carries its chain job status when there is one. */
 routes.get('/settlements', async (c) => {
   need(c, 'read');
-  return c.json({ data: await c.get('sql')`select s.id, s.decision_id, s.status, s.steps, s.chain, s.created_at, d.action, d.ticker, d.amount::float8 as amount, d.asset, i.name as investor
+  const page = pageParams(c, 50, 200);
+  const status = c.req.query('status') || null;
+  if (status && !SETTLEMENT_STATES.includes(status)) throw new ApiError(400, 'invalid_filter', `status must be one of ${SETTLEMENT_STATES.join(', ')}.`);
+  const rows = await c.get('sql')`select s.id, s.decision_id, s.status, s.steps, s.chain, s.created_at, d.action, d.ticker, d.amount::float8 as amount, d.asset, i.name as investor,
+      j.id as job_id, j.status as job_status, j.attempts as job_attempts, j.error as job_error, j.tx_hashes as job_tx_hashes
     from settlements s join decisions d on d.workspace_id = s.workspace_id and d.id = s.decision_id join investors i on i.workspace_id = d.workspace_id and i.id = d.investor_id
-    where s.workspace_id = ${c.get('ws')} order by s.created_at desc limit 100` });
+    left join lateral (select id, status, attempts, error, tx_hashes from chain_jobs where kind = 'settle' and ref = s.id order by created_at desc limit 1) j on true
+    where s.workspace_id = ${c.get('ws')} and (${status}::text is null or s.status = ${status})
+      and (${page.at}::timestamptz is null or (s.created_at, s.id) < (${page.at}::timestamptz, ${page.id}))
+    order by s.created_at desc, s.id desc limit ${page.limit + 1}`;
+  const out = pageOut(rows as any[], page);
+  return c.json({ ...out, data: out.data.map((r: any) => ({ ...r, job: r.job_id ? { id: r.job_id, status: r.job_status, attempts: r.job_attempts, error: r.job_error, tx_hashes: r.job_tx_hashes ?? [] } : null, ...settlementActions(r) })), filters: { status } });
 });
+/** Which operator actions a settlement allows right now. Retry: reverted, or pending with a failed job. Cancel: pending and nothing sent on chain. */
+function settlementActions(r: { status: string; job_status?: string | null; job_tx_hashes?: string[] | null; chain?: any }) {
+  const sent = !!(r.job_tx_hashes ?? []).length || !!r.chain?.tx_hash;
+  const retryable = r.status === 'reverted' || (r.status === 'pending' && r.job_status === 'failed');
+  const cancellable = r.status === 'pending' && !sent && (r.job_status === 'queued' || r.job_status === 'failed' || !r.job_status);
+  return { retryable, cancellable };
+}
+async function loadSettlement(c: C, stlId: string) {
+  const [row] = await c.get('sql')`select s.*, d.action, d.ticker, d.amount::float8 as amount, d.asset, d.units::float8 as units, d.investor_id, d.counterparty_id, d.outcome, d.what_ifs, d.inputs_sha256, d.created_at as decision_created_at,
+      j.id as job_id, j.status as job_status, j.attempts as job_attempts, j.error as job_error, j.tx_hashes as job_tx_hashes, j.updated_at as job_updated_at
+    from settlements s join decisions d on d.workspace_id = s.workspace_id and d.id = s.decision_id
+    left join lateral (select id, status, attempts, error, tx_hashes, updated_at from chain_jobs where kind = 'settle' and ref = s.id order by created_at desc limit 1) j on true
+    where s.workspace_id = ${c.get('ws')} and s.id = ${stlId}`;
+  if (!row) throw new ApiError(404, 'not_found', `No settlement ${stlId} in this organization.`);
+  return row;
+}
+const settlementOut = (row: any) => ({ ...row, chain: row.chain ?? null, job: row.job_id ? { id: row.job_id, status: row.job_status, attempts: row.job_attempts, error: row.job_error, tx_hashes: row.job_tx_hashes ?? [], updated_at: row.job_updated_at } : null, ...settlementActions(row) });
 routes.get('/settlements/:id', async (c) => {
   need(c, 'read');
-  const [row] = await c.get('sql')`select s.*, d.action, d.ticker, d.amount::float8 as amount, d.asset, d.units::float8 as units, d.investor_id, d.counterparty_id
-    from settlements s join decisions d on d.workspace_id = s.workspace_id and d.id = s.decision_id where s.workspace_id = ${c.get('ws')} and s.id = ${c.req.param('id')}`;
-  if (!row) throw new ApiError(404, 'not_found', `No settlement ${c.req.param('id')} in this organization.`);
-  return c.json({ ...row, chain: row.chain ?? null });
+  return c.json(settlementOut(await loadSettlement(c, c.req.param('id'))));
+});
+
+/**
+ * Retries a reverted settlement, or a pending one whose chain job failed. The decision is re-checked against current
+ * state first (same as a first settlement). With on-chain settlement configured the chain job is queued again;
+ * otherwise the simulated atomic path runs now.
+ */
+export async function retrySettlement(c: C, stlId: string): Promise<Record<string, unknown>> {
+  const sql = c.get('sql'); const ws = c.get('ws'); const a: Actor = c.get('actor');
+  const row = await loadSettlement(c, stlId);
+  const { retryable } = settlementActions(row);
+  if (!retryable) throw new ApiError(409, 'not_retryable', row.status === 'settled' ? 'This settlement already settled.' : row.status === 'cancelled' ? 'This settlement was cancelled. Request a new decision.' : 'This settlement is still in progress. Wait for its chain job to finish.');
+  if (row.outcome !== 'ALLOW' || (row.what_ifs as string[] | null)?.length) throw new ApiError(409, 'not_allowed', 'The decision behind this settlement is not an allowed, non-hypothetical decision.');
+  const dec = { id: row.decision_id, action: row.action, investor_id: row.investor_id, counterparty_id: row.counterparty_id, ticker: row.ticker, amount: Number(row.amount), asset: row.asset, outcome: row.outcome, what_ifs: row.what_ifs, units: row.units, created_at: row.decision_created_at };
+  const ids = [dec.investor_id, ...(dec.counterparty_id ? [dec.counterparty_id] : [])];
+  const { ctx } = await liveCtx(c, ids, dec.ticker);
+  if (!ctx.investors[dec.investor_id] || !ctx.funds[dec.ticker] || (dec.counterparty_id && !ctx.investors[dec.counterparty_id])) throw new ApiError(409, 'state_changed', 'The investor, counterparty or fund on this decision no longer exists.');
+  const d = evaluate({ action: dec.action, investorId: dec.investor_id, fundId: dec.ticker, amount: dec.amount, asset: dec.asset, counterpartyId: dec.counterparty_id ?? undefined }, [], ctx);
+  const recheck = { outcome: d.outcome, inputs_sha256: await inputsHash(d), checked_at: new Date().toISOString(), retry: true };
+  if (d.outcome !== 'ALLOW') throw new ApiError(409, 'state_changed', `The decision is no longer valid, so the settlement cannot be retried. ${d.headline}`, d.checks.filter((x) => x.result === 'fail'));
+  if (dec.action === 'transfer' && !(await travelRuleApproved(sql, ws, dec.id))) throw new ApiError(409, 'travel_rule_pending', 'The Travel Rule message for this transfer is not approved, so it cannot settle yet.');
+  const u = d.units; const t = dec.ticker;
+  const retryStep = { step: 'retried', at: new Date().toISOString(), by: a.name, previous_status: row.status, previous_reason: row.chain?.reason ?? row.steps?.reason ?? row.job_error ?? null };
+  const legacy = c.get('version') === LEGACY_VERSION;
+  if (!legacy && (await chainEnabled(c))) {
+    // Back to pending, with the earlier attempt kept in the step history, then a fresh chain job.
+    await sql.transaction([
+      sql`update settlements set status = 'pending', chain = ${JSON.stringify({ status: 'queued', retried_from: row.job_id ?? null })}::jsonb,
+          steps = jsonb_set((coalesce(steps, '{}'::jsonb) - 'reason') || ${JSON.stringify({ simulated: false, recheck })}::jsonb, '{steps}', coalesce(steps->'steps', '[]'::jsonb) || ${JSON.stringify([retryStep])}::jsonb)
+        where workspace_id = ${ws} and id = ${stlId}`,
+      ...(row.job_id && row.job_status === 'failed' ? [sql`update chain_jobs set status = 'cancelled', error = coalesce(error, '') || ' Superseded by a retry.', cancelled_at = now(), cancelled_by = ${a.name}, updated_at = now() where id = ${row.job_id} and status = 'failed'`] : []),
+      auditQ(sql, ws, a, 'settlement.retried', stlId, { decision: dec.id, previous_status: row.status, previous_job: row.job_id ?? null }),
+    ]);
+    let job: { job_id: string | null };
+    try { job = await queueSettlement(c, { settlementId: stlId, decision: dec, units: u }); }
+    catch (e) {
+      await sql.transaction([
+        sql`update settlements set status = 'reverted', steps = steps || ${JSON.stringify({ reason: 'The chain job could not be queued, so nothing moved.' })}::jsonb where workspace_id = ${ws} and id = ${stlId}`,
+        auditQ(sql, ws, a, 'settlement.reverted', stlId, { decision: dec.id, reason: 'queue_failed' }),
+      ]);
+      throw new ApiError(502, 'chain_unavailable', 'The settlement could not be queued on chain. Nothing moved. Try again in a moment.');
+    }
+    bg(c, emit(sql, ws, 'settlement.pending', { id: stlId, decision: dec.id, units: u, fund: t, job_id: job.job_id, retry: true }));
+    return settlementOut(await loadSettlement(c, stlId));
+  }
+  const q = await simulatedLegQueries(sql, ws, ctx, dec, u, t);
+  const steps = stepsFor(dec.action);
+  q.push(sql`update settlements set status = 'settled', chain = null,
+      steps = ${JSON.stringify({ simulated: true, chain: 'Ethereum', recheck, steps: [...((row.steps?.steps as any[]) ?? []), retryStep, ...steps] })}::jsonb
+    where workspace_id = ${ws} and id = ${stlId} and status in ('pending', 'reverted')`);
+  q.push(auditQ(sql, ws, a, 'settlement.completed', stlId, { decision: dec.id, action: dec.action, units: u, fund: t, simulated: true, retry: true }));
+  if (row.job_id && row.job_status !== 'confirmed') q.push(sql`update chain_jobs set status = 'cancelled', error = 'Settled on the register by a retry.', cancelled_at = now(), cancelled_by = ${a.name}, updated_at = now() where id = ${row.job_id} and status in ('queued', 'failed')`);
+  await sql.transaction(q);
+  bg(c, emit(sql, ws, 'settlement.completed', { id: stlId, decision: dec.id, units: u, fund: t, retry: true }));
+  if (dec.action === 'transfer') bg(c, travelRuleConfirm(c, dec.id, stlId));
+  return settlementOut(await loadSettlement(c, stlId));
+}
+
+routes.post('/settlements/:id/retry', async (c) => {
+  need(c, 'orders:write');
+  return c.json(await retrySettlement(c, c.req.param('id')));
+});
+
+/** Cancels a pending settlement whose chain job has not sent anything. The decision cannot be settled again afterwards; request a new one. */
+routes.post('/settlements/:id/cancel', async (c) => {
+  const a = need(c, 'orders:write');
+  const sql = c.get('sql'); const ws = c.get('ws'); const stlId = c.req.param('id');
+  const { reason } = await body(c, z.object({ reason: z.string().trim().max(300).optional() }));
+  const row = await loadSettlement(c, stlId);
+  const { cancellable } = settlementActions(row);
+  if (!cancellable) {
+    if (row.status !== 'pending') throw new ApiError(409, 'not_cancellable', `This settlement is ${row.status}, so there is nothing to cancel.`);
+    throw new ApiError(409, 'already_sent', 'A transaction for this settlement is already on chain. Wait for the receipt; it settles or reverts on its own.');
+  }
+  const why = reason || `Cancelled by ${a.name} before anything was sent on chain.`;
+  // The job update is conditional: if the job started in the meantime the whole transaction is refused.
+  const [stl] = await sql.transaction([
+    sql`update settlements set status = 'cancelled', chain = coalesce(chain, '{}'::jsonb) || ${JSON.stringify({ status: 'cancelled', reason: why })}::jsonb,
+        steps = jsonb_set(coalesce(steps, '{}'::jsonb) || ${JSON.stringify({ reason: why })}::jsonb, '{steps}', coalesce(steps->'steps', '[]'::jsonb) || ${JSON.stringify([{ step: 'cancelled', at: new Date().toISOString(), by: a.name, reason: why }])}::jsonb)
+      where workspace_id = ${ws} and id = ${stlId} and status = 'pending'
+        and not exists (select 1 from chain_jobs j where j.kind = 'settle' and j.ref = ${stlId} and (j.status = 'running' or cardinality(j.tx_hashes) > 0)) returning id`,
+    sql`update chain_jobs set status = 'cancelled', error = ${why}, cancelled_at = now(), cancelled_by = ${a.name}, updated_at = now() where kind = 'settle' and ref = ${stlId} and workspace_id = ${ws} and status in ('queued', 'failed') and cardinality(tx_hashes) = 0`,
+    auditQ(sql, ws, a, 'settlement.cancelled', stlId, { decision: row.decision_id, reason: why }),
+  ]);
+  if (!stl.length) throw new ApiError(409, 'already_sent', 'The chain job started a moment ago, so this settlement can no longer be cancelled. Wait for the receipt.');
+  bg(c, emit(sql, ws, 'settlement.cancelled', { id: stlId, decision: row.decision_id, reason: why }));
+  return c.json(settlementOut(await loadSettlement(c, stlId)));
 });
 
 // ---------- Bulk eligibility ----------

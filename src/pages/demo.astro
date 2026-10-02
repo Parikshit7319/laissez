@@ -3,28 +3,26 @@ import Layout from '../layouts/Layout.astro';
 import Console from '../proto/Console';
 import { url, ARTIFACT } from '../lib/url';
 ---
-<Layout title="Live demo" description="Run a cross-border order through Laissez: eligibility across four rule layers, atomic settlement and the issuer's impact preview." path="demo/">
+<Layout title="Guided demo" description="Run a cross-border order through Laissez: eligibility across seven rule layers, atomic settlement and the issuer's impact preview. Deterministic, in the browser, no account needed." path="demo/">
   <section class="page-hero compact">
     <div class="wrap">
-      <p class="eyebrow">Live demo</p>
       <h1>Run a cross-border order through Laissez.</h1>
-      <p class="lede">You are Aster & Vale, a private bank with booking centers in Hong Kong, Singapore, Zurich, Dubai and New York. Follow the tour, then change the client, the fund or the circumstances and watch every rule respond. The thresholds and legal references are real. The institutions are fictional.</p>
+      <p class="lede">You are Aster &amp; Vale, a private bank with booking centres in Hong Kong, Singapore, Zurich, Dubai and New York. Follow the tour, then change the client, the fund or the circumstances and watch every rule respond. The thresholds and legal references are real. The institutions are fictional. Everything here runs in your browser; the sandbox runs the same scenarios against the live API.</p>
+      <div class="hero-cta"><a class="btn primary" href={url('app/')}>Try the sandbox</a><a class="arrow-link" href={url('developers/')}>Make the same calls from code</a></div>
     </div>
   </section>
-  <section class="band tight" style="padding-top:1rem">
+  <section class="band tight demo-band">
     <div class="wrap app demo-frame">
-      <Console client:load sourcesHref={ARTIFACT ? 'sources.html#' : url('sources/#')} />
+      <Console client:load sourcesHref={ARTIFACT ? 'sources.html#' : url('sources/#')} appHref={ARTIFACT ? 'app.html' : url('app/')} />
     </div>
   </section>
 </Layout>
 <style>
-  .compact { padding-block: clamp(3rem, 6vw, 4.5rem) 1.5rem; }
-  .compact h1 { font-size: clamp(2.1rem, 1.5rem + 2.2vw, 3.3rem); max-width: 22ch; }
-  .compact .lede { margin-top: 1rem; font-size: 1.05rem; max-width: 52rem; }
-  .compact::after { display: none; }
+  .compact { padding-block: clamp(2.5rem, 5vw, 4rem) 1.5rem; }
+  .compact h1 { max-width: 22ch; }
+  .compact .lede { max-width: 52rem; }
+  .compact .hero-cta { margin-top: 1.5rem; }
+  .demo-band { padding-top: 1.5rem; border-top: 0 !important; }
   .demo-frame { color: var(--ink); }
   .demo-frame :global(.console-shell) { margin: 0; }
-  .demo-frame :global(.tour) { background: #f1edf8; }
-  .demo-frame :global(.tour.tour-off) { background: var(--paper-sunk); }
-  .demo-frame :global(.console) { box-shadow: 0 60px 120px -40px rgba(0, 0, 0, 0.7); }
 </style>

@@ -1,0 +1,124 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import { url } from '../../../lib/url';
+import { doc, SERVER, pages, byTag, allOps, opCount, tags, anchorMap, tagSlug } from './_shared';
+import './_reference.css';
+
+const anchors = anchorMap();
+const refBase = url('developers/reference/');
+const samplePaths = (name: string) => [...new Set(byTag.get(name)!.map((o) => o.path.replace(/\{[^}]+\}/g, '…')))].slice(0, 3).join('  ');
+---
+<Layout title="API reference" description={`Every Laissez API operation: ${opCount} endpoints in ${tags.length} groups with permissions, parameters, request fields, response codes and curl examples, rendered from the OpenAPI 3.1 document.`} path="developers/reference/">
+  <div class="refpg">
+  <section class="page-hero tight">
+    <div class="wrap">
+      <p class="crumbs"><a href={url('developers/')}>Developers</a> / Reference</p>
+      <h1>API reference</h1>
+      <p class="lede">{opCount} operations in {tags.length} groups, generated at build time from the OpenAPI 3.1 document the API serves at <code>GET /v1/openapi.json</code>. Base URL <code>{SERVER}</code>. Version <code>{doc.info.version}</code>. Each group is its own page; search below to jump straight to an operation.</p>
+      <div class="hero-cta">
+        <a class="btn primary" href={`${SERVER}/v1/openapi.json`} rel="noopener">openapi.json</a>
+        <a class="btn" href={url('developers/sdks/')}>SDKs</a>
+        <a class="btn" href={url('developers/#authentication')}>Authentication guide</a>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap ref">
+    <nav class="ref-nav" aria-label="Resource groups">
+      <details class="nav-fold" open>
+        <summary>Groups</summary>
+        <ul>
+          {pages.filter((p) => p.kind === 'tag').map((p) => <li><a href={`${refBase}${p.slug}/`}>{p.name}<span class="n">{p.count}</span></a></li>)}
+          <li class="sep"><a href={`${refBase}webhooks-events/`}>Webhook events<span class="n">{pages.find((p) => p.kind === 'events')!.count}</span></a></li>
+          <li><a href={`${refBase}schemas/`}>Schemas<span class="n">{pages.find((p) => p.kind === 'schemas')!.count}</span></a></li>
+          <li><a href="#conventions">Conventions</a></li>
+        </ul>
+      </details>
+    </nav>
+
+    <div class="ref-main">
+      <form class="ref-search" role="search" onsubmit="return false">
+        <label for="ref-q">Find an operation</label>
+        <input id="ref-q" type="search" autocomplete="off" spellcheck="false" placeholder="Try decisions, settle, POST /v1/credentials, policy approve, lzid" aria-controls="ref-results" />
+        <p class="hint" id="ref-hint">Matches method, path, summary, group and operation id across all {opCount} operations. Press Enter to open the first match.</p>
+      </form>
+      <ul class="op-index search-list" id="ref-results" aria-label="Search results">
+        {allOps.map((o) => (
+          <li data-q={`${o.method} ${o.path} ${o.op.summary ?? ''} ${o.tag} ${o.id} ${(o.op.description ?? '').slice(0, 160)}`.toLowerCase()}>
+            <a href={`${refBase}${tagSlug(o.tag)}/#${o.id}`}><span class={`m ${o.method}`}>{o.method.toUpperCase()}</span><code>{o.path}</code><span class="sum">{o.op.summary}</span><span class="tag-chip">{o.tag}</span></a>
+          </li>
+        ))}
+      </ul>
+      <p class="search-empty fdesc" id="ref-empty">No operation matches. Try a shorter word, or browse the groups below.</p>
+
+      <h2 class="tag-title" style="border-top:0;padding-top:0">Groups</h2>
+      <p class="tag-desc">Operations are grouped by the resource they act on. Every page lists permissions, parameters, request fields, response codes and a curl example for each operation.</p>
+      <div class="group-grid">
+        {pages.filter((p) => p.kind === 'tag').map((p) => (
+          <a class="group-card" href={`${refBase}${p.slug}/`}>
+            <h3>{p.name}<span class="n">{p.count} {p.count === 1 ? 'op' : 'ops'}</span></h3>
+            <p>{p.description}</p>
+            <span class="paths">{samplePaths(p.name)}</span>
+          </a>
+        ))}
+        <a class="group-card extra" href={`${refBase}webhooks-events/`}><h3>Webhook events<span class="n">{pages.find((p) => p.kind === 'events')!.count}</span></h3><p>Signed deliveries to your endpoint: event types and the shape of each payload.</p></a>
+        <a class="group-card extra" href={`${refBase}schemas/`}><h3>Schemas<span class="n">{pages.find((p) => p.kind === 'schemas')!.count}</span></h3><p>Named objects the operations return and accept, with every field and constraint.</p></a>
+      </div>
+
+      <section class="conv" id="conventions">
+        <h2 class="tag-title">Conventions</h2>
+        <div class="conv-grid">
+          <div><h4>Authentication</h4><p><code>Authorization: Bearer &lt;token&gt;</code>. Session tokens (<code>lz_sess_</code>) act with a role; API keys (<code>lz_test_</code>) act with scopes. Each operation lists its permission, the key scopes that grant it and the roles that hold it. Human-only operations accept sessions only.</p></div>
+          <div><h4>Headers</h4><p><code>Laissez-Version</code> pins the API version (default {doc.info.version}). <code>Idempotency-Key</code> on writes replays the stored response for 24 hours with <code>Idempotent-Replayed: true</code>. Every response echoes <code>Laissez-Version</code> and carries <code>X-Request-Id</code> and <code>X-Response-Time</code>; quote the request id when you report a problem.</p></div>
+          <div><h4>Errors</h4><p>Non-2xx responses carry <code>&#123;"error": &#123;"code", "message", "detail"&#125;&#125;</code>. Codes are stable strings such as <code>not_found</code>, <code>insufficient_scope</code>, <code>human_required</code> and <code>rate_limited</code>. A 500 also carries <code>request_id</code>.</p></div>
+          <div><h4>Limits</h4><p>300 requests per minute per API key, 600 per session. Lists return <code>&#123;"data": [...]&#125;</code> with any paging cursor beside it. Amounts are numbers in fund currency; dates are ISO 8601.</p></div>
+        </div>
+      </section>
+    </div>
+  </div>
+  </div>
+
+  <script type="application/json" id="ref-anchors" set:html={JSON.stringify(anchors)} />
+  <script is:inline>
+    // Deep links from the single-page reference (#operationId, #tag-Name, #schema-Name, #event-x) now live on group pages.
+    (function () {
+      var map = JSON.parse(document.getElementById('ref-anchors').textContent || '{}');
+      var h = (location.hash || '').slice(1);
+      if (h && map[h]) {
+        var keep = /^(tag-|webhook-events$|schemas$)/.test(h) ? '' : '#' + h;
+        location.replace(location.pathname.replace(/\/?$/, '/') + map[h] + '/' + keep);
+        return;
+      }
+      var q = document.getElementById('ref-q');
+      var list = document.getElementById('ref-results');
+      var empty = document.getElementById('ref-empty');
+      var hint = document.getElementById('ref-hint');
+      if (!q || !list) return;
+      var items = Array.prototype.slice.call(list.children);
+      var total = items.length;
+      function apply() {
+        var terms = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        if (!terms.length) { list.classList.remove('on'); empty.classList.remove('on'); hint.textContent = 'Matches method, path, summary, group and operation id across all ' + total + ' operations. Press Enter to open the first match.'; return; }
+        var n = 0;
+        items.forEach(function (li) {
+          var hay = li.getAttribute('data-q') || '';
+          var ok = terms.every(function (t) { return hay.indexOf(t) !== -1; });
+          li.classList.toggle('hide', !ok);
+          if (ok) n++;
+        });
+        list.classList.toggle('on', n > 0);
+        empty.classList.toggle('on', n === 0);
+        hint.textContent = n === 0 ? 'No matches.' : n + ' of ' + total + ' operations match. Press Enter to open the first.';
+      }
+      q.addEventListener('input', apply);
+      q.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        var first = items.filter(function (li) { return !li.classList.contains('hide'); })[0];
+        if (first && q.value.trim()) location.href = first.querySelector('a').href;
+      });
+      var initial = new URLSearchParams(location.search).get('q');
+      if (initial) { q.value = initial; apply(); }
+    })();
+  </script>
+</Layout>

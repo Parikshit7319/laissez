@@ -11,6 +11,7 @@ import {
   TRP_VERSION, TRP_EXTENSION, encodeTravelAddress, decodeTravelAddress, beneficiaryEndpoint, callbackEndpoint, confirmEndpoint,
   ivms101, beneficiaryName, originatorName, originatingVaspName, namesMatch, trpPost, safeCallback, iso2, type TrpResult,
 } from '../trp';
+import { notifyRoles, COMPLIANCE_ROLES } from '../notifications';
 
 export const routes = router();
 /** Mount at /trp (outside /v1): POST /trp/v3/:ws/:investor, /trp/v3/callback/:ws/:msgId, /trp/v3/confirm/:ws/:msgId. */
@@ -124,14 +125,18 @@ export async function travelRuleApproved(sql: Sql, ws: string, decisionId: strin
 
 /** Sends the TRP transfer confirmation (txid) to the beneficiary after the transfer is broadcast. Optional for callers. */
 export async function travelRuleConfirm(c: C, decisionId: string, txid: string) {
-  const sql = c.get('sql'); const ws = c.get('ws');
+  return travelRuleConfirmRaw(c.env, c.get('sql'), c.get('ws'), decisionId, txid);
+}
+
+/** Same as travelRuleConfirm without a request context, for the chain settlement job that runs after the response or in a Node job. */
+export async function travelRuleConfirmRaw(env: Env, sql: Sql, ws: string, decisionId: string, txid: string) {
   const [m] = await sql`select id, request_identifier, next_url from travel_rule_messages where workspace_id = ${ws} and decision_id = ${decisionId} and direction = 'outbound' and status = 'approved' order by created_at desc limit 1`;
   if (!m) return null;
-  if (!safeCallback(c.env, m.next_url)) {
+  if (!safeCallback(env, m.next_url)) {
     await sql`update travel_rule_messages set txid = ${txid}, updated_at = now(), timeline = timeline || ${ev('Confirmation not sent', 'The beneficiary gave no usable confirmation URL. The txid is recorded here only.')}::jsonb where workspace_id = ${ws} and id = ${m.id}`;
     return { id: m.id, status: 'approved', txid };
   }
-  const res = await trpPost(c.env, m.next_url, m.request_identifier, { txid });
+  const res = await trpPost(env, m.next_url, m.request_identifier, { txid });
   const ok = res.status >= 200 && res.status < 300;
   await sql`update travel_rule_messages set txid = ${txid}, status = ${ok ? 'confirmed' : 'approved'}, updated_at = now(),
     timeline = timeline || ${ev(ok ? 'Transfer confirmed to the beneficiary' : 'Confirmation failed', ok ? `txid ${txid}` : `HTTP ${res.status || 'error'}. Retry from the message page.`)}::jsonb where workspace_id = ${ws} and id = ${m.id}`;
@@ -174,29 +179,40 @@ trpRoutes.post('/v3/:ws/:investor', async (c) => {
   const claimed = beneficiaryName(b.IVMS101);
   const ok = !!inv && namesMatch(claimed, inv.name);
   const msgId = id('trm', 12);
+  // An unknown account is rejected at once. A name mismatch on a known account is held for a compliance officer:
+  // the inquiry is acknowledged (204) and the resolution is posted to the callback when they decide.
+  const review = !!inv && !ok;
   const resolution = ok
     ? { version: TRP_VERSION, approved: { address: inv.wallet, callback: confirmEndpoint(c.env, ws, msgId) } }
-    : { version: TRP_VERSION, rejected: 'Beneficiary name does not match the account' };
+    : review ? null : { version: TRP_VERSION, rejected: 'Beneficiary name does not match the account' };
   const travelAddress = await encodeTravelAddress(beneficiaryEndpoint(c.env, ws, invId));
   const now = new Date().toISOString();
   const timeline = [
     { at: now, event: 'Inquiry received', detail: `From ${originatingVaspName(b.IVMS101) ?? 'an unnamed VASP'} for ${originatorName(b.IVMS101) ?? 'an unnamed originator'}.` },
-    { at: now, event: ok ? 'Beneficiary name matched' : 'Beneficiary name did not match', detail: `Inquiry names "${claimed ?? 'nobody'}".${inv && !ok ? ' The account holder has a different legal name.' : ''}` },
+    { at: now, event: ok ? 'Beneficiary name matched' : 'Beneficiary name did not match', detail: `Inquiry names "${claimed ?? 'nobody'}".${review ? ' The account holder has a different legal name.' : ''}` },
+    ...(review ? [{ at: now, event: 'Held for manual review', detail: 'A compliance officer compares the names and approves or rejects. The originator VASP waits for the resolution at its callback URL.' }] : []),
   ];
   await sql.transaction([
-    sql`insert into travel_rule_messages (workspace_id, id, decision_id, direction, originator_vasp, beneficiary_vasp, travel_address, request_identifier, status, payload, response, beneficiary_address, next_url, timeline)
+    sql`insert into travel_rule_messages (workspace_id, id, decision_id, direction, originator_vasp, beneficiary_vasp, travel_address, request_identifier, status, payload, response, beneficiary_address, next_url, timeline, account_id)
       values (${ws}, ${msgId}, ${outRows[0]?.decision_id ?? null}, 'inbound', ${originatingVaspName(b.IVMS101) ?? 'Unknown originator VASP'}, ${vaspName(w, inv?.bc_name ?? 'Unknown')}, ${travelAddress}, ${rid},
-      ${ok ? 'approved' : 'rejected'}, ${JSON.stringify(b)}, ${JSON.stringify(resolution)}, ${ok ? inv.wallet : null}, ${b.callback}, ${JSON.stringify(timeline)}::jsonb)`,
-    auditQ(sql, ws, TRP_ACTOR, ok ? 'travel_rule.inquiry_approved' : 'travel_rule.inquiry_rejected', msgId, { request_identifier: rid, beneficiary: invId, originator_vasp: originatingVaspName(b.IVMS101) }),
+      ${ok ? 'approved' : review ? 'review' : 'rejected'}, ${JSON.stringify(b)}, ${resolution ? JSON.stringify(resolution) : null}, ${ok ? inv.wallet : null}, ${b.callback}, ${JSON.stringify(timeline)}::jsonb, ${inv?.id ?? null})`,
+    auditQ(sql, ws, TRP_ACTOR, ok ? 'travel_rule.inquiry_approved' : review ? 'travel_rule.inquiry_held' : 'travel_rule.inquiry_rejected', msgId, { request_identifier: rid, beneficiary: invId, originator_vasp: originatingVaspName(b.IVMS101), claimed_name: claimed }),
   ]);
+  if (review) {
+    await notifyRoles(sql, ws, COMPLIANCE_ROLES, {
+      kind: 'travel_rule.review', title: `Inbound Travel Rule inquiry needs review: ${inv.name}`, link: `#/travel-rule/inbound/${msgId}`,
+      body: `${originatingVaspName(b.IVMS101) ?? 'An originator VASP'} names the beneficiary "${claimed ?? 'nobody'}" but the account belongs to ${inv.name}. Approve or reject to release the resolution.`,
+    });
+    return c.body(null, 204);
+  }
   let delivered = false; let detail = 'The callback URL is not reachable from Laissez, so the resolution is returned in the inquiry response.';
   if (safeCallback(c.env, b.callback)) {
-    const r = await trpPost(c.env, b.callback, rid, resolution);
+    const r = await trpPost(c.env, b.callback, rid, resolution!);
     delivered = r.status >= 200 && r.status < 300;
     detail = delivered ? `Posted to ${b.callback.split('/').slice(0, 3).join('/')} (HTTP ${r.status}).` : `Callback returned HTTP ${r.status || 'error'}. Resolution returned in the inquiry response instead.`;
   }
   await sql`update travel_rule_messages set updated_at = now(), timeline = timeline || ${ev(delivered ? 'Resolution sent to the originator' : 'Resolution returned inline', detail)}::jsonb where workspace_id = ${ws} and id = ${msgId}`;
-  return delivered ? c.body(null, 204) : c.json(resolution, 200);
+  return delivered ? c.body(null, 204) : c.json(resolution!, 200);
 });
 
 // Resolution callback: the beneficiary VASP answers our inquiry.
@@ -274,6 +290,8 @@ routes.get('/travel-rule/messages/:id', async (c) => {
     timeline: r.timeline ?? [], related,
     headers: { 'api-version': TRP_VERSION, 'request-identifier': r.request_identifier, ...(r.direction === 'outbound' ? { 'api-extensions': TRP_EXTENSION } : {}) },
     retryable: r.direction === 'outbound' && ['failed', 'rejected', 'awaiting_resolution'].includes(r.status),
+    reviewable: r.direction === 'inbound' && r.status === 'review',
+    reviewed_by: r.reviewed_by ?? null, reviewed_at: r.reviewed_at ?? null, review_note: r.review_note ?? null,
   });
 });
 

@@ -15,7 +15,7 @@ on:
       job:
         description: Job to run
         type: choice
-        options: [sanctions, sweep, feeds, fundops, chain, all]
+        options: [sanctions, sweep, feeds, fundops, chain, recon, all]
         default: all
 
 permissions:
@@ -33,6 +33,7 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       FEEDS_CONTACT: ${{ vars.FEEDS_CONTACT }}
+      # Chain secrets are optional: without CHAIN_OPERATOR_KEY the three chain steps are skipped and settlements stay simulated.
       CHAIN_OPERATOR_KEY: ${{ secrets.CHAIN_OPERATOR_KEY }}
       CHAIN_CLAIM_KEY: ${{ secrets.CHAIN_CLAIM_KEY }}
       CHAIN_CUSTODY_SEED: ${{ secrets.CHAIN_CUSTODY_SEED }}
@@ -97,12 +98,19 @@ jobs:
         if: ${{ !cancelled() && steps.deps.outcome == 'success' && (env.JOB == 'sweep' || env.JOB == 'all') }}
         run: npx --prefix jobs tsx jobs/sweep.ts
 
-      - name: On-chain jobs, reconciliation and audit anchoring
+      # The three chain steps run one after another and each runs even when the one before it failed, so a stuck
+      # settlement job never stops the nightly reconciliation, and a reconciliation failure never stops anchoring.
+      - name: On-chain jobs (retry queued and stalled settlements)
         if: ${{ !cancelled() && steps.deps.outcome == 'success' && env.CHAIN_OPERATOR_KEY != '' && (env.JOB == 'sweep' || env.JOB == 'chain' || env.JOB == 'all') }}
-        run: |
-          npx --prefix jobs tsx jobs/chain.ts process
-          npx --prefix jobs tsx jobs/chain.ts recon
-          npx --prefix jobs tsx jobs/chain.ts anchor
+        run: npx --prefix jobs tsx jobs/chain.ts process
+
+      - name: Nightly reconciliation (token balances against the register, one break per difference)
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && env.CHAIN_OPERATOR_KEY != '' && (env.JOB == 'sweep' || env.JOB == 'chain' || env.JOB == 'recon' || env.JOB == 'all') }}
+        run: npx --prefix jobs tsx jobs/chain.ts recon
+
+      - name: Audit anchoring (one Merkle root per UTC day)
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && env.CHAIN_OPERATOR_KEY != '' && (env.JOB == 'sweep' || env.JOB == 'chain' || env.JOB == 'all') }}
+        run: npx --prefix jobs tsx jobs/chain.ts anchor
 
       - name: Regulator feeds
         if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.tests.outcome == 'success' && (env.JOB == 'feeds' || env.JOB == 'all') }}

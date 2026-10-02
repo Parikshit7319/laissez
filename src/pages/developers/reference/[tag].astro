@@ -1,0 +1,154 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import { url } from '../../../lib/url';
+import { doc, SERVER, pages, byTag, webhookEvents, schemas, opCount, eventAnchor, PERM_TEXT, typeLabel, constraints, deref, type S, type Field, type RefPage } from './_shared';
+import './_reference.css';
+
+export function getStaticPaths() {
+  return pages.map((p) => ({ params: { tag: p.slug }, props: { page: p } }));
+}
+const { page } = Astro.props as { page: RefPage };
+const refBase = url('developers/reference/');
+const ops = page.kind === 'tag' ? byTag.get(page.name)! : [];
+const idx = pages.findIndex((p) => p.slug === page.slug);
+const prev = idx > 0 ? pages[idx - 1] : null;
+const next = idx < pages.length - 1 ? pages[idx + 1] : null;
+const title = page.kind === 'tag' ? `${page.name} API` : page.name;
+const description = page.kind === 'tag'
+  ? `${page.name}: ${page.count} Laissez API ${page.count === 1 ? 'operation' : 'operations'} with permissions, parameters, request fields, response codes and curl examples. ${page.description}`
+  : page.kind === 'events' ? `The ${page.count} webhook event types Laissez delivers, each with its signed payload shape.` : `The ${page.count} named schemas of the Laissez API, with every field and constraint.`;
+---
+<Layout title={title} description={description} path={`developers/reference/${page.slug}/`}>
+  <div class="refpg">
+  <section class="page-hero tight">
+    <div class="wrap">
+      <p class="crumbs"><a href={url('developers/')}>Developers</a> / <a href={refBase}>Reference</a> / {page.name}</p>
+      <h1>{page.name}</h1>
+      <p class="lede">{page.description || `${page.count} operations.`} {page.kind === 'tag' ? `${page.count} ${page.count === 1 ? 'operation' : 'operations'} of ${opCount}.` : ''} Base URL <code>{SERVER}</code>. Version <code>{doc.info.version}</code>.</p>
+      <div class="hero-cta">
+        <a class="btn" href={`${refBase}?q=`}>Search all operations</a>
+        <a class="btn" href={`${SERVER}/v1/openapi.json`} rel="noopener">openapi.json</a>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap ref">
+    <nav class="ref-nav" aria-label="Resource groups">
+      <details class="nav-fold" open>
+        <summary>Groups</summary>
+        <ul>
+          {pages.filter((p) => p.kind === 'tag').map((p) => <li><a class={p.slug === page.slug ? 'on' : ''} href={`${refBase}${p.slug}/`} aria-current={p.slug === page.slug ? 'page' : undefined}>{p.name}<span class="n">{p.count}</span></a></li>)}
+          <li class="sep"><a class={page.kind === 'events' ? 'on' : ''} href={`${refBase}webhooks-events/`}>Webhook events<span class="n">{webhookEvents.length}</span></a></li>
+          <li><a class={page.kind === 'schemas' ? 'on' : ''} href={`${refBase}schemas/`}>Schemas<span class="n">{schemas.length}</span></a></li>
+          <li><a href={`${refBase}#conventions`}>Conventions</a></li>
+        </ul>
+      </details>
+    </nav>
+
+    <div class="ref-main">
+      {page.kind === 'tag' && (
+        <section class="tag" id={`tag-${page.slug}`}>
+          <ul class="op-index">{ops.map((o) => <li><a href={`#${o.id}`}><span class={`m ${o.method}`}>{o.method.toUpperCase()}</span><code>{o.path}</code><span class="sum">{o.op.summary}</span></a></li>)}</ul>
+          {ops.map((o) => (
+            <article class="op" id={o.id}>
+              <header class="op-head">
+                <div class="op-line"><span class={`m ${o.method}`}>{o.method.toUpperCase()}</span><code class="path">{o.path}</code><a class="anchor" href={`#${o.id}`} aria-label="Link to this operation">#</a></div>
+                <h3>{o.op.summary}</h3>
+                {o.op.description && <p class="desc">{o.op.description}</p>}
+                <div class="perm">
+                  <span class="chip perm-chip" title="x-laissez-permission">{PERM_TEXT[o.op['x-laissez-permission']] ?? `Permission ${o.op['x-laissez-permission']}`}</span>
+                  {o.op['x-laissez-human-only'] && <span class="chip human">Human only</span>}
+                  {(o.op['x-laissez-api-key-scopes'] ?? []).length > 0 && <span class="chip">Key scopes: {o.op['x-laissez-api-key-scopes'].join(', ')}</span>}
+                  {(o.op['x-laissez-roles'] ?? []).length > 0 && o.op['x-laissez-roles'].length < 6 && <span class="chip">Roles: {o.op['x-laissez-roles'].join(', ')}</span>}
+                  {(o.op['x-laissez-roles'] ?? []).length === 6 && <span class="chip">All roles</span>}
+                </div>
+              </header>
+              <div class="op-body">
+                <div class="op-detail">
+                  {o.params.filter((p: S) => p.in !== 'header' || !['Laissez-Version', 'Idempotency-Key'].includes(p.name)).length > 0 && (
+                    <div class="block">
+                      <h5>Parameters</h5>
+                      <table class="fields"><tbody>
+                        {o.params.filter((p: S) => p.in !== 'header' || !['Laissez-Version', 'Idempotency-Key'].includes(p.name)).map((p: S) => (
+                          <tr><td class="fname"><code>{p.name}</code><span class="where">{p.in}</span>{p.required && <span class="req">required</span>}</td><td class="ftype">{typeLabel(p.schema).text}</td><td class="fdesc">{p.description}{constraints(deref(p.schema)).length > 0 && <span class="cons">{constraints(deref(p.schema)).join('. ')}.</span>}{p.example && <span class="cons">Example: {String(p.example)}</span>}</td></tr>
+                        ))}
+                      </tbody></table>
+                    </div>
+                  )}
+                  {o.body && (
+                    <div class="block">
+                      <h5>Request body {o.body.form ? <span class="where">form</span> : <span class="where">JSON</span>}{o.body.schemaName && <a class="schema-link" href={`${refBase}schemas/#schema-${o.body.schemaName}`}>{o.body.schemaName}</a>}</h5>
+                      {o.body.description && <p class="fdesc">{o.body.description}</p>}
+                      {o.body.fields.length > 0 ? (
+                        <table class="fields"><tbody>
+                          {o.body.fields.map((f) => (
+                            <tr class={`d${f.depth}`}><td class="fname"><code>{f.name}</code>{f.required && <span class="req">required</span>}</td><td class="ftype">{f.link ? <a href={f.link}>{f.type}</a> : f.type}</td><td class="fdesc">{f.description}{f.constraints.length > 0 && <span class="cons">{f.constraints.join('. ')}.</span>}</td></tr>
+                          ))}
+                        </tbody></table>
+                      ) : <p class="fdesc">Any JSON object.</p>}
+                    </div>
+                  )}
+                  <div class="block">
+                    <h5>Responses</h5>
+                    <table class="fields resp"><tbody>
+                      {o.responses.map((r) => (
+                        <tr><td class="fname"><span class={`code c${r.code[0]}`}>{r.code}</span></td><td class="ftype">{r.link ? <a href={r.link}>{r.type}</a> : r.type}</td><td class="fdesc">{r.description}</td></tr>
+                      ))}
+                    </tbody></table>
+                    {o.responses.filter((r) => r.fields.length > 0).map((r) => (
+                      <details class="resp-fields"><summary>{r.code} response fields</summary>
+                        <table class="fields"><tbody>{r.fields.map((f) => <tr class={`d${f.depth}`}><td class="fname"><code>{f.name}</code></td><td class="ftype">{f.link ? <a href={f.link}>{f.type}</a> : f.type}</td><td class="fdesc">{f.description}{f.constraints.length > 0 && <span class="cons">{f.constraints.join('. ')}.</span>}</td></tr>)}</tbody></table>
+                      </details>
+                    ))}
+                  </div>
+                </div>
+                <div class="op-example">
+                  <h5>Example</h5>
+                  <pre class="codeblock"><code>{o.curl}</code></pre>
+                  {o.example !== undefined && (
+                    <details class="ex-res"><summary>Example response ({o.exampleCode})</summary><pre class="codeblock"><code>{JSON.stringify(o.example, null, 2)}</code></pre></details>
+                  )}
+                </div>
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+
+      {page.kind === 'events' && (
+        <section class="tag" id="webhook-events">
+          <p class="tag-desc">Delivered as <code>POST</code> to each endpoint subscribed to the type, signed with <code>Laissez-Signature: t=&lt;unix&gt;,v1=&lt;hex HMAC-SHA256 of "&lt;t&gt;.&lt;body&gt;"&gt;</code>. Body: <code>&#123;"id": "evt_…", "type", "created", "data"&#125;</code>. Any 2xx acknowledges. Three attempts, about 1 and 3 seconds apart, then the delivery is recorded for replay. See <a href={url('developers/#webhooks')}>verification code</a> and the <a href={`${refBase}webhooks/`}>Webhooks operations</a>.</p>
+          <ul class="op-index">{webhookEvents.map((e) => <li><a href={`#${eventAnchor(e.name)}`}><span class="m event">EVENT</span><code>{e.name}</code><span class="sum">{e.description}</span></a></li>)}</ul>
+          {webhookEvents.map((e) => (
+            <article class="op evt" id={eventAnchor(e.name)}>
+              <header class="op-head"><div class="op-line"><span class="m event">EVENT</span><code class="path">{e.name}</code><a class="anchor" href={`#${eventAnchor(e.name)}`} aria-label="Link to this event">#</a></div><p class="desc">{e.description}</p></header>
+              <div class="block">
+                <h5>data {e.dataType.link && <a class="schema-link" href={e.dataType.link}>{e.dataType.text}</a>}</h5>
+                {e.fields.length > 0 && <table class="fields"><tbody>{e.fields.map((f) => <tr class={`d${f.depth}`}><td class="fname"><code>{f.name}</code></td><td class="ftype">{f.link ? <a href={f.link}>{f.type}</a> : f.type}</td><td class="fdesc">{f.description}{f.constraints.length > 0 && <span class="cons">{f.constraints.join('. ')}.</span>}</td></tr>)}</tbody></table>}
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+
+      {page.kind === 'schemas' && (
+        <section class="tag" id="schemas">
+          <p class="tag-desc">Named objects referenced across the operations. Fields marked required are always present; others may be absent or null depending on the resource's state.</p>
+          <ul class="op-index">{schemas.map((s) => <li><a href={`#schema-${s.name}`}><span class="m event">SCHEMA</span><code>{s.name}</code><span class="sum">{s.description}</span></a></li>)}</ul>
+          {schemas.map((s) => (
+            <article class="op schema" id={`schema-${s.name}`}>
+              <header class="op-head"><div class="op-line"><code class="path">{s.name}</code><a class="anchor" href={`#schema-${s.name}`} aria-label="Link to this schema">#</a></div>{s.description && <p class="desc">{s.description}</p>}</header>
+              <table class="fields"><tbody>{s.fields.map((f) => <tr class={`d${f.depth}`}><td class="fname"><code>{f.name}</code>{f.required && <span class="req">required</span>}</td><td class="ftype">{f.link ? <a href={f.link}>{f.type}</a> : f.type}</td><td class="fdesc">{f.description}{f.constraints.length > 0 && <span class="cons">{f.constraints.join('. ')}.</span>}</td></tr>)}</tbody></table>
+            </article>
+          ))}
+        </section>
+      )}
+
+      <nav class="pager" aria-label="Neighbouring groups">
+        {prev && <a href={`${refBase}${prev.slug}/`}><span>Previous</span><strong>{prev.name}</strong></a>}
+        {next && <a class="next" href={`${refBase}${next.slug}/`}><span>Next</span><strong>{next.name}</strong></a>}
+      </nav>
+    </div>
+  </div>
+  </div>
+</Layout>

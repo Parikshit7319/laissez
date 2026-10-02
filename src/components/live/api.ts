@@ -45,10 +45,44 @@ export type SanctionsSource = {
   age_hours: number | null;
 };
 
+export type ErrorBudget = {
+  objective: number;
+  window_days: number;
+  covered_days: number;
+  availability: number | null;
+  intervals: number;
+  failed_intervals: number;
+  interval_minutes: number;
+  allowed_downtime_minutes: number;
+  used_downtime_minutes: number;
+  remaining_minutes: number;
+  remaining_share: number | null;
+  state: 'ok' | 'warning' | 'exhausted' | 'no_data';
+  definition: string;
+};
+
+export type LatencyRoute = { path: string; samples: number; p95_ms: number | null; server_errors: number };
+export type Latency = {
+  window_hours: number;
+  sample_rate: number;
+  samples: number;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  p99_ms: number | null;
+  server_errors: number;
+  client_errors: number;
+  server_error_rate: number | null;
+  first_sample_at: string | null;
+  by_route: LatencyRoute[];
+  definition: string;
+};
+
 export type StatusResponse = {
   status: OverallStatus;
   checked_at: string;
   components: StatusComponent[];
+  error_budget?: ErrorBudget;
+  latency?: Latency;
   sanctions: { sources: SanctionsSource[]; oldest_list_hours: number | null };
   monitoring: { last_run_finished_at: string | null; runs_24h: number };
   daily_window_days?: number;

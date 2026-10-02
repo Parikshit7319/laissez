@@ -167,6 +167,7 @@ function Overview({ me, funds, api, onChange }: { me: any; funds: any; api: Api;
     <>
       <h1>Welcome, {inv.short}</h1>
       <p class="pt-lede">Your eligibility record with {me.distributor.name}: which funds you can subscribe to, and why.</p>
+      {me.shares.some((s: any) => s.status === 'pending') ? <div class="pt-alert note" role="status"><strong>{me.shares.filter((s: any) => s.status === 'pending').length === 1 ? 'A distributor is asking' : `${me.shares.filter((s: any) => s.status === 'pending').length} distributors are asking`} to rely on your credential.</strong> Review the request at the bottom of this page; nothing is shared until you approve.</div> : null}
 
       <section class="pt-card" aria-labelledby="cred-h">
         <div class="pt-card-h"><h2 id="cred-h">Your Laissez-passer</h2><Chip tone={tone}>{chip}</Chip></div>
@@ -208,6 +209,44 @@ function Overview({ me, funds, api, onChange }: { me: any; funds: any; api: Api;
   );
 }
 
+/** A consent request from another distributor, decided here with a typed name. */
+function PendingShare({ s, api, onDone }: { s: any; api: Api; onDone: () => void }) {
+  const detail = useLoad<any>(() => api(`/shares/${encodeURIComponent(s.id)}`), [s.id]);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<any>(null);
+  const [done, setDone] = useState<any>(null);
+  const decide = async (decision: 'approve' | 'decline') => {
+    setBusy(decision); setErr(null);
+    try { setDone(await api(`/shares/${encodeURIComponent(s.id)}/${decision}`, { body: { name } })); onDone(); } catch (e) { setErr(e); } finally { setBusy(null); }
+  };
+  const d = detail.data;
+  if (done) return <div class={`pt-alert ${done.status === 'active' ? 'ok' : 'note'}`} role="status"><strong>{done.status === 'active' ? 'Approved.' : 'Declined.'}</strong> {done.message}</div>;
+  return (
+    <div class="pt-card" style={{ borderColor: 'var(--brand)' }}>
+      <div class="pt-card-h"><h3 style={{ margin: 0 }}>{s.organization} asks to rely on your credential</h3><Chip tone="info">Waiting for you</Chip></div>
+      <p class="pt-small" style={{ margin: '0.3rem 0 0.6rem' }}>Purpose: {s.purpose}{s.requested_by ? <span class="pt-muted">. Requested by {s.requested_by} on {fmtDate(s.created_at)}.</span> : null}{s.expires_at ? <span class="pt-muted"> Expires {fmtDate(s.expires_at)}.</span> : null}</p>
+      {detail.error ? <Alert error={detail.error} /> : !d ? <Spinner /> : (
+        <div class="pt-small">
+          <p style={{ margin: '0 0 0.4rem' }}><b>What {d.requester.name} receives:</b> {d.shared.join('; ')}.</p>
+          <p style={{ margin: '0 0 0.4rem' }}><b>What stays with {d.issuer.name}:</b> {d.not_shared.join('; ')}.</p>
+          <p style={{ margin: '0 0 0.4rem' }}><b>Classifications shared:</b> {d.classifications.length ? d.classifications.map((c: any) => `${c.jurisdiction_name ?? c.jurisdiction ?? ''}: ${c.label} (valid to ${fmtDate(c.expires_on)})`).join('; ') : 'KYC only'}.</p>
+          <p class="pt-muted" style={{ margin: '0 0 0.6rem' }}>They book you in {d.requester.booking_center.name}. {d.terms?.reliance}</p>
+        </div>
+      )}
+      <form class="pt-form" onSubmit={(e) => e.preventDefault()}>
+        <label class="pt-f"><span>Sign with your full name</span><input class="pt-sign" required minLength={2} maxLength={120} value={name} onInput={(e) => setName((e.target as HTMLInputElement).value)} autocomplete="name" placeholder="Full name" /></label>
+        <Alert error={err} />
+        <div class="pt-row">
+          <button type="button" class="pt-btn primary" disabled={!!busy || name.trim().length < 2 || !d} onClick={() => decide('approve')}>{busy === 'approve' ? 'Approving' : `Approve and share with ${s.organization}`}</button>
+          <button type="button" class="pt-btn ghost" disabled={!!busy || name.trim().length < 2} onClick={() => decide('decline')}>{busy === 'decline' ? 'Declining' : 'Decline'}</button>
+        </div>
+        <p class="pt-small pt-muted" style={{ margin: 0 }}>You can withdraw consent at any time from this page. Nothing is shared until you approve.</p>
+      </form>
+    </div>
+  );
+}
+
 function Shares({ shares, api, onChange }: { shares: any[]; api: Api; onChange: () => void }) {
   const [asking, setAsking] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -216,29 +255,34 @@ function Shares({ shares, api, onChange }: { shares: any[]; api: Api; onChange: 
     setBusy(true); setErr(null);
     try { await api(`/consent/withdraw/${id}`, { body: {} }); setAsking(null); onChange(); } catch (e) { setErr(e); } finally { setBusy(false); }
   };
+  const pending = shares.filter((s) => s.status === 'pending');
+  const rest = shares.filter((s) => s.status !== 'pending');
   return (
     <section class="pt-section" aria-labelledby="shares-h">
       <h2 id="shares-h">Distributors relying on your credential</h2>
-      <div class="pt-card">
-        {shares.map((s) => (
-          <div class="pt-doc-row">
-            <div class="pt-doc-t">
-              <b>{s.organization}</b>
-              <span class="pt-small pt-muted">{s.purpose}{s.consent_at ? `. Approved ${fmtDate(s.consent_at)}.` : ''}</span>
+      {pending.length ? <div class="pt-stack" style={{ marginBottom: '0.9rem' }}>{pending.map((s) => <PendingShare s={s} api={api} onDone={onChange} />)}</div> : null}
+      {rest.length ? (
+        <div class="pt-card">
+          {rest.map((s) => (
+            <div class="pt-doc-row">
+              <div class="pt-doc-t">
+                <b>{s.organization}</b>
+                <span class="pt-small pt-muted">{s.purpose}{s.consent_at ? `. ${s.status === 'declined' ? 'Declined' : 'Approved'} ${fmtDate(s.consent_at)}.` : ''}</span>
+              </div>
+              <div class="pt-row">
+                {s.status === 'active' ? <Chip tone="ok">Active</Chip> : <Chip>{s.status === 'declined' ? 'Declined' : 'Ended'}</Chip>}
+                {s.status === 'active' ? (asking === s.id ? (
+                  <>
+                    <button type="button" class="pt-btn danger" disabled={busy} onClick={() => withdraw(s.id)}>Confirm withdrawal</button>
+                    <button type="button" class="pt-btn ghost" onClick={() => setAsking(null)}>Keep</button>
+                  </>
+                ) : <button type="button" class="pt-btn ghost" onClick={() => setAsking(s.id)}>Withdraw consent</button>) : null}
+              </div>
             </div>
-            <div class="pt-row">
-              {s.status === 'active' ? <Chip tone="ok">Active</Chip> : s.status === 'pending' ? <Chip tone="info">Waiting for you</Chip> : <Chip>{s.status === 'declined' ? 'Declined' : 'Ended'}</Chip>}
-              {(s.status === 'active' || s.status === 'pending') ? (asking === s.id ? (
-                <>
-                  <button type="button" class="pt-btn danger" disabled={busy} onClick={() => withdraw(s.id)}>Confirm withdrawal</button>
-                  <button type="button" class="pt-btn ghost" onClick={() => setAsking(null)}>Keep</button>
-                </>
-              ) : <button type="button" class="pt-btn ghost" onClick={() => setAsking(s.id)}>Withdraw consent</button>) : null}
-            </div>
-          </div>
-        ))}
-        <Alert error={err} />
-      </div>
+          ))}
+          <Alert error={err} />
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -303,7 +347,81 @@ function FundDetail({ f, me, api, onChange }: { f: any; me: any; api: Api; onCha
           </li>
         </ol>
       </section>
+
+      {f.holding_units > 0 ? (
+        <section class="pt-section" aria-labelledby="hold-act-h">
+          <h2 id="hold-act-h">Your {f.holding_units.toLocaleString('en-US')} units</h2>
+          <p class="pt-small pt-muted" style={{ margin: '0 0 0.8rem' }}>Worth about {fmtMoney(f.holding_units * f.nav, f.currency)} at today's price. You can always redeem; a transfer goes to another client of {me.distributor.name} and is checked for their eligibility first.</p>
+          <div class="pt-stack">
+            <div class="pt-card">
+              <h3 style={{ margin: '0 0 0.6rem' }}>Redeem</h3>
+              <HoldingForm action="redeem" f={f} me={me} api={api} onDone={onChange} />
+            </div>
+            <div class="pt-card">
+              <h3 style={{ margin: '0 0 0.6rem' }}>Transfer to another client</h3>
+              <HoldingForm action="transfer" f={f} me={me} api={api} onDone={onChange} />
+            </div>
+          </div>
+        </section>
+      ) : null}
     </>
+  );
+}
+
+/** Redemption or transfer request against units the client already holds. */
+function HoldingForm({ action, f, me, api, onDone }: { action: 'redeem' | 'transfer'; f: any; me: any; api: Api; onDone: () => void }) {
+  const maxAmount = Math.floor(f.holding_units * f.nav * 100) / 100;
+  const [amount, setAmount] = useState('');
+  const [asset, setAsset] = useState(f.assets[0]);
+  const [counterparty, setCounterparty] = useState('');
+  const [name, setName] = useState('');
+  const [agree, setAgree] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<any>(null);
+  const [done, setDone] = useState<any>(null);
+  const n = Number(amount);
+  const units = n > 0 && f.nav ? Math.round((n / f.nav) * 100) / 100 : 0;
+  const ok = n > 0 && n <= maxAmount + 0.005 && agree && name.trim().length >= 2 && (action !== 'transfer' || counterparty.trim().length >= 2);
+  const statement = action === 'redeem' ? 'I request this redemption of my units at the next dealing price.' : 'I request this transfer of my units to the named client.';
+  const submit = async (e: Event) => {
+    e.preventDefault(); setBusy(true); setErr(null);
+    try { setDone(await api('/requests', { body: { action, ticker: f.ticker, amount: n, asset, counterparty: action === 'transfer' ? counterparty.trim() : undefined, signed_name: name, agree } })); onDone(); }
+    catch (x) { setErr(x); } finally { setBusy(false); }
+  };
+  if (done) {
+    return (
+      <div class="pt-alert ok" role="status">
+        <strong>Request signed and sent.</strong>
+        <p style={{ margin: '0.4rem 0' }}>{action === 'redeem' ? `Redeem ${fmtMoney(done.amount, f.currency)} of ${f.name}, paid out in ${done.asset}.` : `Transfer ${fmtMoney(done.amount, f.currency)} of ${f.name} to ${done.counterparty?.name ?? counterparty}.`} Signed by {done.signature.signed_name} on {fmtWhen(done.signature.signed_at)}.</p>
+        <p class="pt-hash" style={{ margin: '0 0 0.4rem' }}>Request fingerprint {done.signature.payload_sha256}</p>
+        <p style={{ margin: 0 }}>{done.note} <a href="#/requests">Track it under Requests</a>.</p>
+      </div>
+    );
+  }
+  return (
+    <form class="pt-form" onSubmit={submit}>
+      <label class="pt-f"><span>Amount</span>
+        <span class="pt-prefix"><em aria-hidden="true">{f.currency}</em><input type="number" inputMode="decimal" required min={0.01} max={maxAmount} step="0.01" value={amount} onInput={(e) => setAmount((e.target as HTMLInputElement).value)} /></span>
+        <small>Up to {fmtMoney(maxAmount, f.currency)}. About {units.toLocaleString('en-US')} of your {f.holding_units.toLocaleString('en-US')} units at today's price of {fmtMoney(f.nav, f.currency)}.{f.lockup_months ? ` Units still in their ${f.lockup_months}-month lock-up cannot move yet.` : ''}</small>
+        <button type="button" class="pt-btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setAmount(String(maxAmount))}>Everything</button>
+      </label>
+      {action === 'transfer' ? (
+        <label class="pt-f"><span>Receiving client</span>
+          <input required minLength={2} maxLength={160} value={counterparty} onInput={(e) => setCounterparty((e.target as HTMLInputElement).value)} placeholder="Passport number (LZ-XXXX-XXXX-XXXX) or exact legal name" autocomplete="off" />
+          <small>Another client of {me.distributor.name}. Your distributor checks that they may hold this fund before anything moves.</small>
+        </label>
+      ) : null}
+      <label class="pt-f"><span>{action === 'redeem' ? 'Paid out in' : 'Settled in'}</span>
+        <select value={asset} onChange={(e) => setAsset((e.target as HTMLSelectElement).value)}>{f.assets.map((a: string) => <option value={a}>{a}</option>)}</select>
+      </label>
+      <label class="pt-f"><span>Sign with your full name</span>
+        <input class="pt-sign" required minLength={2} maxLength={120} value={name} onInput={(e) => setName((e.target as HTMLInputElement).value)} autocomplete="name" placeholder={me.investor.kind === 'Individual' ? me.investor.name : 'Name of the authorized signatory'} />
+      </label>
+      <label class="pt-agree"><input type="checkbox" checked={agree} onChange={(e) => setAgree((e.target as HTMLInputElement).checked)} required /><span>{statement}</span></label>
+      <Alert error={err} />
+      <button type="submit" class="pt-btn primary block" disabled={busy || !ok}>{busy ? 'Signing' : action === 'redeem' ? `Sign and send redemption request${n > 0 ? ` for ${fmtMoney(n, f.currency)}` : ''}` : `Sign and send transfer request${n > 0 ? ` for ${fmtMoney(n, f.currency)}` : ''}`}</button>
+      <p class="pt-small pt-muted" style={{ margin: 0 }}>{action === 'redeem' ? 'Your distributor reviews the request, applies any notice period or gate, and runs the pre-trade checks before settlement.' : 'Your distributor reviews the request and checks the receiving client before settlement.'}</p>
+    </form>
   );
 }
 
@@ -413,10 +531,12 @@ function SubscribeForm({ f, me, api, onDone }: { f: any; me: any; api: Api; onDo
 }
 
 // ---------- Requests ----------
+const ACTION_WORD: Record<string, string> = { subscribe: 'subscription', redeem: 'redemption', transfer: 'transfer' };
 function requestStatus(r: any): [tone: 'ok' | 'no' | 'warn' | 'info' | '', chip: string, text: string] {
+  const what = ACTION_WORD[r.action] ?? 'request';
   if (r.status === 'submitted') return ['info', 'Under review', 'Waiting for your distributor to review it.'];
   if (r.status === 'rejected') return ['no', 'Not accepted', r.note ?? 'Your distributor did not accept this request.'];
-  if (r.settled) return ['ok', 'Settled', 'The subscription settled. The units are in your holdings.'];
+  if (r.settled) return ['ok', 'Settled', r.action === 'redeem' ? 'The redemption settled. The proceeds were paid out.' : r.action === 'transfer' ? `The transfer settled. The units moved to ${r.counterparty_name ?? 'the receiving client'}.` : 'The subscription settled. The units are in your holdings.'];
   if (r.outcome === 'ALLOW') return ['ok', 'Approved', 'Approved and cleared the pre-trade checks. Your distributor settles it next.'];
   if (r.outcome) return ['warn', 'Approved, then refused', `The pre-trade check refused it: ${r.headline}`];
   return ['ok', 'Approved', r.note ?? 'Approved by your distributor.'];
@@ -428,18 +548,18 @@ function Requests({ api }: { api: Api }) {
   return (
     <>
       <h1>Your requests</h1>
-      <p class="pt-lede">Every subscription you signed here, with its review status.</p>
+      <p class="pt-lede">Every subscription, redemption and transfer you signed here, with its review status.</p>
       {r.error ? <Alert error={r.error} /> : !r.data ? <Spinner /> : !rows.length ? (
-        <div class="pt-card pt-empty"><strong>No requests yet.</strong>Open a fund you are eligible for to sign one. <a href="#/">See your funds</a>.</div>
+        <div class="pt-card pt-empty"><strong>No requests yet.</strong>Open a fund you are eligible for to sign a subscription, or a fund you hold to redeem or transfer. <a href="#/">See your funds</a>.</div>
       ) : (
         <div class="pt-stack">
           {rows.map((x) => {
             const [tone, chip, text] = requestStatus(x);
             return (
               <article class="pt-card">
-                <div class="pt-card-h"><h2>{fmtMoney(x.amount, x.currency ?? 'USD')} into {x.fund ?? x.ticker}</h2><Chip tone={tone}>{chip}</Chip></div>
+                <div class="pt-card-h"><h2>{x.action === 'redeem' ? `Redeem ${fmtMoney(x.amount, x.currency ?? 'USD')} from ${x.fund ?? x.ticker}` : x.action === 'transfer' ? `Transfer ${fmtMoney(x.amount, x.currency ?? 'USD')} of ${x.fund ?? x.ticker} to ${x.counterparty_name ?? 'another client'}` : `${fmtMoney(x.amount, x.currency ?? 'USD')} into ${x.fund ?? x.ticker}`}</h2><Chip tone={tone}>{chip}</Chip></div>
                 <p class="pt-small" style={{ margin: '0 0 0.5rem' }}>{text}</p>
-                <p class="pt-small pt-muted" style={{ margin: 0 }}>Paid in {x.asset}. Signed by {x.signed_name} on {fmtWhen(x.created_at)}.{x.decided_at ? ` Reviewed ${fmtWhen(x.decided_at)}.` : ''}</p>
+                <p class="pt-small pt-muted" style={{ margin: 0 }}>{x.action === 'redeem' ? 'Paid out in' : x.action === 'transfer' ? 'Settled in' : 'Paid in'} {x.asset}. Signed by {x.signed_name} on {fmtWhen(x.created_at)}.{x.decided_at ? ` Reviewed ${fmtWhen(x.decided_at)}.` : ''}</p>
                 <p class="pt-hash" style={{ margin: '0.4rem 0 0' }}>Fingerprint {x.payload_sha256}</p>
               </article>
             );

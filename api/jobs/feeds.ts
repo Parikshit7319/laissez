@@ -10,10 +10,54 @@ type Pub = FeedItem & { id: string; regulator: string; jurisdiction: string; rel
 const FEED_ACCEPT = 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.5';
 const EXCERPT_MAX = 8000;
 
+/**
+ * The SEC's fair-access policy (sec.gov/os/accessing-edgar-data) wants "Company Name contact@example.com" and
+ * refuses other automated user agents with HTTP 403. FEEDS_CONTACT holds the email; a placeholder is used without it
+ * so the request is still well formed, and the log says to set the variable.
+ */
+const SEC_CONTACT = process.env.FEEDS_CONTACT?.trim() || 'compliance-jobs@laissez.example';
+export const SEC_USER_AGENT = `Laissez ${SEC_CONTACT}`;
+const SEC_HOST = /(^|\.)sec\.gov$/i;
+const userAgentFor = (url: string, feed?: FeedConfig) => (feed?.userAgent === 'sec' || SEC_HOST.test(new URL(url).hostname) ? SEC_USER_AGENT : undefined);
+
+type FetchedPage = { text: string; status: number; contentType: string; url: string };
+/** Like lib.fetchText, with a per-request user agent. 403 comes back as a status rather than an exception so callers can fall back. */
+async function fetchPage(url: string, opts: { timeoutMs: number; accept: string; userAgent?: string; retries?: number }): Promise<FetchedPage> {
+  if (!opts.userAgent) {
+    try {
+      const r = await fetchText(url, { timeoutMs: opts.timeoutMs, accept: opts.accept, retries: opts.retries ?? 1 });
+      return { text: r.text, status: r.status, contentType: r.contentType, url: r.url };
+    } catch (e: any) {
+      const m = /HTTP (\d{3})/.exec(String(e?.message ?? ''));
+      if (m && m[1] === '403') return { text: '', status: 403, contentType: '', url };
+      throw e;
+    }
+  }
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= (opts.retries ?? 1); attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 2000 * attempt));
+    try {
+      const res = await fetch(url, { headers: { 'user-agent': opts.userAgent, accept: opts.accept, 'accept-encoding': 'gzip, deflate' }, redirect: 'follow', signal: AbortSignal.timeout(opts.timeoutMs) });
+      if (res.status >= 500) { lastErr = new Error(`HTTP ${res.status} from ${new URL(url).host}`); continue; }
+      if (res.status === 403) return { text: '', status: 403, contentType: res.headers.get('content-type') ?? '', url: res.url || url };
+      if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status} from ${new URL(url).host}`), { fatal: true });
+      return { text: await res.text(), status: res.status, contentType: res.headers.get('content-type') ?? '', url: res.url || url };
+    } catch (e: any) {
+      if (e?.fatal) throw e;
+      lastErr = e?.name === 'TimeoutError' ? new Error(`Timed out after ${Math.round(opts.timeoutMs / 1000)}s fetching ${new URL(url).host}`) : e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
 async function readFeed(feed: FeedConfig): Promise<{ feed: FeedConfig; items: Pub[]; error?: string }> {
   try {
-    const res = await fetchText(feed.url, { timeoutMs: 30_000, accept: FEED_ACCEPT });
-    const items = parseFeed(res.text, res.url);
+    const res = await fetchPage(feed.url, { timeoutMs: 30_000, accept: FEED_ACCEPT, userAgent: userAgentFor(feed.url, feed) });
+    if (res.status === 403) {
+      throw new Error(`HTTP 403 from ${new URL(feed.url).host}.${feed.userAgent === 'sec' && !process.env.FEEDS_CONTACT ? ' Set the FEEDS_CONTACT repository variable to a contact email; sec.gov refuses anonymous automated clients.' : ''}`);
+    }
+    let items = parseFeed(res.text, res.url);
+    if (feed.linkFilter) items = items.filter((it) => feed.linkFilter!.test(it.url));
     if (!items.length) throw new Error(`no items found (content type ${res.contentType || 'unknown'}). The feed may have moved.`);
     return {
       feed,
@@ -27,16 +71,27 @@ async function readFeed(feed: FeedConfig): Promise<{ feed: FeedConfig; items: Pu
   }
 }
 
-/** Read a publication page as plain text. PDFs and other binary documents are skipped; the feed summary stays. */
-async function readBody(url: string): Promise<string | null> {
+const SUMMARY_MIN = 80;
+/**
+ * Read a publication page as plain text. PDFs and other binary documents are skipped. When the publisher answers
+ * HTTP 403 to automated readers, or the feed is marked skipBody, the feed summary is stored as the text so the
+ * drafting agent still has something to read.
+ */
+async function readBody(p: Pub, feed?: FeedConfig): Promise<string | null> {
+  const fallback = p.summary && p.summary.length >= SUMMARY_MIN ? p.summary : null;
+  if (feed?.skipBody) return fallback;
   try {
-    const res = await fetchText(url, { timeoutMs: 20_000, accept: 'text/html,application/xhtml+xml,text/plain;q=0.8', retries: 0 });
+    const res = await fetchPage(p.url, { timeoutMs: 20_000, accept: 'text/html,application/xhtml+xml,text/plain;q=0.8', retries: 0, userAgent: userAgentFor(p.url, feed) });
+    if (res.status === 403) {
+      log(`  ${new URL(p.url).host} refused the page read (HTTP 403); ${fallback ? 'using the feed summary as the text.' : 'the feed summary is too short to use.'}`);
+      return fallback;
+    }
     const type = res.contentType.toLowerCase();
     if (type && !/text\/|xhtml|xml/.test(type)) return null;
     const text = htmlToText(res.text, EXCERPT_MAX);
-    return text.length >= 80 ? text : null;
+    return text.length >= SUMMARY_MIN ? text : fallback;
   } catch (e: any) {
-    log(`  could not read ${url}: ${e?.message ?? e}`);
+    log(`  could not read ${p.url}: ${e?.message ?? e}`);
     return null;
   }
 }
@@ -74,7 +129,8 @@ async function main() {
   }
   const retryAfter = Date.now() - 14 * 86_400_000;
   const toRead = pubs.filter((p) => p.relevant && (!known.has(p.id) || (!known.get(p.id) && (!p.published || Date.parse(p.published) > retryAfter))));
-  await pool(toRead, 3, async (p) => { p.body = await readBody(p.url); });
+  const feedOf = new Map(feeds.map((f) => [f.regulator, f]));
+  await pool(toRead, 3, async (p) => { p.body = await readBody(p, feedOf.get(p.regulator)); });
   log(`Read ${toRead.filter((p) => p.body).length} of ${toRead.length} new relevant publications.`);
 
   if (sql && pubs.length) {

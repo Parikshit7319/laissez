@@ -7,6 +7,7 @@ import { router, need, body, audit, auditQ, type C, type Actor } from '../http';
 import { adminSql, type Sql } from '../db';
 import { ApiError, id, rand, sha256, rateLimit, today } from '../util';
 import { loadGlobals } from '../ctx';
+import { sendEmail, templates, deliverable } from '../email';
 
 export const routes = router();
 export const publicRoutes = router();
@@ -49,7 +50,7 @@ routes.post('/credential-shares', async (c) => {
   }));
   const g = await loadGlobals(sql);
   if (!g.bookingCenters[b.booking_center]) throw new ApiError(422, 'unknown_booking_center', `Booking center ${b.booking_center} does not exist. Choose one of ${Object.keys(g.bookingCenters).join(', ')}.`);
-  const [cred] = await admin`select c.id, c.workspace_id, c.investor_id, c.lzid, c.expires_on::text as expires_on, i.name as investor_name, i.residence, w.name as ws_name, w.brand_name, w.kind as ws_kind,
+  const [cred] = await admin`select c.id, c.workspace_id, c.investor_id, c.lzid, c.expires_on::text as expires_on, i.name as investor_name, i.email as investor_email, i.residence, w.name as ws_name, w.brand_name, w.kind as ws_kind,
       (select coalesce(json_agg(class_code order by id), '[]'::json) from classifications x where x.workspace_id = c.workspace_id and x.credential_id = c.id) as classes
     from credentials c join investors i on i.workspace_id = c.workspace_id and i.id = c.investor_id join workspaces w on w.id = c.workspace_id
     where c.lzid = ${b.lzid} and c.status = 'active' and c.workspace_id <> ${ws} and (w.expires_at is null or w.expires_at > now())`;
@@ -73,13 +74,24 @@ routes.post('/credential-shares', async (c) => {
   ]);
   await audit(admin, cred.workspace_id, networkActor(orgName(me)), 'credential_share.requested', shareId, { investor: cred.investor_id, credential: cred.id, receiving_org: orgName(me), purpose: b.purpose });
   const showLink = cred.ws_kind === 'network' || cred.ws_kind === 'sandbox';
+  const consentUrl = `${CONSENT_BASE}${token}`;
+  // When the issuing distributor holds an email for the client, the consent request goes straight to them.
+  // The outbox row belongs to the issuing organization, which owns the client relationship.
+  let emailStatus: string | null = null;
+  if (deliverable(cred.investor_email)) {
+    const m = await sendEmail(c.env, admin, { ws: cred.workspace_id, to: cred.investor_email, kind: 'consent_request', ...templates.consentRequest({ investor: cred.investor_name, requester: orgName(me), issuer: orgName({ name: cred.ws_name, brand_name: cred.brand_name }), purpose: b.purpose, link: consentUrl }) });
+    emailStatus = m.status;
+  }
   const [row] = await sql`select * from credential_shares where id = ${shareId}`;
   return c.json({
     share: shareView({ ...row, from_name: orgName({ name: cred.ws_name, brand_name: cred.brand_name }), to_name: orgName(me), cred_status: 'active', cred_expires_on: cred.expires_on }, ws),
-    consent_url: showLink ? `${CONSENT_BASE}${token}` : null,
-    delivery: showLink
-      ? 'In production the client receives this link. In the sandbox, open it yourself to act as the client.'
-      : 'Laissez sends the consent request to the client through the issuing distributor. The share activates when the client approves.',
+    consent_url: showLink ? consentUrl : null,
+    email_status: emailStatus,
+    delivery: emailStatus === 'sent'
+      ? `Laissez emailed the consent request to the client. ${showLink ? 'In the sandbox you can also open the link yourself to act as the client.' : 'The share activates when the client approves.'}`
+      : showLink
+        ? 'In production the client receives this link by email. In the sandbox, open it yourself to act as the client, or find the email in the Outbox.'
+        : 'Laissez sends the consent request to the client through the issuing distributor. The share activates when the client approves.',
     consent_expires_in_days: 14,
   }, 201);
 });
@@ -146,6 +158,13 @@ async function consentLimit(c: C, admin: Sql) {
 }
 async function loadConsent(admin: Sql, token: string) {
   if (!/^lz_cns_[a-z0-9]{20,64}$/.test(token)) throw new ApiError(404, 'consent_not_found', 'This consent link is not valid. Ask the distributor that sent it for a new one.');
+  const s = await loadShareRow(admin, { tokenHash: await sha256(token) });
+  if (!s) throw new ApiError(404, 'consent_not_found', 'This consent link is not valid. Ask the distributor that sent it for a new one.');
+  return s;
+}
+/** The share with everything the consent decision needs. Looked up by consent token hash, or by id for the investor portal inbox. */
+export async function loadShareRow(admin: Sql, by: { tokenHash?: string; id?: string }) {
+  const tokenHash = by.tokenHash ?? null; const shareId = by.id ?? null;
   const [s] = await admin`select s.*, (s.status = 'pending' and s.consent_expires_at is not null and s.consent_expires_at < now()) as expired,
       coalesce(wf.brand_name, wf.name) as from_name, coalesce(wt.brand_name, wt.name) as to_name, wt.brand_color as to_color, wt.kind as to_kind, wf.kind as from_kind,
       c.issued_on::text as issued_on, c.expires_on::text as cred_expires_on, c.status as cred_status, c.investor_id as from_investor_id,
@@ -153,21 +172,54 @@ async function loadConsent(admin: Sql, token: string) {
     from credential_shares s join workspaces wf on wf.id = s.from_workspace join workspaces wt on wt.id = s.to_workspace
     join credentials c on c.workspace_id = s.from_workspace and c.id = s.credential_id
     join investors i on i.workspace_id = c.workspace_id and i.id = c.investor_id
-    where s.consent_token_hash = ${await sha256(token)}`;
-  if (!s) throw new ApiError(404, 'consent_not_found', 'This consent link is not valid. Ask the distributor that sent it for a new one.');
-  return s;
+    where (${tokenHash}::text is not null and s.consent_token_hash = ${tokenHash}) or (${shareId}::text is not null and s.id = ${shareId})`;
+  return s ?? null;
 }
 
-publicRoutes.get('/consent/:token', async (c) => {
-  const admin = adminSql(c.env.DATABASE_URL);
-  await consentLimit(c, admin);
-  const s = await loadConsent(admin, c.req.param('token'));
+/**
+ * Records the client's decision on a pending share: declines it, or activates it and creates the relying
+ * organization's client record. Shared by the public consent page and the investor portal inbox.
+ */
+export async function decideShare(admin: Sql, s: any, decision: 'approve' | 'decline', name: string, via: 'consent_page' | 'portal' = 'consent_page') {
+  if (s.expired) throw new ApiError(410, 'consent_expired', 'This consent request expired. Ask the distributor to send a new one.');
+  if (s.status !== 'pending') throw new ApiError(409, 'already_decided', `You already ${s.status === 'active' ? 'approved' : s.status === 'declined' ? 'declined' : 'answered'} this request.`);
+  const actor = clientActor(s.inv_name);
+  if (decision === 'decline') {
+    const r = await admin`update credential_shares set status = 'declined', consent_name = ${name}, consent_at = now() where id = ${s.id} and status = 'pending' returning id`;
+    if (!r.length) throw new ApiError(409, 'already_decided', 'This request was answered a moment ago. Reload the page.');
+    await admin.transaction([
+      auditQ(admin, s.to_workspace, actor, 'credential_share.declined', s.id, { signed_by: name, via }),
+      auditQ(admin, s.from_workspace, actor, 'credential_share.declined', s.id, { signed_by: name, receiving_org: s.to_name, via }),
+    ]);
+    return { status: 'declined' as const, message: `Nothing was shared with ${s.to_name}.`, share_id: s.id };
+  }
+  if (s.cred_status !== 'active' || s.cred_expires_on < today()) throw new ApiError(409, 'credential_not_active', `Your credential with ${s.from_name} is no longer active, so it cannot be shared. Ask ${s.from_name} to renew it.`);
+  const invId = id('inv', 10);
+  const claimed = await admin`update credential_shares set status = 'active', to_investor_id = ${invId}, consent_name = ${name}, consent_at = now() where id = ${s.id} and status = 'pending' returning id`;
+  if (!claimed.length) throw new ApiError(409, 'already_decided', 'This request was answered a moment ago. Reload the page.');
+  try {
+    await admin.transaction([
+      admin`insert into investors (workspace_id, id, name, short_name, kind, residence, city, booking_center, us_person, wallet, relied_share)
+        values (${s.to_workspace}, ${invId}, ${s.inv_name}, ${s.short_name}, ${s.inv_kind}, ${s.residence}, ${s.city}, ${s.booking_center}, ${s.us_person}, ${hexWallet()}, ${s.id})`,
+      auditQ(admin, s.to_workspace, actor, 'credential_share.approved', s.id, { signed_by: name, investor: invId, relies_on: s.lzid, issuing_org: s.from_name, via }),
+      auditQ(admin, s.to_workspace, actor, 'investor.created', invId, { name: s.inv_name, residence: s.residence, via: 'credential_share', share: s.id }),
+      auditQ(admin, s.from_workspace, actor, 'credential_share.approved', s.id, { signed_by: name, investor: s.from_investor_id, receiving_org: s.to_name, via }),
+    ]);
+  } catch (e) {
+    await admin`update credential_shares set status = 'pending', to_investor_id = null, consent_name = null, consent_at = null where id = ${s.id}`;
+    throw e;
+  }
+  return { status: 'active' as const, message: `${s.to_name} can now rely on your credential from ${s.from_name}. You can withdraw consent at any time.`, share_id: s.id };
+}
+
+/** What a consent request shows the client: who asks, what is shared, and the credential it concerns. */
+export async function shareDetail(admin: Sql, s: any) {
   const [g, cls] = await Promise.all([
     loadGlobals(admin),
     admin`select class_code, verified_on::text as verified_on, expires_on::text as expires_on, opt_in_on::text as opt_in_on from classifications where workspace_id = ${s.from_workspace} and credential_id = ${s.credential_id} order by id`,
   ]);
   const bc = g.bookingCenters[s.booking_center];
-  return c.json({
+  return {
     share: { id: s.id, status: s.expired ? 'expired' : s.status, purpose: s.purpose, created_at: s.created_at, consent_name: s.consent_name, consent_at: s.consent_at, revoked_at: s.revoked_at, revoked_reason: s.revoked_reason, expires_at: s.consent_expires_at },
     requester: { name: s.to_name, brand_color: s.to_color ?? '#1f3a33', booking_center: bc ? { id: bc.id, name: bc.name, licence: bc.licence } : { id: s.booking_center, name: s.booking_center }, requested_by: s.requested_by_name },
     issuer: { name: s.from_name },
@@ -176,7 +228,14 @@ publicRoutes.get('/consent/:token', async (c) => {
     classifications: cls.map((x: any) => ({ code: x.class_code, label: g.classInfo[x.class_code]?.label ?? x.class_code, jurisdiction: g.classInfo[x.class_code]?.jur ?? null, jurisdiction_name: g.jurName[g.classInfo[x.class_code]?.jur] ?? null, rule: g.classInfo[x.class_code]?.rule ?? null, verified_on: x.verified_on, expires_on: x.expires_on, opt_in: !!x.opt_in_on })),
     terms: s.terms, shared: SHARED_FIELDS, not_shared: NOT_SHARED,
     sandbox: s.to_kind === 'sandbox' || s.from_kind === 'network' || s.from_kind === 'sandbox',
-  });
+  };
+}
+
+publicRoutes.get('/consent/:token', async (c) => {
+  const admin = adminSql(c.env.DATABASE_URL);
+  await consentLimit(c, admin);
+  const s = await loadConsent(admin, c.req.param('token'));
+  return c.json(await shareDetail(admin, s));
 });
 
 publicRoutes.post('/consent/:token', async (c) => {
@@ -184,35 +243,7 @@ publicRoutes.post('/consent/:token', async (c) => {
   await consentLimit(c, admin);
   const b = await body(c, z.object({ decision: z.enum(['approve', 'decline']), name: z.string().trim().min(2, 'Type your full name to sign.').max(120) }));
   const s = await loadConsent(admin, c.req.param('token'));
-  if (s.expired) throw new ApiError(410, 'consent_expired', 'This consent request expired. Ask the distributor to send a new one.');
-  if (s.status !== 'pending') throw new ApiError(409, 'already_decided', `You already ${s.status === 'active' ? 'approved' : s.status === 'declined' ? 'declined' : 'answered'} this request.`);
-  const actor = clientActor(s.inv_name);
-  if (b.decision === 'decline') {
-    const r = await admin`update credential_shares set status = 'declined', consent_name = ${b.name}, consent_at = now() where id = ${s.id} and status = 'pending' returning id`;
-    if (!r.length) throw new ApiError(409, 'already_decided', 'This request was answered a moment ago. Reload the page.');
-    await admin.transaction([
-      auditQ(admin, s.to_workspace, actor, 'credential_share.declined', s.id, { signed_by: b.name }),
-      auditQ(admin, s.from_workspace, actor, 'credential_share.declined', s.id, { signed_by: b.name, receiving_org: s.to_name }),
-    ]);
-    return c.json({ status: 'declined', message: `Nothing was shared with ${s.to_name}.` });
-  }
-  if (s.cred_status !== 'active' || s.cred_expires_on < today()) throw new ApiError(409, 'credential_not_active', `Your credential with ${s.from_name} is no longer active, so it cannot be shared. Ask ${s.from_name} to renew it.`);
-  const invId = id('inv', 10);
-  const claimed = await admin`update credential_shares set status = 'active', to_investor_id = ${invId}, consent_name = ${b.name}, consent_at = now() where id = ${s.id} and status = 'pending' returning id`;
-  if (!claimed.length) throw new ApiError(409, 'already_decided', 'This request was answered a moment ago. Reload the page.');
-  try {
-    await admin.transaction([
-      admin`insert into investors (workspace_id, id, name, short_name, kind, residence, city, booking_center, us_person, wallet, relied_share)
-        values (${s.to_workspace}, ${invId}, ${s.inv_name}, ${s.short_name}, ${s.inv_kind}, ${s.residence}, ${s.city}, ${s.booking_center}, ${s.us_person}, ${hexWallet()}, ${s.id})`,
-      auditQ(admin, s.to_workspace, actor, 'credential_share.approved', s.id, { signed_by: b.name, investor: invId, relies_on: s.lzid, issuing_org: s.from_name }),
-      auditQ(admin, s.to_workspace, actor, 'investor.created', invId, { name: s.inv_name, residence: s.residence, via: 'credential_share', share: s.id }),
-      auditQ(admin, s.from_workspace, actor, 'credential_share.approved', s.id, { signed_by: b.name, investor: s.from_investor_id, receiving_org: s.to_name }),
-    ]);
-  } catch (e) {
-    await admin`update credential_shares set status = 'pending', to_investor_id = null, consent_name = null, consent_at = null where id = ${s.id}`;
-    throw e;
-  }
-  return c.json({ status: 'active', message: `${s.to_name} can now rely on your credential from ${s.from_name}. You can withdraw consent at any time from this page.`, share_id: s.id });
+  return c.json(await decideShare(admin, s, b.decision, b.name, 'consent_page'));
 });
 
 publicRoutes.post('/consent/:token/withdraw', async (c) => {

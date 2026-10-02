@@ -17,6 +17,10 @@ export type Env = {
   CHAIN_OPERATOR_KEY?: string;
   CHAIN_CLAIM_KEY?: string;
   CHAIN_CUSTODY_SEED?: string;
+  /** Optional. Resend API key; without it every email lands in the outbox only. */
+  RESEND_API_KEY?: string;
+  /** Optional. Sender for outgoing email, for example "Laissez <no-reply@laissez.example>". */
+  EMAIL_FROM?: string;
 };
 
 const ALPHA = 'abcdefghijkmnopqrstuvwxyz23456789';
@@ -149,16 +153,37 @@ export const validCidr = (s: string) => {
 };
 
 // ---------- Rate limiting (fixed window, stored in Postgres) ----------
-export async function rateLimit(sql: Sql, key: string, limit: number, windowSeconds: number): Promise<boolean> {
+export type RateStatus = { allowed: boolean; limit: number; remaining: number; /** Unix seconds when the window resets. */ resetAt: number; retryAfter: number };
+/** Counts one request against a fixed window and reports what is left. The headers middleware reads the result from c.get('rate'). */
+export async function rateLimitStatus(sql: Sql, key: string, limit: number, windowSeconds: number): Promise<RateStatus> {
   const rows = await sql.query(
     `insert into rate_limits (key, window_start, count) values ($1, now(), 1)
      on conflict (key) do update set
        count = case when rate_limits.window_start < now() - make_interval(secs => $2) then 1 else rate_limits.count + 1 end,
        window_start = case when rate_limits.window_start < now() - make_interval(secs => $2) then now() else rate_limits.window_start end
-     returning count`,
+     returning count, extract(epoch from window_start)::float8 as started`,
     [key, windowSeconds],
   );
-  return Number(rows[0].count) <= limit;
+  const count = Number(rows[0].count);
+  const resetAt = Math.ceil(Number(rows[0].started) + windowSeconds);
+  return { allowed: count <= limit, limit, remaining: Math.max(0, limit - count), resetAt, retryAfter: Math.max(1, resetAt - Math.floor(Date.now() / 1000)) };
+}
+/** Boolean form kept for the many callers that only need allowed or not. */
+export async function rateLimit(sql: Sql, key: string, limit: number, windowSeconds: number): Promise<boolean> {
+  return (await rateLimitStatus(sql, key, limit, windowSeconds)).allowed;
+}
+
+// ---------- Request origin: country, city, browser, operating system ----------
+export function requestGeo(req: Request & { cf?: any }, header: (n: string) => string | undefined) {
+  const cf = (req as any).cf ?? {};
+  const country = (header('cf-ipcountry') ?? cf.country ?? '').toUpperCase().slice(0, 2) || null;
+  const city = (typeof cf.city === 'string' ? cf.city : '').slice(0, 80) || null;
+  return { country: country === 'XX' || country === 'T1' ? null : country, city };
+}
+export function parseUa(ua = '') {
+  const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /curl\//.test(ua) ? 'curl' : ua ? 'Browser' : 'Unknown';
+  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /CrOS/.test(ua) ? 'ChromeOS' : /Linux/.test(ua) ? 'Linux' : null;
+  return { browser, os };
 }
 
 export class ApiError extends Error {

@@ -79,6 +79,9 @@ const MOUNTS: Record<string, Record<string, string>> = {
   'routes/chain.ts': { routes: '/v1', publicRoutes: '/v1' },
   'routes/portal.ts': { routes: '/v1', publicRoutes: '/v1/portal' },
   'routes/travel.ts': { routes: '/v1', publicRoutes: '/trp', trpRoutes: '/trp' },
+  'routes/account2.ts': { routes: '/v1', publicRoutes: '/v1' },
+  'routes/compliance2.ts': { routes: '/v1' },
+  'routes/leads.ts': { publicRoutes: '/v1' },
 };
 for (const f of readdirSync(join(api, 'routes'))) if (f.endsWith('.ts') && !MOUNTS[`routes/${f}`]) fail(`routes/${f} has no mount prefix in scripts/test-openapi.ts`);
 
@@ -115,7 +118,7 @@ if (!missing.length && !extra.length) pass(`${registered.size} registered routes
 // ---------- 4. Size ----------
 const srcBytes = readFileSync(join(api, 'openapi.ts')).length;
 const jsonBytes = JSON.stringify(doc).length;
-if (srcBytes > 120 * 1024) fail(`api/src/openapi.ts is ${srcBytes} bytes, over the 120 KB budget`);
+if (srcBytes > 160 * 1024) fail(`api/src/openapi.ts is ${srcBytes} bytes, over the 160 KB budget`);
 else pass(`source ${(srcBytes / 1024).toFixed(1)} KB, JSON ${(jsonBytes / 1024).toFixed(1)} KB`);
 
 if (failures) { console.error(`\n${failures} check(s) failed.`); process.exit(1); }

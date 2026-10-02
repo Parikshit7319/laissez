@@ -8,7 +8,7 @@
 // Writes carry an Idempotency-Key automatically, so a retried request never applies twice.
 // 429 and 5xx responses and network errors are retried with exponential backoff.
 
-export const SDK_VERSION = '0.1.0';
+export const SDK_VERSION = '2026.10.2';
 export const DEFAULT_BASE_URL = 'https://laissez-api.laissez.workers.dev';
 export const DEFAULT_API_VERSION = '2026-10-02';
 

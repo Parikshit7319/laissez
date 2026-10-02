@@ -36,7 +36,7 @@ export function compile() {
     for (const e of errors) console.error(e.formattedMessage);
     throw new Error(`Solidity compilation failed with ${errors.length} error(s).`);
   }
-  const wanted = ['LaissezCash', 'LaissezOnboarder', 'LaissezDvP', 'AuditAnchor', 'Multicall3Lite'];
+  const wanted = ['LaissezCash', 'LaissezOnboarder', 'LaissezDvP', 'AuditAnchor', 'ClaimExpiryModule', 'Multicall3Lite'];
   const artifacts = { compiler: solc.version(), contracts: {} };
   for (const [file, contracts] of Object.entries(result.contracts)) {
     for (const [name, c] of Object.entries(contracts)) {

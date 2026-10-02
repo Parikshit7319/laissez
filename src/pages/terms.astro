@@ -1,0 +1,50 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { url } from '../lib/url';
+---
+<Layout title="Terms" description="Sandbox terms for Laissez: testnet only, no real assets, no warranty, fictional institutions, 7-day deletion, acceptable use and limits." path="terms/">
+  <section class="page-hero">
+    <div class="wrap">
+      <h1>Sandbox terms</h1>
+      <p class="lede">These terms cover the public sandbox, the guided demo, the API and this site. Production access is governed by a separate written agreement with each design partner. Short, because the sandbox is simple: it is a demonstration environment with fictional data and no real assets.</p>
+      <p class="updated">Last updated 2 October 2026.</p>
+    </div>
+  </section>
+  <section class="band">
+    <div class="wrap prose">
+      <h2>What the sandbox is</h2>
+      <ul>
+        <li>A private copy of the Laissez product, created on request, filled with fictional institutions, investors, funds and teammates. Any resemblance to a real person or firm is accidental.</li>
+        <li>Settlement is simulated, or runs against test contracts on a public testnet. No real money, securities, fund units or stablecoins move at any time.</li>
+        <li>The thresholds and legal citations in the rule packs are real and dated, and are provided for demonstration. They are not legal advice and have not yet been signed off by counsel for production use.</li>
+        <li>Each sandbox and its API key are deleted 7 days after creation. Nothing you create in it is backed up for you.</li>
+      </ul>
+
+      <h2>No warranty</h2>
+      <p>The sandbox, the API and this site are provided as they are and as available, without any warranty, express or implied, including fitness for a particular purpose, accuracy of rule packs, availability or uptime. There is no service-level commitment. The <a href={url('status/')}>status page</a> shows what is actually happening. Laissez may change, suspend or remove the sandbox at any time.</p>
+
+      <h2>No offer, no advice</h2>
+      <p>Nothing on this site or in the sandbox is an offer or solicitation of securities, an investment recommendation, legal advice or a regulated service. Laissez is pre-launch software and is not authorised or registered with any financial regulator.</p>
+
+      <h2>Acceptable use</h2>
+      <ul>
+        <li>Use the sandbox to evaluate the product, build an integration or learn how the rules work. Do not put real personal data, real client records or real wallet keys into it.</li>
+        <li>Respect the limits: 10 sandboxes per hour per network, 300 requests per minute per key, 600 per session. Automated load against the public endpoints is not allowed.</li>
+        <li>Do not attempt to access another sandbox or organization, probe tenant isolation or interfere with the service. Report a security concern to <a href="mailto:parikshit.ambhore@rice.edu">parikshit.ambhore@rice.edu</a> and we will respond.</li>
+        <li>The SDKs and the OpenAPI document may be used in your own projects. The rest of the site's content is Laissez's unless a source is cited.</li>
+      </ul>
+
+      <h2>Liability</h2>
+      <p>To the extent the law allows, Laissez and its founder are not liable for any loss arising from use of the sandbox, the demo, the API or this site, including loss of data in a deleted sandbox, reliance on a rule pack, or downtime. Where liability cannot be excluded it is limited to the amount you paid for the sandbox, which is nothing.</p>
+
+      <h2>Accounts and organizations</h2>
+      <p>If you create an account with a passkey or single sign-on, you are responsible for the devices that hold your passkeys and for the people you invite. An organization administrator can remove members and delete the organization. Deletion is permanent, apart from the dated record that something was deleted.</p>
+
+      <h2>Privacy</h2>
+      <p>What is collected and for how long is on the <a href={url('privacy/')}>privacy page</a>.</p>
+
+      <h2>Governing law and changes</h2>
+      <p>These terms are governed by the laws of the State of Texas. If they change, the date at the top changes. Continued use of the sandbox after a change means you accept it.</p>
+    </div>
+  </section>
+</Layout>

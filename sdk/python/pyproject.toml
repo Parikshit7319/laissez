@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "laissez"
-version = "0.1.0"
+version = "2026.10.2"
 description = "Laissez API client: compliance decisions, atomic settlement, credentials and signed webhooks for tokenized funds. Standard library only."
 readme = "README.md"
 license = { text = "MIT" }

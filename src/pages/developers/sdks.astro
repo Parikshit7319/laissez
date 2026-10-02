@@ -31,11 +31,12 @@ const errors = [
 <Layout title="SDKs" description="Laissez SDKs for TypeScript and Python: dependency-free clients with automatic idempotency keys, retries, typed errors, settlement polling and webhook verification." path="developers/sdks/">
   <section class="page-hero">
     <div class="wrap">
-      <p class="eyebrow"><a href={url('developers/')}>Developers</a> / SDKs</p>
+      <p class="crumbs"><a href={url('developers/')}>Developers</a> / SDKs</p>
       <h1>Two clients, zero dependencies.</h1>
       <p class="lede">TypeScript for Node 18+, Workers, Deno, Bun and browsers. Python 3.9+ on the standard library. Both add an idempotency key to every write, retry 429 and 5xx with backoff, raise one error type with the API's code, poll settlements and verify webhook signatures in constant time.</p>
       <div class="hero-cta">
-        <a class="btn brass" href="#typescript">TypeScript</a>
+        <a class="btn primary" href={url('app/')}>Try the sandbox</a>
+        <a class="btn" href="#typescript">TypeScript</a>
         <a class="btn" href="#python">Python</a>
         <a class="btn" href={url('developers/reference/')}>API reference</a>
       </div>
@@ -44,7 +45,7 @@ const errors = [
 
   <section class="band" id="typescript">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">TypeScript</p><h2>@laissez/sdk</h2></div><p class="lede">One file, <code>laissez.ts</code>, with full types for the main resources. It uses <code>fetch</code> and Web Crypto only, so the same file runs on a server, in a Worker and in the browser with a session token.</p></div>
+      <div class="sec-head"><h2>@laissez/sdk</h2><p class="lede">One file, <code>laissez.ts</code>, with full types for the main resources. It uses <code>fetch</code> and Web Crypto only, so the same file runs on a server, in a Worker and in the browser with a session token.</p></div>
       <div class="cols-2">
         <div>
           <h4>Install</h4>
@@ -99,7 +100,7 @@ const errors = [
 
   <section class="band light" id="python">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">Python</p><h2>laissez</h2></div><p class="lede">A <code>src</code>-layout package on <code>urllib</code>, <code>json</code>, <code>hmac</code> and <code>uuid</code>. Keyword arguments mirror the request fields in the reference. Swap the transport for tests.</p></div>
+      <div class="sec-head"><h2>laissez</h2><p class="lede">A <code>src</code>-layout package on <code>urllib</code>, <code>json</code>, <code>hmac</code> and <code>uuid</code>. Keyword arguments mirror the request fields in the reference. Swap the transport for tests.</p></div>
       <div class="cols-2">
         <div>
           <h4>Install</h4>
@@ -148,7 +149,7 @@ decision = client.decisions.create(
 
   <section class="band" id="behaviour">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">Behaviour</p><h2>Idempotency, retries and errors, identically in both.</h2></div></div>
+      <div class="sec-head"><h2>Idempotency, retries and errors, identically in both.</h2></div>
       <div class="cols-3">
         <div class="item"><span class="k">Idempotency</span><h4>Every write carries a key</h4><p>POST, PATCH, PUT and DELETE send <code>Idempotency-Key</code>. Pass your order id so a retry is applied once; otherwise the client generates a UUID per call. The API replays the stored response for 24 hours with <code>Idempotent-Replayed: true</code>. With automatic keys off, writes without a key are sent once and never retried.</p></div>
         <div class="item"><span class="k">Retries</span><h4>Backoff on 429, 5xx and network errors</h4><p>Reads, and writes with a key, retry up to <code>maxRetries</code> (default 3). Delay starts near 0.5 s and doubles to a cap of 8 s with jitter; <code>Retry-After</code> wins when present. 501 and other 4xx are not retried. The same idempotency key is reused on every attempt, so the API applies the write once.</p></div>
@@ -162,7 +163,7 @@ decision = client.decisions.create(
 
   <section class="band light" id="webhooks">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">Webhooks</p><h2>Verify before you trust.</h2></div><p class="lede">Both verifiers take the raw body, the <code>Laissez-Signature</code> header and your <code>whsec_</code> secret. They recompute HMAC-SHA256 over <code>"&lt;t&gt;.&lt;body&gt;"</code>, compare in constant time, reject deliveries older than 300 seconds (configurable) and return the parsed event.</p></div>
+      <div class="sec-head"><h2>Verify before you trust.</h2><p class="lede">Both verifiers take the raw body, the <code>Laissez-Signature</code> header and your <code>whsec_</code> secret. They recompute HMAC-SHA256 over <code>"&lt;t&gt;.&lt;body&gt;"</code>, compare in constant time, reject deliveries older than 300 seconds (configurable) and return the parsed event.</p></div>
       <div class="cols-2">
 <pre class="codeblock"><code><span class="c">// TypeScript: Cloudflare Worker</span>
 <span class="k">import</span> &#123; verifyWebhook, LaissezError &#125; <span class="k">from</span> <span class="s">'./laissez'</span>;
@@ -206,7 +207,7 @@ app = FastAPI()
 
   <section class="band raised" id="coverage">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">Coverage</p><h2>Resource namespaces.</h2></div><p class="lede">Anything not wrapped is one call away: <code>laissez.get(path, &#123; query &#125;)</code> and <code>laissez.post(path, body)</code> in TypeScript, <code>client.get(path, query=...)</code> and <code>client.post(path, body)</code> in Python. Both go through the same retry and idempotency logic.</p></div>
+      <div class="sec-head"><h2>Resource namespaces.</h2><p class="lede">Anything not wrapped is one call away: <code>laissez.get(path, &#123; query &#125;)</code> and <code>laissez.post(path, body)</code> in TypeScript, <code>client.get(path, query=...)</code> and <code>client.post(path, body)</code> in Python. Both go through the same retry and idempotency logic.</p></div>
       <div class="table-wrap">
         <table class="grid ns"><thead><tr><th>Namespace</th><th>TypeScript</th><th>Python</th></tr></thead>
           <tbody>{namespaces.map(([n, ts, py]) => <tr><td><code>{n}</code></td><td class="muted">{ts}</td><td class="muted">{py}</td></tr>)}</tbody>
@@ -217,14 +218,14 @@ app = FastAPI()
   </section>
 </Layout>
 <style>
-  .page-hero .eyebrow a { color: inherit; text-decoration: none; }
-  .band:not(.light) code:not(.codeblock code) { color: var(--brass-2); }
-  .band.light code:not(.codeblock code) { color: var(--ink); }
+  .page-hero .crumbs a { color: inherit; text-decoration: none; }
+  .band code:not(.codeblock code) { color: var(--ink); }
+  
   .cols-2 h4 { margin-bottom: 0.6rem; }
   .cols-2 .codeblock { margin-top: 0.75rem; }
   table.opt td:first-child { white-space: nowrap; width: 38%; }
   table.opt td { font-size: 0.92rem; }
-  .band.light table.opt td { color: var(--ink-2); }
+  table.opt td { color: var(--ink-2); }
   table.ns td { font-size: 0.9rem; }
   .cols-3 .item p { font-size: 0.93rem; }
   #webhooks .cols-2 { align-items: start; }

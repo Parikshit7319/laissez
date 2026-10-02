@@ -1,0 +1,29 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { url } from '../lib/url';
+---
+<Layout title="Page not found" description="That page does not exist on the Laissez site." path="404/" noindex={true}>
+  <section class="page-hero nf">
+    <div class="wrap">
+      <p class="fine code">404</p>
+      <h1>That page does not exist.</h1>
+      <p class="lede">The address may have changed, or the link was wrong. Nothing on the site moved without a redirect, so this is most likely a typo.</p>
+      <div class="hero-cta"><a class="btn primary" href={url('app/')}>Try the sandbox</a><a class="arrow-link" href={url('')}>Back to the home page</a></div>
+      <ul class="nf-links">
+        <li><a href={url('product/')}>Product</a></li>
+        <li><a href={url('demo/')}>Guided demo</a></li>
+        <li><a href={url('developers/')}>Developers</a></li>
+        <li><a href={url('developers/reference/')}>API reference</a></li>
+        <li><a href={url('status/')}>Status</a></li>
+        <li><a href={url('company/')}>Company</a></li>
+      </ul>
+    </div>
+  </section>
+</Layout>
+<style>
+  .nf { min-height: 60vh; }
+  .code { font-family: var(--f-mono); margin-bottom: 1rem; }
+  .nf-links { list-style: none; margin: 2.5rem 0 0; padding: 1.5rem 0 0; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 0.75rem 1.75rem; font-size: 0.95rem; }
+  .nf-links a { color: var(--ink-2); text-decoration: none; }
+  .nf-links a:hover { color: var(--green); text-decoration: underline; }
+</style>

@@ -3,7 +3,8 @@
 // Nothing here touches Hono, so the Node job can import it directly.
 import type { Sql } from './db';
 import type { DocReq, Notice } from '../../src/proto/engine';
-import { dealingDateFor, fundClock } from '../../src/proto/engine';
+import { dealingDateFor, fundClock, type Holidays } from '../../src/proto/engine';
+import { holidaysFor } from './calendars';
 import type { Investor, Fund } from '../../src/proto/data';
 import { type Actor, auditQ, audit } from './http';
 import { emit } from './ctx';
@@ -64,26 +65,44 @@ export function fundNow(fund: TermsLike, now: Date = new Date()) {
   return { date, time: clock?.hhmm ?? now.toISOString().slice(11, 16), tz: clock?.tz ?? 'UTC', beforeCutoff: clock && cut !== null ? clock.minutes < cut : true };
 }
 
+/** Public holidays for the fund's cut-off time zone (api/src/calendars.ts), or none for an unknown zone. */
+export const fundHolidays = (fund: TermsLike): string[] => holidaysFor(fund.cutoffTz);
 /**
  * Dealing date for an order received at `now`. Same rules as the engine: daily funds deal today if it is a
  * business day and the cut-off has not passed, else the next business day; monthly funds on the last business
- * day of the month; quarterly funds on the last business day of the quarter.
+ * day of the month; quarterly funds on the last business day of the quarter. `holidays` defaults to the
+ * calendar of the fund's cut-off time zone; pass null to use weekends only.
  */
-export function dealingDate(fund: TermsLike, now: Date = new Date()): string {
+export function dealingDate(fund: TermsLike, now: Date = new Date(), holidays: Holidays = fundHolidays(fund)): string {
   const n = fundNow(fund, now);
-  return dealingDateFor(normFreq(fund.dealingFrequency), n.date, n.beforeCutoff);
+  return dealingDateFor(normFreq(fund.dealingFrequency), n.date, n.beforeCutoff, holidays);
 }
 /** First dealing date on or after `from` (a date, not an instant). */
-export function nextDealingDate(fund: TermsLike, from: string): string {
-  return dealingDateFor(normFreq(fund.dealingFrequency), from, true);
+export function nextDealingDate(fund: TermsLike, from: string, holidays: Holidays = fundHolidays(fund)): string {
+  return dealingDateFor(normFreq(fund.dealingFrequency), from, true, holidays);
 }
 /** Earliest dealing date for a redemption notice filed at `now`: at least notice_days away, never before the current dealing date. */
-export function noticeDealingDate(fund: TermsLike, now: Date = new Date()): string {
-  const dd = dealingDate(fund, now);
+export function noticeDealingDate(fund: TermsLike, now: Date = new Date(), holidays: Holidays = fundHolidays(fund)): string {
+  const dd = dealingDate(fund, now, holidays);
   const days = fund.noticeDays ?? 0;
   if (days <= 0) return dd;
-  const fromNotice = nextDealingDate(fund, addDays(fundNow(fund, now).date, days));
+  const fromNotice = nextDealingDate(fund, addDays(fundNow(fund, now).date, days), holidays);
   return fromNotice > dd ? fromNotice : dd;
+}
+/**
+ * The day a distribution falls due for the period containing `date`: the last calendar day of the month for
+ * daily and monthly funds, the last calendar day of the quarter for quarterly funds. The daily job pays when
+ * `date` equals this day.
+ */
+export function distributionDueOn(fund: Pick<TermsLike, 'dealingFrequency'>, date: string): string {
+  if (normFreq(fund.dealingFrequency) !== 'quarterly') return lastDayOfMonth(date);
+  const y = Number(date.slice(0, 4)); const m = Number(date.slice(5, 7));
+  const endM = Math.ceil(m / 3) * 3;
+  return lastDayOfMonth(`${y}-${String(endM).padStart(2, '0')}-01`);
+}
+/** First day of the distribution period that ends on distributionDueOn(fund, date). */
+export function distributionPeriodStart(fund: Pick<TermsLike, 'dealingFrequency'>, date: string): string {
+  return periodStart(normFreq(fund.dealingFrequency) === 'quarterly' ? 'quarterly' : 'monthly', date);
 }
 
 // ---------- Fund rows ----------

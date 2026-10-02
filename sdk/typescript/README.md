@@ -6,7 +6,7 @@ One file, no dependencies. Works on Node 18+, Bun, Deno, Cloudflare Workers and 
 
 ## Install
 
-The package is not on npm yet. Copy `laissez.ts` into your project (it has no imports and ships as TypeScript source), or vendor the folder:
+Releases publish to npm as `@laissez/sdk` from this repository: pushing a tag `sdk-v<version>` runs `.github/workflows/publish-sdks.yml`, which tests both SDKs and publishes this package and the Python package together. Versions follow the API version they default to (`2026.10.2` targets API `2026-10-02`). Until the first tag lands, copy `laissez.ts` into your project (it has no imports and ships as TypeScript source), or vendor the folder:
 
 ```sh
 curl -O https://raw.githubusercontent.com/parikshit7319/laissez/main/sdk/typescript/laissez.ts

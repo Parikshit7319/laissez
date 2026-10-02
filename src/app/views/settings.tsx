@@ -4,6 +4,7 @@ import { api, getKey, when, day } from '../api';
 import { useApi, Head, Btn, Chip, ErrorBox, Loading, Empty, Field, Card, Copy, Reveal, ConfirmBtn } from '../ui';
 import { useMe, PermBtn, PermNote, ROLE_LABEL, type Role } from '../auth';
 import { createPasskey } from '../webauthn';
+import { KeysExtras } from './settings2';
 
 const ROLE_HELP: Record<Role, string> = {
   admin: 'Everything, including members, single sign-on and keys',
@@ -80,7 +81,7 @@ export function Members() {
               <p class="span2 small muted">{ROLE_HELP[f.role]}.</p>
               <div class="form-actions"><Btn type="submit" kind="primary" busy={busy}>Create invite link</Btn></div>
             </form>
-            {link ? <Reveal label={`Invite link for ${link.email}`} value={link.link} note="Send this link to the person yourself. Laissez does not email it. It is shown once, works once and expires in 7 days." /> : null}
+            {link ? <Reveal label={`Invite link for ${link.email}`} value={link.link} note={<>{link.note ?? 'It is shown once, works once and expires in 7 days.'} {link.email_status && link.email_status !== 'sent' ? <a href="#/settings/outbox">See it in the Outbox.</a> : null}</>} /> : null}
           </Card>
           <Card title="Pending invites" pad={false}>
             {inv.loading && !inv.data ? <div class="pad"><Loading /></div> : pending.length ? (
@@ -208,11 +209,14 @@ export function Security() {
   const [added, setAdded] = useState(false);
   const revoke = async (id: string) => { setErr(null); try { await api(`/v1/sessions/${id}`, { method: 'DELETE' }); s.reload(); } catch (e) { setErr(e); } };
   const addPasskey = async () => {
+    // Every passkey gets a name, so they can be told apart later. Ask when the field was left empty.
+    let label = name.trim();
+    if (!label) { const typed = window.prompt('Name this passkey, for example "Work laptop" or "YubiKey".', 'Work laptop'); if (typed === null) return; label = typed.trim() || 'Passkey'; }
     setAdding(true); setErr(null); setAdded(false);
     try {
       const o = await api('/v1/passkeys/options', { body: {} });
       const credential = await createPasskey(o.options);
-      await api('/v1/passkeys/verify', { body: { challenge_id: o.challenge_id, credential, name: name.trim() || undefined } });
+      await api('/v1/passkeys/verify', { body: { challenge_id: o.challenge_id, credential, name: label.slice(0, 60) } });
       setName(''); setAdded(true); p.reload();
     } catch (e) { setErr(e); } finally { setAdding(false); }
   };
@@ -222,6 +226,7 @@ export function Security() {
     <>
       <Head title="Security" sub="Where you are signed in, and the passkeys that can sign you in. Laissez has no passwords to leak or reset." />
       <ErrorBox error={err} />
+      <p class="small muted">Locations, signing out everywhere else and recovery codes are on <a href="#/settings/sessions">Sessions and recovery</a>.</p>
       <Card title="Signed-in sessions" pad={false}>
         {s.loading && !s.data ? <div class="pad"><Loading /></div> : s.error ? <div class="pad"><ErrorBox error={s.error} onRetry={s.reload} /></div> : (
           <div class="tw"><table class="t">
@@ -332,6 +337,7 @@ export function ApiKeys() {
         ) : <div class="pad"><Empty title="No keys yet">Create a key for each system that calls Laissez.</Empty></div>}
       </Card>
       <p class="small muted">Rotate gives you a new key and keeps the old one working for a short overlap, so you can deploy without downtime. Revoke stops a key immediately.</p>
+      <KeysExtras data={r.data} />
     </>
   );
 }

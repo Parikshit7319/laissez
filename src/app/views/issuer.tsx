@@ -4,9 +4,10 @@ import { api, money, compact, when, JUR, CLASS_LABEL, track } from '../api';
 import { useApi, Head, Btn, Chip, statusChip, outcomeChip, ErrorBox, Loading, Empty, Field, Card, go } from '../ui';
 import { useMe, PermBtn, PermNote } from '../auth';
 import { FundOps } from './fundops';
+import { PolicyDiff } from './policydiff';
 
-const JURS = ['SG', 'HK', 'CH', 'DE', 'LU', 'IE', 'GB', 'AE-DIFC', 'AE-ADGM', 'JP', 'US'];
-const ACCEPTS: Record<string, string[]> = { SG: ['SG_AI'], HK: ['HK_PI'], CH: ['CH_PRO'], DE: ['EU_PRO', 'EU_RETAIL'], 'AE-DIFC': ['DIFC_PRO'], US: ['US_AI'], LU: ['EU_PRO'], IE: ['EU_PRO'], GB: ['GB_PRO', 'GB_EPRO'], 'AE-ADGM': ['ADGM_PRO'], JP: ['JP_QII'] };
+const JURS = ['SG', 'HK', 'CH', 'DE', 'LU', 'IE', 'GB', 'AE-DIFC', 'AE-ADGM', 'JP', 'IN', 'US'];
+const ACCEPTS: Record<string, string[]> = { SG: ['SG_AI'], HK: ['HK_PI'], CH: ['CH_PRO'], DE: ['EU_PRO', 'EU_RETAIL'], 'AE-DIFC': ['DIFC_PRO'], US: ['US_AI', 'US_QP', 'US_QIB', 'US_IAI'], IN: ['IN_AI', 'IN_LRS', 'IFSCA_PRO'], LU: ['EU_PRO'], IE: ['EU_PRO'], GB: ['GB_PRO', 'GB_EPRO'], 'AE-ADGM': ['ADGM_PRO'], JP: ['JP_QII'] };
 
 export function Funds() {
   const r = useApi('/v1/funds');
@@ -117,12 +118,10 @@ function PolicyEditor({ fund, onPublished }: { fund: any; onPublished: () => voi
       {preview ? (
         <div class="impact2">
           <h3>Impact before you publish</h3>
-          {preview.holders_affected.length ? (
-            <>
-              <p><strong>{preview.holders_affected.length} holder{preview.holders_affected.length > 1 ? 's' : ''}</strong> with <strong>{money(preview.value_affected, preview.currency)}</strong> change status.</p>
-              <ul>{preview.holders_affected.map((h: any) => <li>{h.name}: {h.from} to {h.to}</li>)}</ul>
-            </>
-          ) : <p>No existing holder in this workspace changes status.</p>}
+          <PolicyDiff
+            before={{ distribution: fund.distribution, min_subscription: fund.minSubscription, holder_cap: fund.holderCap ?? null, lockup_months: fund.lockupMonths ?? null }}
+            after={{ ...payload(), lockup_months: fund.lockupMonths ?? null }}
+            impact={preview} currency={fund.currency} />
           {preview.added.length ? <p>Opens the fund to credentialed investors in {preview.added.map((j: string) => JUR[j]).join(', ')} without new onboarding.</p> : null}
           <p class="muted small">{preview.note}</p>
           {backtest ? <Backtest r={backtest} currency={fund.currency} /> : null}
@@ -175,10 +174,23 @@ function Backtest({ r, currency }: { r: any; currency: string }) {
   );
 }
 
+/** Current policy of a fund, fetched once per ticker when a change row is expanded. Null while loading or when unavailable. */
+function useFundPolicy(ticker: string | null) {
+  const [funds, setFunds] = useState<Record<string, any>>({});
+  useEffect(() => {
+    if (!ticker || funds[ticker] !== undefined) return;
+    api(`/v1/funds/${ticker}`).then((f) => setFunds((cur) => ({ ...cur, [ticker]: f }))).catch(() => setFunds((cur) => ({ ...cur, [ticker]: null })));
+  }, [ticker]);
+  return ticker ? funds[ticker] ?? null : null;
+}
+
 export function PolicyChangeList({ rows, onChange }: { rows: any[]; onChange: () => void }) {
   const { me, can, why, isSandbox, actorId, actAs } = useMe();
   const [err, setErr] = useState<any>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const openRow = rows.find((p) => p.id === open) ?? null;
+  const fund = useFundPolicy(openRow?.ticker ?? null);
   const actorName = me?.acting_as?.name ?? me?.user?.name;
   const act = async (id: string, kind: 'approve' | 'reject', ticker?: string) => {
     setErr(null); setBusy(id + kind);
@@ -203,10 +215,15 @@ export function PolicyChangeList({ rows, onChange }: { rows: any[]; onChange: ()
           const mine = p.status === 'draft' && (p.proposed_by_user ? p.proposed_by_user === actorId : !!actorName && p.proposed_by === actorName);
           const cannot = !can('policy:approve');
           const helper = isSandbox && p.status === 'draft' && (mine || cannot) ? approverFor(p) : null;
+          const expanded = open === p.id;
           return (
+            <>
             <tr>
               <td><code>{p.id}</code> <span class="small muted">{p.ticker}</span><div class="small muted">Proposed by {p.proposed_by ?? 'unknown'}, {when(p.created_at)}</div></td>
-              <td class="small">{p.impact.removed.length ? `Removes ${p.impact.removed.map((j: string) => JUR[j]).join(', ')}. ` : ''}{p.impact.added.length ? `Adds ${p.impact.added.map((j: string) => JUR[j]).join(', ')}. ` : ''}{p.impact.holders_affected.length} holder{p.impact.holders_affected.length === 1 ? '' : 's'} affected.</td>
+              <td class="small">
+                {p.impact.removed.length ? `Removes ${p.impact.removed.map((j: string) => JUR[j]).join(', ')}. ` : ''}{p.impact.added.length ? `Adds ${p.impact.added.map((j: string) => JUR[j]).join(', ')}. ` : ''}{p.impact.holders_affected.length} holder{p.impact.holders_affected.length === 1 ? '' : 's'} affected.
+                <div><Btn kind="ghost" onClick={() => setOpen(expanded ? null : p.id)}>{expanded ? 'Hide diff' : 'Show diff'}</Btn></div>
+              </td>
               <td>{p.status === 'draft' ? <Chip tone="warn">Awaiting approval</Chip> : p.status === 'published' ? <Chip tone="ok">Published by {p.approved_by}</Chip> : <Chip tone="no">Rejected by {p.approved_by}</Chip>}</td>
               <td class="approve-cell">{p.status === 'draft' ? (
                 <>
@@ -219,6 +236,18 @@ export function PolicyChangeList({ rows, onChange }: { rows: any[]; onChange: ()
                 </>
               ) : null}</td>
             </tr>
+            {expanded ? (
+              <tr class="expand">
+                <td colSpan={4}>
+                  <PolicyDiff
+                    before={p.status === 'draft' && fund ? { distribution: fund.distribution, min_subscription: fund.minSubscription, holder_cap: fund.holderCap ?? null, lockup_months: fund.lockupMonths ?? null } : null}
+                    after={p.changes}
+                    impact={p.impact} currency={fund?.currency ?? p.impact?.currency} />
+                  <p class="small muted">{p.status === 'draft' ? 'Before: the policy in force now. After: this proposal.' : `Decided ${p.decided_at ? when(p.decided_at) : ''}. Before is not shown for a decided change; the impact recorded at proposal time lists what it removed, added and whose standing it changed.`}</p>
+                </td>
+              </tr>
+            ) : null}
+            </>
           );
         })}</tbody>
       </table></div>
@@ -231,44 +260,106 @@ export function PolicyChanges() {
   return <><Head title="Policy changes" sub="Every distribution change needs a second person. Whoever proposed a change cannot approve it, and API keys can propose but never approve." />{r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} /> : <Card pad={false}><PolicyChangeList rows={r.data.data} onChange={r.reload} /></Card>}</>;
 }
 
+const CHAIN_OPTIONS = ['Ethereum', 'Base', 'Polygon', 'Arbitrum', 'Avalanche', 'Solana', 'Canton', 'Stellar'];
+const TZ_OPTIONS = ['America/New_York', 'Europe/London', 'Europe/Luxembourg', 'Europe/Dublin', 'Europe/Zurich', 'Europe/Frankfurt', 'Asia/Singapore', 'Asia/Hong_Kong', 'Asia/Dubai', 'Asia/Tokyo', 'UTC'];
+const INITIAL_DOC_TYPES: Record<string, string> = { offering_memorandum: 'Offering memorandum', subscription_agreement: 'Subscription agreement', kid: 'Key information document (KID)', factsheet: 'Factsheet', risk_disclosure: 'Risk disclosure', privacy_notice: 'Privacy notice' };
+type Doc = { doc_type: string; title: string; content: string; jurisdiction: string; audience: 'all' | 'retail' | 'professional'; required: boolean };
+
 export function CreateFund() {
-  const [f, setF] = useState({ ticker: '', name: '', domicile: 'Luxembourg', structure: 'Money market fund, tokenized share class', currency: 'USD', nav: 1, reg_s: true, min_subscription: 100000, holder_cap: '', lockup_months: '', assets: 'USDC', chains: 'Ethereum', issuer: '' });
+  const [f, setF] = useState({ ticker: '', name: '', domicile: 'Luxembourg', structure: 'Money market fund, tokenized share class', currency: 'USD', nav: 1, reg_s: true, min_subscription: 100000, holder_cap: '', lockup_months: '', assets: 'USDC', issuer: '' });
+  const [terms, setTerms] = useState({ cutoff_time: '16:00', cutoff_tz: 'America/New_York', dealing_frequency: 'daily', notice_days: '0', gate_pct: '', yield_bps: '', share_class_type: 'distributing' });
+  const [chains, setChains] = useState<string[]>(['Ethereum']);
+  const [otherChain, setOtherChain] = useState('');
+  const [docs, setDocs] = useState<Doc[]>([]);
   const [dist, setDist] = useState<Record<string, string[]>>({ SG: ['SG_AI'], HK: ['HK_PI'] });
   const [err, setErr] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
   const set = (k: string, v: any) => setF({ ...f, [k]: v });
+  const setT = (k: string, v: any) => setTerms({ ...terms, [k]: v });
+  const toggleChain = (c: string) => setChains(chains.includes(c) ? chains.filter((x) => x !== c) : [...chains, c]);
+  const addDoc = () => setDocs([...docs, { doc_type: 'offering_memorandum', title: '', content: '', jurisdiction: '', audience: 'all', required: true }]);
+  const setDoc = (i: number, k: keyof Doc, v: any) => setDocs(docs.map((d, j) => (j === i ? { ...d, [k]: v, ...(k === 'doc_type' ? { required: v !== 'factsheet', title: d.title || INITIAL_DOC_TYPES[v] || d.title } : {}) } : d)));
+  const allChains = [...chains, ...otherChain.split(',').map((x) => x.trim()).filter(Boolean)];
+  const docProblems = docs.map((d) => (!d.title.trim() ? 'needs a title' : d.content.trim().length < 50 ? 'content is too short (50 characters at least)' : null));
   const submit = async (e: Event) => {
-    e.preventDefault(); setErr(null);
+    e.preventDefault(); setErr(null); setBusy(true);
     try {
-      const body = { ...f, ticker: f.ticker.toUpperCase(), nav: Number(f.nav), min_subscription: Number(f.min_subscription), holder_cap: f.holder_cap ? Number(f.holder_cap) : null, lockup_months: f.lockup_months ? Number(f.lockup_months) : null, assets: f.assets.split(',').map((s) => s.trim()).filter(Boolean), chains: f.chains.split(',').map((s) => s.trim()).filter(Boolean), distribution: Object.entries(dist).filter(([, a]) => a.length).map(([jurisdiction, accepts]) => ({ jurisdiction, accepts })) };
-      const r = await api('/v1/funds', { body }); go(`/funds/${r.ticker}`);
-    } catch (x) { setErr(x); }
+      const body = {
+        ...f, ticker: f.ticker.toUpperCase(), nav: Number(f.nav), min_subscription: Number(f.min_subscription), holder_cap: f.holder_cap ? Number(f.holder_cap) : null, lockup_months: f.lockup_months ? Number(f.lockup_months) : null,
+        assets: f.assets.split(',').map((x) => x.trim()).filter(Boolean), chains: allChains,
+        distribution: Object.entries(dist).filter(([, a]) => a.length).map(([jurisdiction, accepts]) => ({ jurisdiction, accepts })),
+        cutoff_time: terms.cutoff_time, cutoff_tz: terms.cutoff_tz, dealing_frequency: terms.dealing_frequency, notice_days: Number(terms.notice_days) || 0,
+        gate_pct: terms.gate_pct ? Number(terms.gate_pct) : null, yield_bps: terms.yield_bps ? Math.round(Number(terms.yield_bps) * 100) : null, share_class_type: terms.share_class_type,
+        documents: docs.map((d) => ({ doc_type: d.doc_type, title: d.title.trim(), content: d.content, jurisdiction: d.jurisdiction || null, audience: d.audience, required: d.required })),
+      };
+      const r = await api('/v1/funds', { body });
+      track('fund_created', { ticker: r.ticker, documents: docs.length, chains: allChains.length });
+      go(`/funds/${r.ticker}`);
+    } catch (x) { setErr(x); } finally { setBusy(false); }
   };
   return (
     <>
-      <Head title="Create a tokenized fund" sub="Register the fund and its first distribution policy. Law rules for each jurisdiction come from the launch rule packs." />
-      <Card>
-        <form class="form-grid" onSubmit={submit}>
-          <Field label="Ticker" hint="3 to 6 capital letters"><input required value={f.ticker} onInput={(e) => set('ticker', (e.target as HTMLInputElement).value.toUpperCase())} placeholder="ORLF" /></Field>
-          <Field label="Fund name"><input required value={f.name} onInput={(e) => set('name', (e.target as HTMLInputElement).value)} placeholder="Orla Liquidity Fund, Tokenized Class" /></Field>
-          <Field label="Issuer"><input required value={f.issuer} onInput={(e) => set('issuer', (e.target as HTMLInputElement).value)} placeholder="Orla Asset Management (fictional)" /></Field>
-          <Field label="Domicile"><input value={f.domicile} onInput={(e) => set('domicile', (e.target as HTMLInputElement).value)} /></Field>
-          <Field label="Structure"><input value={f.structure} onInput={(e) => set('structure', (e.target as HTMLInputElement).value)} /></Field>
-          <Field label="Currency"><select value={f.currency} onChange={(e) => set('currency', (e.target as HTMLSelectElement).value)}><option>USD</option><option>EUR</option></select></Field>
-          <Field label="NAV per unit"><input inputMode="decimal" value={f.nav} onInput={(e) => set('nav', (e.target as HTMLInputElement).value)} /></Field>
-          <Field label="Minimum subscription"><input inputMode="numeric" value={f.min_subscription} onInput={(e) => set('min_subscription', (e.target as HTMLInputElement).value)} /></Field>
-          <Field label="Holder cap" hint="Optional"><input inputMode="numeric" value={f.holder_cap} onInput={(e) => set('holder_cap', (e.target as HTMLInputElement).value)} /></Field>
-          <Field label="Lock-up (months)" hint="Optional"><input inputMode="numeric" value={f.lockup_months} onInput={(e) => set('lockup_months', (e.target as HTMLInputElement).value)} /></Field>
-          <Field label="Accepted cash assets" hint="Comma-separated"><input value={f.assets} onInput={(e) => set('assets', (e.target as HTMLInputElement).value)} /></Field>
-          <Field label="Chains" hint="Comma-separated"><input value={f.chains} onInput={(e) => set('chains', (e.target as HTMLInputElement).value)} /></Field>
-          <Field label="Regulation S"><label class="check"><input type="checkbox" checked={f.reg_s} onChange={(e) => set('reg_s', (e.target as HTMLInputElement).checked)} /> Offered to non-U.S. persons only</label></Field>
-          <div class="span2"><span class="f-l">Offered in</span>
-            <div class="pick">{JURS.filter((j) => !(j === 'US' && f.reg_s)).map((j) => ACCEPTS[j].map((code) => <label class={`pick-i ${(dist[j] ?? []).includes(code) ? 'on' : ''}`}><input type="checkbox" checked={(dist[j] ?? []).includes(code)} onChange={() => { const cur = dist[j] ?? []; setDist({ ...dist, [j]: cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code] }); }} /><span>{JUR[j]}: {CLASS_LABEL[code]}</span></label>))}</div>
+      <Head title="Create a tokenized fund" sub="Register the fund, its dealing terms, its first documents and its first distribution policy. Law rules for each jurisdiction come from the launch rule packs." />
+      <form onSubmit={submit}>
+        <Card title="1. Fund">
+          <div class="form-grid">
+            <Field label="Ticker" hint="3 to 6 capital letters"><input required value={f.ticker} onInput={(e) => set('ticker', (e.target as HTMLInputElement).value.toUpperCase())} placeholder="ORLF" /></Field>
+            <Field label="Fund name"><input required value={f.name} onInput={(e) => set('name', (e.target as HTMLInputElement).value)} placeholder="Orla Liquidity Fund, Tokenized Class" /></Field>
+            <Field label="Issuer"><input required value={f.issuer} onInput={(e) => set('issuer', (e.target as HTMLInputElement).value)} placeholder="Orla Asset Management (fictional)" /></Field>
+            <Field label="Domicile"><input value={f.domicile} onInput={(e) => set('domicile', (e.target as HTMLInputElement).value)} /></Field>
+            <Field label="Structure"><input value={f.structure} onInput={(e) => set('structure', (e.target as HTMLInputElement).value)} /></Field>
+            <Field label="Currency"><select value={f.currency} onChange={(e) => set('currency', (e.target as HTMLSelectElement).value)}><option>USD</option><option>EUR</option></select></Field>
+            <Field label="NAV per unit"><input inputMode="decimal" value={f.nav} onInput={(e) => set('nav', (e.target as HTMLInputElement).value)} /></Field>
+            <Field label="Minimum subscription"><input inputMode="numeric" value={f.min_subscription} onInput={(e) => set('min_subscription', (e.target as HTMLInputElement).value)} /></Field>
+            <Field label="Holder cap" hint="Optional"><input inputMode="numeric" value={f.holder_cap} onInput={(e) => set('holder_cap', (e.target as HTMLInputElement).value)} /></Field>
+            <Field label="Lock-up (months)" hint="Optional"><input inputMode="numeric" value={f.lockup_months} onInput={(e) => set('lockup_months', (e.target as HTMLInputElement).value)} /></Field>
+            <Field label="Accepted cash assets" hint="Comma-separated"><input value={f.assets} onInput={(e) => set('assets', (e.target as HTMLInputElement).value)} /></Field>
+            <Field label="Regulation S"><label class="check"><input type="checkbox" checked={f.reg_s} onChange={(e) => set('reg_s', (e.target as HTMLInputElement).checked)} /> Offered to non-U.S. persons only</label></Field>
           </div>
-          <div class="form-actions"><PermBtn perm="funds:write" type="submit" kind="primary">Create fund</PermBtn><Btn kind="ghost" onClick={() => go('/funds')}>Cancel</Btn></div>
-        </form>
-        <PermNote perm="funds:write" />
-        <ErrorBox error={err} />
-      </Card>
+        </Card>
+
+        <Card title="2. Dealing terms">
+          <div class="form-grid">
+            <Field label="Dealing frequency"><select value={terms.dealing_frequency} onChange={(e) => setT('dealing_frequency', (e.target as HTMLSelectElement).value)}><option value="daily">Daily</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option></select></Field>
+            <Field label="Cut-off time" hint="Orders after the cut-off deal on the next dealing day"><input type="time" required value={terms.cutoff_time} onInput={(e) => setT('cutoff_time', (e.target as HTMLInputElement).value)} /></Field>
+            <Field label="Time zone"><input list="tz-options" required value={terms.cutoff_tz} onInput={(e) => setT('cutoff_tz', (e.target as HTMLInputElement).value)} placeholder="America/New_York" /><datalist id="tz-options">{TZ_OPTIONS.map((z) => <option value={z} />)}</datalist></Field>
+            <Field label="Redemption notice (days)" hint="0 for none"><input inputMode="numeric" value={terms.notice_days} onInput={(e) => setT('notice_days', (e.target as HTMLInputElement).value.replace(/[^0-9]/g, ''))} /></Field>
+            <Field label="Redemption gate (% of AUM per period)" hint="Optional"><input inputMode="decimal" value={terms.gate_pct} onInput={(e) => setT('gate_pct', (e.target as HTMLInputElement).value.replace(/[^0-9.]/g, ''))} placeholder="10" /></Field>
+            <Field label="Target yield (% a year)" hint="Optional, shown to investors in the portal"><input inputMode="decimal" value={terms.yield_bps} onInput={(e) => setT('yield_bps', (e.target as HTMLInputElement).value.replace(/[^0-9.]/g, ''))} placeholder="4.85" /></Field>
+            <Field label="Share class type"><select value={terms.share_class_type} onChange={(e) => setT('share_class_type', (e.target as HTMLSelectElement).value)}><option value="distributing">Distributing (pays income out)</option><option value="accumulating">Accumulating (income stays in the NAV)</option></select></Field>
+          </div>
+        </Card>
+
+        <Card title="3. Chains">
+          <p class="small muted">Where the fund's units are issued. Settlement on Laissez runs on Base Sepolia for test funds; this list is what investors and counterparties see.</p>
+          <div class="pick">{CHAIN_OPTIONS.map((c) => <label class={`pick-i ${chains.includes(c) ? 'on' : ''}`}><input type="checkbox" checked={chains.includes(c)} onChange={() => toggleChain(c)} /><span>{c}</span></label>)}</div>
+          <Field label="Other chains" hint="Comma-separated"><input value={otherChain} onInput={(e) => setOtherChain((e.target as HTMLInputElement).value)} placeholder="Tezos, Hedera" /></Field>
+          {!allChains.length ? <p class="verdict-line warn">Pick at least one chain.</p> : null}
+        </Card>
+
+        <Card title="4. Initial documents" actions={<Btn kind="ghost" onClick={addDoc} disabled={docs.length >= 12}>Add document</Btn>}>
+          <p class="small muted">Published as version 1 with the fund. Required documents must be acknowledged by each investor before they subscribe; later versions are published from the fund page.</p>
+          {!docs.length ? <p class="muted small">No documents yet. A fund can launch without them, but investors then have nothing to read in the portal.</p> : null}
+          {docs.map((d, i) => (
+            <div class="form-grid" style={{ borderTop: i ? '1px solid var(--line, #ddd6c9)' : 'none', paddingTop: i ? '0.8rem' : 0, marginTop: i ? '0.8rem' : 0 }}>
+              <Field label="Type"><select value={d.doc_type} onChange={(e) => setDoc(i, 'doc_type', (e.target as HTMLSelectElement).value)}>{Object.entries(INITIAL_DOC_TYPES).map(([k, v]) => <option value={k}>{v}</option>)}</select></Field>
+              <Field label="Title"><input required value={d.title} onInput={(e) => setDoc(i, 'title', (e.target as HTMLInputElement).value)} placeholder={INITIAL_DOC_TYPES[d.doc_type]} /></Field>
+              <Field label="Jurisdiction" hint="Empty applies everywhere"><select value={d.jurisdiction} onChange={(e) => setDoc(i, 'jurisdiction', (e.target as HTMLSelectElement).value)}><option value="">Everywhere</option>{JURS.map((j) => <option value={j}>{JUR[j]}</option>)}</select></Field>
+              <Field label="Audience"><select value={d.audience} onChange={(e) => setDoc(i, 'audience', (e.target as HTMLSelectElement).value)}><option value="all">All investors</option><option value="professional">Professional only</option><option value="retail">Retail only</option></select></Field>
+              <Field label="Acknowledgment"><label class="check"><input type="checkbox" checked={d.required} onChange={(e) => setDoc(i, 'required', (e.target as HTMLInputElement).checked)} /> Required before subscribing</label></Field>
+              <div class="span2"><Field label="Content" hint={docProblems[i] ? `This document ${docProblems[i]}.` : `${d.content.length.toLocaleString('en-US')} characters. Plain text; paragraphs separated by a blank line, headings with #.`}><textarea rows={6} required minLength={50} value={d.content} onInput={(e) => setDoc(i, 'content', (e.target as HTMLTextAreaElement).value)} /></Field></div>
+              <div class="form-actions"><Btn kind="ghost" onClick={() => setDocs(docs.filter((_, j) => j !== i))}>Remove</Btn></div>
+            </div>
+          ))}
+        </Card>
+
+        <Card title="5. Offered in">
+          <div class="pick">{JURS.filter((j) => !(j === 'US' && f.reg_s)).map((j) => ACCEPTS[j].map((code) => <label class={`pick-i ${(dist[j] ?? []).includes(code) ? 'on' : ''}`}><input type="checkbox" checked={(dist[j] ?? []).includes(code)} onChange={() => { const cur = dist[j] ?? []; setDist({ ...dist, [j]: cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code] }); }} /><span>{JUR[j]}: {CLASS_LABEL[code]}</span></label>))}</div>
+          <div class="form-actions"><PermBtn perm="funds:write" type="submit" kind="primary" busy={busy} disabled={!allChains.length || docProblems.some(Boolean)}>{busy ? 'Creating' : 'Create fund'}</PermBtn><Btn kind="ghost" onClick={() => go('/funds')}>Cancel</Btn></div>
+          <PermNote perm="funds:write" />
+          <ErrorBox error={err} />
+        </Card>
+      </form>
     </>
   );
 }

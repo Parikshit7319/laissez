@@ -1,12 +1,47 @@
 /** @jsxImportSource preact */
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { api, money, compact, when, JUR, CLASS_LABEL, BOOKING, track, trackOnce } from '../api';
-import { useApi, Head, Btn, Chip, outcomeChip, statusChip, ErrorBox, Loading, Empty, Field, Card, Json, go, Hash, TxLink } from '../ui';
+import { api, money, compact, when, day, JUR, CLASS_LABEL, BOOKING, track, trackOnce } from '../api';
+import { useApi, Head, Btn, Chip, outcomeChip, statusChip, ErrorBox, Loading, Empty, Field, Card, Json, go, Hash, TxLink, ConfirmBtn, Copy } from '../ui';
 import { PermBtn, PermNote, useMe } from '../auth';
 import { Credential } from '../../proto/Credential';
 import { TESTS, findTest, subjectOf } from '../../proto/thresholds';
 import { WHAT_IFS } from '../../proto/engine';
 import { PortalInvite } from './portalAdmin';
+
+// ---------- Cursor pagination ----------
+/** Loads a paginated list ({ data, next_cursor }) and appends further pages on demand. */
+function usePaged<T = any>(path: string | null, deps: unknown[] = []) {
+  const [rows, setRows] = useState<T[]>([]);
+  const [next, setNext] = useState<string | null>(null);
+  const [loading, setLoading] = useState(!!path);
+  const [more, setMore] = useState(false);
+  const [error, setError] = useState<any>(null);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!path) return;
+    let live = true; setLoading(true);
+    api(path).then((d) => { if (!live) return; setRows(d.data ?? []); setNext(d.next_cursor ?? null); setError(null); }).catch((e) => { if (live) setError(e); }).finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [path, n, ...deps]);
+  const loadMore = async () => {
+    if (!next || !path) return;
+    setMore(true);
+    try { const d = await api(`${path}${path.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(next)}`); setRows((r) => [...r, ...(d.data ?? [])]); setNext(d.next_cursor ?? null); }
+    catch (e) { setError(e); } finally { setMore(false); }
+  };
+  return { rows, next, loading, more, error, loadMore, reload: () => setN((x) => x + 1), setRows };
+}
+function LoadMore({ p, what = 'rows' }: { p: { next: string | null; more: boolean; loadMore: () => void; rows: any[] }; what?: string }) {
+  if (!p.next) return p.rows.length > 50 ? <p class="small muted" style={{ marginTop: '0.6rem' }}>All {p.rows.length} {what} loaded.</p> : null;
+  return <div class="row-inline" style={{ justifyContent: 'center', marginTop: '0.8rem' }}><Btn kind="ghost" busy={p.more} onClick={p.loadMore}>{p.more ? 'Loading' : `Load more ${what}`}</Btn><span class="small muted">{p.rows.length} loaded</span></div>;
+}
+const qs = (o: Record<string, string | undefined | null>) => { const u = new URLSearchParams(); for (const [k, v] of Object.entries(o)) if (v) u.set(k, v); const str = u.toString(); return str ? `?${str}` : ''; };
+/** Debounced copy of a value, for search boxes that query the API as you type. */
+function useDebounced<T>(value: T, ms = 300): T {
+  const [v, setV] = useState(value);
+  useEffect(() => { const t = window.setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value]);
+  return v;
+}
 
 // ---------- Overview ----------
 export function Overview() {
@@ -60,27 +95,40 @@ export function Overview() {
 }
 
 // ---------- Clients ----------
+const credChip = (s: string) => s === 'active' ? <Chip tone="ok">Active</Chip> : s === 'none' ? <Chip>None</Chip> : s === 'share_pending' ? <Chip tone="info">Consent pending</Chip> : s === 'relied_invalid' ? <Chip tone="no">Share ended</Chip> : <Chip tone="warn">{s === 'lapsed' ? 'Lapsed' : 'Partly lapsed'}</Chip>;
 export function Clients() {
-  const r = useApi('/v1/investors');
-  const [q, setQ] = useState('');
+  const [f, setF] = useState({ q: '', residence: '', booking_center: '', credential_status: '' });
+  const q = useDebounced(f.q.trim(), 300);
+  const path = `/v1/investors${qs({ q, residence: f.residence, booking_center: f.booking_center, credential_status: f.credential_status })}`;
+  const r = usePaged(path);
   const [adding, setAdding] = useState(false);
-  const rows = (r.data?.data ?? []).filter((i: any) => !q || `${i.name} ${i.residence_name} ${i.kind}`.toLowerCase().includes(q.toLowerCase()));
+  const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  const filtered = !!(q || f.residence || f.booking_center || f.credential_status);
   return (
     <>
       <Head title="Clients" sub="Investors you have onboarded. Each holds at most one active Laissez-passer." actions={<PermBtn perm="clients:write" kind="primary" onClick={() => setAdding(true)}>Add client</PermBtn>} />
       {adding ? <AddClient onDone={(id) => { setAdding(false); if (id) go(`/clients/${id}`); else r.reload(); }} /> : null}
-      <div class="toolbar"><input class="search" placeholder="Search by name, country or type" value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} aria-label="Search clients" /></div>
-      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : (
-        <div class="tw"><table class="t">
-          <thead><tr><th>Client</th><th>Type</th><th>Residence</th><th>Booked in</th><th>Credential</th><th>Classifications</th></tr></thead>
-          <tbody>{rows.map((i: any) => (
-            <tr class="click" onClick={() => go(`/clients/${i.id}`)}>
-              <td><a href={`#/clients/${i.id}`}>{i.name}</a></td><td>{i.kind}</td><td>{i.residence_name}</td><td>{BOOKING[i.booking] ?? i.booking}</td>
-              <td>{i.credential_status === 'active' ? <Chip tone="ok">Active</Chip> : i.credential_status === 'none' ? <Chip>None</Chip> : <Chip tone="warn">{i.credential_status === 'lapsed' ? 'Lapsed' : 'Partly lapsed'}</Chip>}</td>
-              <td class="muted">{i.classifications.map((c: any) => CLASS_LABEL[c.code] ?? c.code).join(', ') || 'KYC only'}</td>
-            </tr>
-          ))}</tbody>
-        </table></div>
+      <div class="toolbar" style={{ flexWrap: 'wrap' }}>
+        <input class="search" placeholder="Search by name, city, id or passport number" value={f.q} onInput={(e) => set('q', (e.target as HTMLInputElement).value)} aria-label="Search clients" />
+        <select value={f.residence} onChange={(e) => set('residence', (e.target as HTMLSelectElement).value)} aria-label="Residence"><option value="">Any residence</option>{Object.entries(JUR).map(([k, v]) => <option value={k}>{v}</option>)}</select>
+        <select value={f.booking_center} onChange={(e) => set('booking_center', (e.target as HTMLSelectElement).value)} aria-label="Booking center"><option value="">Any booking center</option>{Object.entries(BOOKING).map(([k, v]) => <option value={k}>{v}</option>)}</select>
+        <select value={f.credential_status} onChange={(e) => set('credential_status', (e.target as HTMLSelectElement).value)} aria-label="Credential status"><option value="">Any credential</option><option value="active">Active</option><option value="lapsed">Lapsed</option><option value="none">None</option><option value="share_pending">Consent pending</option></select>
+        {filtered ? <Btn kind="ghost" onClick={() => setF({ q: '', residence: '', booking_center: '', credential_status: '' })}>Clear</Btn> : null}
+      </div>
+      {r.loading && !r.rows.length ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : !r.rows.length ? <Empty title={filtered ? 'No clients match these filters' : 'No clients yet'}>{filtered ? 'Widen the search or clear the filters.' : 'Add a client to start.'}</Empty> : (
+        <>
+          <div class="tw"><table class="t">
+            <thead><tr><th>Client</th><th>Type</th><th>Residence</th><th>Booked in</th><th>Credential</th><th>Classifications</th></tr></thead>
+            <tbody>{r.rows.map((i: any) => (
+              <tr class="click" onClick={() => go(`/clients/${i.id}`)}>
+                <td><a href={`#/clients/${i.id}`}>{i.name}</a>{i.lzid ? <div class="small muted mono">{i.lzid}</div> : null}</td><td>{i.kind}</td><td>{i.residence_name}</td><td>{BOOKING[i.booking] ?? i.booking}</td>
+                <td>{credChip(i.credential_status)}</td>
+                <td class="muted">{i.classifications.map((c: any) => CLASS_LABEL[c.code] ?? c.code).join(', ') || 'KYC only'}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+          <LoadMore p={r} what="clients" />
+        </>
       )}
     </>
   );
@@ -136,13 +184,64 @@ export function ClientDetail({ id }: { id: string }) {
       </div>
       {i.reliedShare ? <div class="note">This client's credential was issued by {i.issuer}. Laissez reads it live from the issuing distributor, so a revocation there applies here at once.</div> : null}
       <Card title="Investor portal">
-        <p class="muted small">Give the client a private link to read fund documents, acknowledge them, submit evidence and request subscriptions under your brand.</p>
+        <p class="muted small">Give the client a private link to read fund documents, acknowledge them, submit evidence and request subscriptions, redemptions and transfers under your brand.</p>
         <PortalInvite investorId={i.id} investorName={i.name} />
+        <PortalAccessList investorId={i.id} />
       </Card>
       <Card title="Recent decisions">
         {i.recent_decisions.length ? <DecisionTable rows={i.recent_decisions} /> : <Empty title="No decisions yet" />}
       </Card>
     </>
+  );
+}
+
+/** Every portal link issued for a client, with revoke-all and reissue. */
+function PortalAccessList({ investorId }: { investorId: string }) {
+  const r = useApi(`/v1/investors/${investorId}/portal-access`, [investorId]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<any>(null);
+  const [issued, setIssued] = useState<any>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const revokeAll = async () => {
+    setBusy('revoke'); setErr(null);
+    try { const x = await api(`/v1/investors/${investorId}/portal-access`, { method: 'DELETE' }); setMsg(`${x.revoked_links} link${x.revoked_links === 1 ? '' : 's'} withdrawn. The client can no longer open the portal until you issue a new link.`); setIssued(null); r.reload(); }
+    catch (x) { setErr(x); } finally { setBusy(null); }
+  };
+  const reissue = async () => {
+    setBusy('reissue'); setErr(null); setMsg(null);
+    try { const x = await api(`/v1/investors/${investorId}/portal-access/reissue`, { body: {} }); setIssued(x); r.reload(); }
+    catch (x) { setErr(x); } finally { setBusy(null); }
+  };
+  if (r.loading && !r.data) return null;
+  if (r.error) return <ErrorBox error={r.error} onRetry={r.reload} />;
+  const rows: any[] = r.data?.data ?? [];
+  const active = r.data?.active ?? 0;
+  const tone = (s: string) => s === 'active' ? <Chip tone="ok">Active</Chip> : s === 'revoked' ? <Chip>Withdrawn</Chip> : <Chip tone="warn">Expired</Chip>;
+  return (
+    <div style={{ marginTop: '1rem' }}>
+      <div class="row-inline tight" style={{ justifyContent: 'space-between' }}>
+        <span class="small"><b>{active}</b> active link{active === 1 ? '' : 's'}{r.data?.investor?.email ? <span class="muted">, client email {r.data.investor.email}{r.data.investor.email_deliverable ? '' : ' (placeholder, not emailed)'}</span> : <span class="muted">, no client email on file</span>}</span>
+        <span class="row-inline tight">
+          <PermBtn perm="clients:write" kind="ghost" busy={busy === 'reissue'} onClick={reissue}>{active ? 'Reissue link' : 'Issue new link'}</PermBtn>
+          {active ? <ConfirmBtn kind="ghost" confirm={`Withdraw ${active} link${active === 1 ? '' : 's'}`} onConfirm={revokeAll}>Withdraw all links</ConfirmBtn> : null}
+        </span>
+      </div>
+      {msg ? <p class="note small" role="status">{msg}</p> : null}
+      <ErrorBox error={err} />
+      {issued ? (
+        <div class="reveal" role="status">
+          <span class="f-l">New investor portal link</span>
+          <div class="reveal-row"><code class="break">{issued.link}</code><Copy text={issued.link} /></div>
+          <p class="small muted">{issued.note} Expires {day(issued.expires_at)}.</p>
+        </div>
+      ) : null}
+      {rows.length ? (
+        <div class="tw" style={{ marginTop: '0.6rem' }}><table class="t">
+          <thead><tr><th>Link</th><th>Issued</th><th>Expires</th><th>Last used</th><th>Status</th></tr></thead>
+          <tbody>{rows.map((x) => <tr class={x.status === 'active' ? '' : 'off'}><td><code>{x.id}…</code><div class="small muted">{String(x.created_by ?? '').replace(/^user:|^key:/, '')}</div></td><td class="muted nowrap">{when(x.created_at)}</td><td class="muted nowrap">{day(x.expires_at)}</td><td class="muted nowrap">{x.last_used_at ? when(x.last_used_at) : 'Never'}</td><td>{tone(x.status)}{x.revoked_at ? <div class="small muted">{when(x.revoked_at)}</div> : null}</td></tr>)}</tbody>
+        </table></div>
+      ) : <p class="small muted" style={{ marginTop: '0.6rem' }}>No portal link has been issued for this client yet.</p>}
+    </div>
   );
 }
 
@@ -218,9 +317,9 @@ export function IssueCredential({ id }: { id: string }) {
 export function NewOrder({ params }: { params: URLSearchParams }) {
   const { can, why } = useMe();
   const canOrder = can('orders:write');
-  const invs = useApi('/v1/investors');
+  const invs = useApi('/v1/investors?limit=200');
   const funds = useApi('/v1/funds');
-  const [o, setO] = useState({ action: 'subscribe', investor_id: params.get('investor') ?? 'lumen', fund: 'TWLF', amount: 2_000_000, settle_with: 'USDC', counterparty_id: 'qamar', what_ifs: [] as string[] });
+  const [o, setO] = useState({ action: 'subscribe', investor_id: params.get('investor') ?? 'lumen', fund: params.get('fund') ?? 'TWLF', amount: Number(params.get('amount')) || 2_000_000, settle_with: 'USDC', counterparty_id: 'qamar', what_ifs: [] as string[] });
   const [live, setLive] = useState<any>(null);
   const [liveErr, setLiveErr] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -362,6 +461,19 @@ export function DecisionDetail({ id }: { id: string }) {
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
   const doVerify = async () => { setVerify(await api('/v1/receipts/verify', { body: { receipt: d.receipt, signature: d.signature }, auth: false }).catch((e) => ({ valid: false, message: e.message }))); };
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const downloadPdf = async () => {
+    setPdfBusy(true); setErr(null);
+    try {
+      const res: Response = await api(`/v1/decisions/${d.id}/receipt.pdf`, { raw: true });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j?.error?.message ?? `Could not build the receipt (${res.status}).`); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `laissez-receipt-${d.id}.pdf`; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      track('receipt_pdf_downloaded', { decision: d.id });
+    } catch (e) { setErr(e); } finally { setPdfBusy(false); }
+  };
   return (
     <>
       <Head title={`Decision ${d.id}`} sub={<>{d.action[0].toUpperCase() + d.action.slice(1)} {money(d.amount, d.asset === 'EURC' || d.asset === 'AVB-EUR' ? 'EUR' : 'USD')} of {d.ticker} for {d.investor_name}{d.counterparty_name ? ` to ${d.counterparty_name}` : ''}{/\.$/.test(d.counterparty_name ?? d.investor_name ?? '') ? '' : '.'} {when(d.created_at)}.</>}
@@ -371,7 +483,7 @@ export function DecisionDetail({ id }: { id: string }) {
       {stl ? <SettlementCard initial={stl} animate /> : null}
       <DecisionPanel d={{ ...d, binding_rules: d.resolved }} />
       <div class="grid2">
-        <Card title="Signed receipt" actions={d.signature ? <Btn kind="ghost" onClick={doVerify}>Verify signature</Btn> : null}>
+        <Card title="Signed receipt" actions={<><Btn kind="ghost" busy={pdfBusy} onClick={downloadPdf}>Download receipt (PDF)</Btn>{d.signature ? <Btn kind="ghost" onClick={doVerify}>Verify signature</Btn> : null}</>}>
           {d.receipt ? <><Json value={d.receipt} /><p class="small mono break">signature: {d.signature}</p></> : <Empty title="Receipt signing is not configured" />}
           {verify ? <p class={`verdict-line ${verify.valid ? 'ok' : 'warn'}`}>{verify.message}</p> : null}
         </Card>
@@ -419,6 +531,24 @@ function ReplayCard({ id, replayable }: { id: string; replayable?: boolean }) {
             {(res.rule_packs ?? []).length ? <div><dt>Rule packs</dt><dd class="small">{res.rule_packs.join(', ')}</dd></div> : null}
             {extra.map(([k, v]) => <div><dt>{humanKey(k)}</dt><dd><Hash value={v} n={16} /></dd></div>)}
           </dl>
+          {res.live ? (
+            <div class="replay-diff">
+              <h3>Then and now</h3>
+              <p class="small muted">{res.live_note} Live outcome: {word(res.live.outcome)}.</p>
+              {(res.diff ?? []).length ? (
+                <div class="tw"><table class="t">
+                  <thead><tr><th>Check</th><th>At decision</th><th>Now</th></tr></thead>
+                  <tbody>{res.diff.map((x: any) => (
+                    <tr>
+                      <td><strong>{x.label}</strong><div class="small muted">{x.layer}</div></td>
+                      <td>{x.before ? <><Chip tone={x.before.result === 'pass' ? 'ok' : x.before.result === 'fail' ? 'no' : 'muted'}>{x.before.result}</Chip><div class="small muted clamp">{x.before.detail}</div></> : <span class="muted small">not evaluated</span>}</td>
+                      <td>{x.after ? <><Chip tone={x.after.result === 'pass' ? 'ok' : x.after.result === 'fail' ? 'no' : 'muted'}>{x.after.result}</Chip><div class="small muted clamp">{x.after.detail}</div></> : <span class="muted small">not evaluated</span>}</td>
+                    </tr>
+                  ))}</tbody>
+                </table></div>
+              ) : <p class="small">Every check comes out the same today as it did at decision time.</p>}
+            </div>
+          ) : res.live_note ? <p class="small muted">{res.live_note}</p> : null}
           <details class="more"><summary>Full replay response</summary><Json value={res} /></details>
         </>
       ) : null}
@@ -438,7 +568,29 @@ function txsOf(s: any): string[] {
   const all = [c.tx_hash, c.tx, c.hash, ...(c.tx_hashes ?? []), ...((c.txs ?? []).map((t: any) => t?.hash ?? t)), s?.tx_hash, ...(s?.tx_hashes ?? []), ...stepsOf(s).map((x) => x.tx_hash ?? x.tx)];
   return [...new Set(all.filter((h) => typeof h === 'string' && /^0x[0-9a-fA-F]{8,}$/.test(h)))];
 }
-const stlChip = (status: string): any => status === 'settled' ? <Chip tone="ok">Settled</Chip> : status === 'pending' ? <Chip tone="info">Settling on chain</Chip> : status === 'reverted' ? <Chip tone="no">Reverted</Chip> : <Chip>{status}</Chip>;
+const stlChip = (status: string, job?: any): any => status === 'settled' ? <Chip tone="ok">Settled</Chip>
+  : status === 'pending' ? (job?.status === 'failed' ? <Chip tone="warn">Pending, job failed</Chip> : job?.status === 'running' ? <Chip tone="info">Sending on chain</Chip> : job?.status === 'queued' && job.attempts > 0 ? <Chip tone="info">Pending, retrying</Chip> : <Chip tone="info">Pending</Chip>)
+    : status === 'reverted' ? <Chip tone="no">Reverted</Chip> : status === 'cancelled' ? <Chip>Cancelled</Chip> : <Chip>{status}</Chip>;
+const JOB_WORD: Record<string, string> = { queued: 'queued', running: 'running', failed: 'failed', confirmed: 'confirmed', cancelled: 'cancelled' };
+
+/** Retry and Cancel for a settlement, shown only when the API says the action is available right now. */
+function SettlementActions({ s, onChange, compact: small }: { s: any; onChange: (next: any) => void; compact?: boolean }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<any>(null);
+  if (!s?.retryable && !s?.cancellable) return err ? <ErrorBox error={err} /> : null;
+  const run = async (what: 'retry' | 'cancel') => {
+    setBusy(what); setErr(null);
+    try { const next = await api(`/v1/settlements/${s.id}/${what}`, { body: {} }); onChange(next); track(what === 'retry' ? 'settlement_retried' : 'settlement_cancelled', { settlement: s.id }); }
+    catch (x) { setErr(x); } finally { setBusy(null); }
+  };
+  return (
+    <span class="row-inline tight" onClick={(e) => e.stopPropagation()}>
+      {s.retryable ? <PermBtn perm="orders:write" kind={small ? 'ghost' : 'primary'} busy={busy === 'retry'} onClick={() => run('retry')}>{busy === 'retry' ? 'Retrying' : 'Retry'}</PermBtn> : null}
+      {s.cancellable ? <ConfirmBtn kind="ghost" confirm="Cancel settlement" onConfirm={() => run('cancel')} title="Only possible before anything is sent on chain">Cancel</ConfirmBtn> : null}
+      {!small ? <ErrorBox error={err} /> : null}
+    </span>
+  );
+}
 
 /** Shows a settlement and polls it every 2 seconds while it is pending. */
 function SettlementCard({ initial, animate, id }: { initial?: any; animate?: boolean; id?: string }) {
@@ -457,7 +609,7 @@ function SettlementCard({ initial, animate, id }: { initial?: any; animate?: boo
         setErr(null);
         if (last === 'pending' && x.status === 'settled') track('settlement_completed', { settlement: sid });
         last = x.status;
-        if (x.status === 'pending') t = window.setTimeout(tick, 2000);
+        if (x.status === 'pending') t = window.setTimeout(tick, x.job?.status === 'failed' ? 10_000 : 2000);
       } catch (e) { if (!stop) { setErr(e); t = window.setTimeout(tick, 4000); } }
     };
     if (!initial || initial.status === 'pending') tick();
@@ -475,9 +627,14 @@ function SettlementCard({ initial, animate, id }: { initial?: any; animate?: boo
   const simulated = s.simulated ?? s.steps?.simulated;
   const done = (x: any, i: number) => i < shown && (status === 'settled' || x.done === true || ['done', 'confirmed', 'complete'].includes(x.status) || !!x.tx_hash || (status !== 'pending' && status !== 'reverted'));
   return (
-    <Card title={`Settlement ${s.id ?? ''}`} actions={stlChip(status)}>
+    <Card title={`Settlement ${s.id ?? ''}`} actions={<span class="row-inline tight">{stlChip(status, s.job)}<SettlementActions s={s} compact onChange={(next) => setS((prev: any) => ({ ...prev, ...next }))} /></span>}>
       {steps.length ? <ol class="steps2">{steps.map((x: any, i: number) => <li class={done(x, i) ? 'done' : ''}><b>{STEP_LABEL[x.step] ?? x.label ?? x.step}</b><span>{x.block ? `block ${x.block}, ` : ''}{x.at ? new Date(x.at).toLocaleTimeString() : ''}</span></li>)}</ol> : null}
-      {status === 'pending' ? <p class="poll" aria-live="polite"><span class="spin sm" aria-hidden="true" />{s.chain?.status === 'queued' ? 'Queued for the chain.' : s.chain?.status ? `Chain job ${s.chain.status}.` : 'Waiting for the chain.'} Checking every 2 seconds.</p> : null}
+      {status === 'pending' ? (
+        s.job?.status === 'failed'
+          ? <p class="verdict-line warn">The chain job failed after {s.job.attempts} attempt{s.job.attempts === 1 ? '' : 's'}: {s.job.error ?? 'no reason recorded'}. Retry re-checks the decision and queues it again; Cancel is possible while nothing has been sent.</p>
+          : <p class="poll" aria-live="polite"><span class="spin sm" aria-hidden="true" />{s.job ? `Chain job ${JOB_WORD[s.job.status] ?? s.job.status}${s.job.attempts > 1 ? ` (attempt ${s.job.attempts})` : ''}${s.job.error ? `: ${s.job.error}` : ''}.` : s.chain?.status === 'queued' ? 'Queued for the chain.' : s.chain?.status ? `Chain job ${s.chain.status}.` : 'Waiting for the chain.'} Checking every 2 seconds.</p>
+      ) : null}
+      {status === 'cancelled' ? <p class="verdict-line warn">{s.chain?.reason ?? s.steps?.reason ?? 'Cancelled before anything was sent on chain.'} Nothing moved. Request a new decision to settle this order.</p> : null}
       {txs.length ? (
         <dl class="kv wide">
           <div><dt>Network</dt><dd>{s.chain?.network ?? s.chain?.chain ?? 'Base Sepolia'}</dd></div>
@@ -485,7 +642,7 @@ function SettlementCard({ initial, animate, id }: { initial?: any; animate?: boo
           {s.chain?.block ? <div><dt>Block</dt><dd>{Number(s.chain.block).toLocaleString('en-US')}</dd></div> : null}
         </dl>
       ) : null}
-      {status === 'reverted' ? <p class="verdict-line warn">{s.chain?.error ?? s.steps?.reason ?? s.reason ?? 'A leg failed, so both legs reverted. Nothing moved.'}</p> : null}
+      {status === 'reverted' ? <p class="verdict-line warn">{s.chain?.reason ?? s.chain?.error ?? s.steps?.reason ?? s.reason ?? 'A leg failed, so both legs reverted. Nothing moved.'}{s.chain?.stage ? <span class="muted"> (stage: {s.chain.stage})</span> : null}</p> : null}
       {simulated && !txs.length ? <p class="muted small">Simulated on Ethereum timings. Holdings were updated in one database transaction, so both legs moved or neither did.</p> : null}
       {err && status === 'pending' ? <p class="small muted">Could not refresh: {err.message} Retrying.</p> : null}
     </Card>
@@ -494,13 +651,28 @@ function SettlementCard({ initial, animate, id }: { initial?: any; animate?: boo
 
 export function SettlementDetail({ id }: { id: string }) {
   const r = useApi(`/v1/settlements/${id}`, [id]);
+  const [key, setKey] = useState(0);
   if (r.loading && !r.data) return <Loading />;
   if (r.error) return <ErrorBox error={r.error} onRetry={r.reload} />;
   const s = r.data;
+  const onChange = (next: any) => { r.setData({ ...s, ...next }); setKey((k) => k + 1); };
   return (
     <>
-      <Head title={`Settlement ${s.id}`} sub={<>Delivery versus payment for decision <a href={`#/decisions/${s.decision_id}`}><code>{s.decision_id}</code></a>. Both legs move together or neither does.</>} actions={<Btn onClick={() => go(`/decisions/${s.decision_id}`)}>View decision</Btn>} />
-      <SettlementCard initial={s} id={s.id} />
+      <Head title={`Settlement ${s.id}`} sub={<>Delivery versus payment for decision <a href={`#/decisions/${s.decision_id}`}><code>{s.decision_id}</code></a>. Both legs move together or neither does.</>}
+        actions={<><SettlementActions s={s} onChange={onChange} /><Btn onClick={() => go(`/decisions/${s.decision_id}`)}>View decision</Btn></>} />
+      {s.retryable ? <PermNote perm="orders:write" /> : null}
+      <SettlementCard key={key} initial={s} id={s.id} />
+      {s.job ? (
+        <Card title="Chain job">
+          <dl class="kv wide">
+            <div><dt>Job</dt><dd><code>{s.job.id}</code></dd></div>
+            <div><dt>Status</dt><dd>{JOB_WORD[s.job.status] ?? s.job.status}{s.job.attempts ? `, ${s.job.attempts} attempt${s.job.attempts === 1 ? '' : 's'}` : ''}</dd></div>
+            {s.job.error ? <div><dt>Last message</dt><dd>{s.job.error}</dd></div> : null}
+            {(s.job.tx_hashes ?? []).map((h: string, i: number) => <div><dt>{s.job.tx_hashes.length > 1 ? `Transaction ${i + 1}` : 'Transaction'}</dt><dd><TxLink hash={h} /></dd></div>)}
+          </dl>
+          <p class="small muted">Every chain job for this organization is listed under <a href="#/chain">On-chain</a>.</p>
+        </Card>
+      ) : null}
     </>
   );
 }
@@ -514,18 +686,55 @@ function DecisionTable({ rows }: { rows: any[] }) {
   );
 }
 export function Decisions() {
-  const r = useApi('/v1/decisions');
-  return <><Head title="Decisions" sub="Every pre-trade check placed in this workspace, newest first." actions={<PermBtn perm="orders:write" kind="primary" onClick={() => go('/orders/new')}>New order</PermBtn>} />{r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : r.data.data.length ? <DecisionTable rows={r.data.data} /> : <Empty title="No decisions yet">Place your first order.</Empty>}</>;
-}
-export function Settlements() {
-  const r = useApi('/v1/settlements');
+  const funds = useApi('/v1/funds');
+  const [f, setF] = useState({ outcome: '', fund: '', action: '', from: '', to: '' });
+  const r = usePaged(`/v1/decisions${qs(f)}`);
+  const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  const filtered = Object.values(f).some(Boolean);
   return (
     <>
-      <Head title="Settlements" sub="Atomic delivery versus payment. Both legs or neither." />
-      {r.loading && !r.data ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : r.data.data.length ? (
-        <div class="tw"><table class="t"><thead><tr><th>Settlement</th><th>Decision</th><th>Client</th><th>Action</th><th class="r">Amount</th><th>Status</th><th>When</th></tr></thead>
-          <tbody>{r.data.data.map((s: any) => <tr class="click" onClick={() => go(`/settlements/${s.id}`)}><td><a href={`#/settlements/${s.id}`}><code>{s.id}</code></a></td><td><a href={`#/decisions/${s.decision_id}`} onClick={(e) => e.stopPropagation()}><code>{s.decision_id}</code></a></td><td>{s.investor}</td><td>{s.action} {s.ticker}</td><td class="r">{Number(s.amount).toLocaleString('en-US')} {s.asset}</td><td>{stlChip(s.status)}{txsOf(s).length ? <Chip tone="info">On chain</Chip> : null}</td><td class="muted">{when(s.created_at)}</td></tr>)}</tbody></table></div>
-      ) : <Empty title="Nothing settled yet">Allowed decisions can be settled from their decision page.</Empty>}
+      <Head title="Decisions" sub="Every pre-trade check placed in this workspace, newest first." actions={<PermBtn perm="orders:write" kind="primary" onClick={() => go('/orders/new')}>New order</PermBtn>} />
+      <div class="toolbar" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <select value={f.outcome} onChange={(e) => set('outcome', (e.target as HTMLSelectElement).value)} aria-label="Outcome"><option value="">Any outcome</option><option value="ALLOW">Allowed</option><option value="DENY">Denied</option><option value="FREEZE">Frozen</option></select>
+        <select value={f.fund} onChange={(e) => set('fund', (e.target as HTMLSelectElement).value)} aria-label="Fund"><option value="">Any fund</option>{(funds.data?.data ?? []).map((x: any) => <option value={x.ticker}>{x.ticker}</option>)}</select>
+        <select value={f.action} onChange={(e) => set('action', (e.target as HTMLSelectElement).value)} aria-label="Action"><option value="">Any action</option><option value="subscribe">Subscribe</option><option value="transfer">Transfer</option><option value="redeem">Redeem</option></select>
+        <label class="f" style={{ margin: 0 }}><span class="f-l">From</span><input type="date" value={f.from} onInput={(e) => set('from', (e.target as HTMLInputElement).value)} /></label>
+        <label class="f" style={{ margin: 0 }}><span class="f-l">To</span><input type="date" value={f.to} onInput={(e) => set('to', (e.target as HTMLInputElement).value)} /></label>
+        {filtered ? <Btn kind="ghost" onClick={() => setF({ outcome: '', fund: '', action: '', from: '', to: '' })}>Clear</Btn> : null}
+      </div>
+      {r.loading && !r.rows.length ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : r.rows.length ? <><DecisionTable rows={r.rows} /><LoadMore p={r} what="decisions" /></> : <Empty title={filtered ? 'No decisions match these filters' : 'No decisions yet'}>{filtered ? 'Widen the dates or clear the filters.' : 'Place your first order.'}</Empty>}
+    </>
+  );
+}
+export function Settlements() {
+  const [status, setStatus] = useState('');
+  const r = usePaged(`/v1/settlements${qs({ status })}`);
+  const update = (next: any) => r.setRows((rows: any[]) => rows.map((x) => (x.id === next.id ? { ...x, ...next } : x)));
+  const pending = r.rows.filter((x: any) => x.status === 'pending').length;
+  const failed = r.rows.filter((x: any) => x.status === 'pending' && x.job?.status === 'failed').length;
+  return (
+    <>
+      <Head title="Settlements" sub="Atomic delivery versus payment. Both legs or neither. Pending settlements show their chain job; a failed job can be retried or cancelled." />
+      <div class="toolbar" style={{ alignItems: 'center' }}>
+        <select value={status} onChange={(e) => setStatus((e.target as HTMLSelectElement).value)} aria-label="Status"><option value="">Any status</option><option value="pending">Pending</option><option value="settled">Settled</option><option value="reverted">Reverted</option><option value="cancelled">Cancelled</option></select>
+        {pending ? <span class="small muted">{pending} pending on this page{failed ? `, ${failed} with a failed job` : ''}</span> : null}
+      </div>
+      {r.loading && !r.rows.length ? <Loading /> : r.error ? <ErrorBox error={r.error} onRetry={r.reload} /> : r.rows.length ? (
+        <>
+          <div class="tw"><table class="t"><thead><tr><th>Settlement</th><th>Decision</th><th>Client</th><th>Action</th><th class="r">Amount</th><th>Status</th><th>When</th><th /></tr></thead>
+            <tbody>{r.rows.map((s: any) => (
+              <tr class="click" onClick={() => go(`/settlements/${s.id}`)}>
+                <td><a href={`#/settlements/${s.id}`}><code>{s.id}</code></a></td>
+                <td><a href={`#/decisions/${s.decision_id}`} onClick={(e) => e.stopPropagation()}><code>{s.decision_id}</code></a></td>
+                <td>{s.investor}</td><td>{s.action} {s.ticker}</td><td class="r">{Number(s.amount).toLocaleString('en-US')} {s.asset}</td>
+                <td>{stlChip(s.status, s.job)}{txsOf(s).length ? <Chip tone="info">On chain</Chip> : null}{s.status === 'pending' && s.job ? <div class="small muted">Job {JOB_WORD[s.job.status] ?? s.job.status}{s.job.attempts > 1 ? `, ${s.job.attempts} attempts` : ''}{s.job.status === 'failed' && s.job.error ? `: ${s.job.error}` : ''}</div> : null}{s.status === 'reverted' && s.chain?.reason ? <div class="small muted clamp">{s.chain.reason}</div> : null}</td>
+                <td class="muted">{when(s.created_at)}</td>
+                <td class="r"><SettlementActions s={s} compact onChange={update} /></td>
+              </tr>
+            ))}</tbody></table></div>
+          <LoadMore p={r} what="settlements" />
+        </>
+      ) : <Empty title={status ? `No ${status} settlements` : 'Nothing settled yet'}>Allowed decisions can be settled from their decision page.</Empty>}
     </>
   );
 }
@@ -538,29 +747,63 @@ Aurelia Pensionskasse,Pension fund,CH,ZRH,CH_PRO
 Wen Li,Individual,HK,HK,
 Al Safa Holdings,Holding company,AE-DIFC,DIFC,DIFC_PRO
 Marcus Hale,Individual,US,NY,US_AI`;
+const csvCell = (v: unknown) => { const s = String(v ?? ''); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+function downloadText(name: string, text: string, type = 'text/csv') {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: `${type};charset=utf-8` }));
+    const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch { /* download blocked */ }
+}
 export function Bulk() {
   const [csv, setCsv] = useState(SAMPLE);
   const [res, setRes] = useState<any>(null);
   const [err, setErr] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const jurs = useApi('/v1/jurisdictions');
+  const bcs = useApi('/v1/booking-centers');
+  const jurList: any[] = (jurs.data?.data ?? []).filter((j: any) => j.code !== 'GLOBAL' && !j.comprehensive_sanctions);
+  const bcList: any[] = bcs.data?.data ?? [];
   const rows = useMemo(() => csv.trim().split(/\r?\n/).slice(1).filter(Boolean).map((l) => { const [name, kind, residence, booking_center, classes] = l.split(',').map((x) => (x ?? '').trim()); return { name, kind: kind || 'Corporate', residence, booking_center, classes: (classes || '').split(';').map((c) => c.trim()).filter(Boolean) }; }), [csv]);
-  const run = async () => { setBusy(true); setErr(null); try { setRes(await api('/v1/eligibility/bulk', { body: { rows } })); } catch (e) { setErr(e); } finally { setBusy(false); } };
+  const run = async () => { setBusy(true); setErr(null); try { setRes(await api('/v1/eligibility/bulk', { body: { rows } })); track('bulk_checked', { rows: rows.length }); } catch (e) { setErr(e); } finally { setBusy(false); } };
   const onFile = (e: Event) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) f.text().then(setCsv); };
+  // Template: one example row per jurisdiction the database knows, booked in the matching booking center where there is one.
+  const template = () => {
+    const bcFor = (code: string) => bcList.find((b) => b.jurisdiction === code)?.id ?? bcList[0]?.id ?? 'SG';
+    const classFor = (code: string) => bcList.find((b) => b.jurisdiction === code)?.requires_class ?? '';
+    const lines = ['name,kind,residence,booking_center,classes', ...jurList.map((j) => `Example ${j.name.replace(/[,()]/g, '')} client,Corporate,${j.code},${bcFor(j.code)},${classFor(j.code)}`)];
+    setCsv(lines.join('\n'));
+  };
+  const downloadTemplate = () => {
+    const header = `# residence codes: ${jurList.map((j) => `${j.code} (${j.name})`).join('; ')}\n# booking centers: ${bcList.map((b) => `${b.id} (${b.name}${b.requires_class ? `, requires ${b.requires_class}` : ''})`).join('; ')}\n`;
+    downloadText('laissez-bulk-template.csv', header + csv.trim() + '\n');
+  };
+  const downloadResults = () => {
+    if (!res) return;
+    const head = ['row', 'name', 'residence', 'screening_match', ...res.funds.flatMap((f: string) => [`${f}_outcome`, `${f}_reason`, `${f}_binding_rules`])];
+    const body = res.data.map((r: any) => [r.row, r.name, r.residence, r.screening ? `${r.screening.entry} (${r.screening.program}, ${Math.round(r.screening.score * 100)}%)` : '', ...r.results.flatMap((x: any) => [x.outcome, x.reason, (x.binding ?? []).join('; ')])]);
+    downloadText(`laissez-bulk-results-${new Date().toISOString().slice(0, 10)}.csv`, [head, ...body].map((line: unknown[]) => line.map(csvCell).join(',')).join('\n') + '\n');
+    track('bulk_results_downloaded', { rows: res.data.length });
+  };
+  const resHint = jurList.length ? jurList.map((j) => j.code).join(', ') : 'SG, HK, CH, DE, AE-DIFC, US';
+  const bcHint = bcList.length ? bcList.map((b) => b.id).join(', ') : 'HK, SG, ZRH, DIFC, NY';
   return (
     <>
       <Head title="Bulk eligibility check" sub="Paste or upload a client list and see which funds each client can buy, and why. Nothing is saved except an audit entry." />
-      <Card title="Client list (CSV)" actions={<><label class="b b-ghost file">Upload CSV<input type="file" accept=".csv,text/csv" onChange={onFile} /></label><Btn kind="ghost" onClick={() => setCsv(SAMPLE)}>Load sample</Btn></>}>
+      <Card title="Client list (CSV)" actions={<><label class="b b-ghost file">Upload CSV<input type="file" accept=".csv,text/csv" onChange={onFile} /></label><Btn kind="ghost" onClick={template} disabled={!jurList.length} title="One example row per jurisdiction in the database">Template, every jurisdiction</Btn><Btn kind="ghost" onClick={downloadTemplate}>Download CSV</Btn><Btn kind="ghost" onClick={() => setCsv(SAMPLE)}>Load sample</Btn></>}>
         <textarea class="csv" rows={8} value={csv} onInput={(e) => setCsv((e.target as HTMLTextAreaElement).value)} aria-label="CSV input" />
-        <p class="muted small">Columns: name, kind, residence (SG, HK, CH, DE, AE-DIFC, US), booking_center (HK, SG, ZRH, DIFC, NY), classes separated by semicolons (SG_AI, HK_PI, EU_PRO, CH_PRO, DIFC_PRO, US_AI). {rows.length} rows.</p>
+        <p class="muted small">Columns: name, kind, residence ({resHint}), booking_center ({bcHint}), classes separated by semicolons ({Object.keys(CLASS_LABEL).join(', ')}). {rows.length} rows.</p>
+        {bcList.length ? <details class="more"><summary class="small">Booking centers and the classification each requires</summary><ul class="small muted" style={{ columns: 2 }}>{bcList.map((b) => <li><code>{b.id}</code> {b.name}, {JUR[b.jurisdiction] ?? b.jurisdiction}{b.requires_class ? `, requires ${CLASS_LABEL[b.requires_class] ?? b.requires_class}` : ''}</li>)}</ul></details> : null}
         <Btn kind="primary" onClick={run} disabled={busy || !rows.length}>{busy ? 'Checking' : `Check ${rows.length} clients`}</Btn>
         <ErrorBox error={err} />
       </Card>
       {res ? (
-        <Card title="Results" pad={false}>
+        <Card title="Results" pad={false} actions={<Btn kind="ghost" onClick={downloadResults}>Download results CSV</Btn>}>
           <div class="tw"><table class="t matrix">
             <thead><tr><th>Client</th>{res.funds.map((f: string) => <th>{f}</th>)}</tr></thead>
-            <tbody>{res.data.map((r: any) => <tr><td><strong>{r.name}</strong><div class="small muted">{JUR[r.residence] ?? r.residence}</div></td>{r.results.map((x: any) => <td title={x.reason}>{outcomeChip(x.outcome)}<div class="small muted clamp">{x.reason}</div></td>)}</tr>)}</tbody>
+            <tbody>{res.data.map((r: any) => <tr><td><strong>{r.name}</strong><div class="small muted">{JUR[r.residence] ?? r.residence}</div>{r.screening ? <div class="small"><Chip tone="warn">Screening match</Chip></div> : null}</td>{r.results.map((x: any) => <td title={x.reason}>{outcomeChip(x.outcome)}<div class="small muted clamp">{x.reason}</div></td>)}</tr>)}</tbody>
           </table></div>
+          {res.note ? <p class="small muted" style={{ padding: '0 1.35rem 1rem' }}>{res.note}</p> : null}
         </Card>
       ) : null}
     </>

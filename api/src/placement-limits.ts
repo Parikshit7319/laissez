@@ -94,6 +94,18 @@ export const PLACEMENT_LIMITS: PlacementLimit[] = [
   // ---------- Ireland ----------
   { jurisdiction: 'IE', basis: 'National private placement by a non-EU AIFM', limit_text: 'No numeric cap. Professional investors only; the AIFM notifies the Central Bank of Ireland.',
     number: null, unit: null, period: null, citation: 'S.I. No. 257 of 2013 Reg. 43; AIFMD Art. 42', source_url: 'https://www.centralbank.ie/regulation/industry-market-sectors/funds/aifs/guidance/publication-of-national-provisions-governing-marketing-requirements-for-AIFs', verified: true },
+
+  // ---------- India ----------
+  { jurisdiction: 'IN', basis: 'Private placement of securities (Companies Act 2013 s42)', limit_text: 'Offers to not more than 200 persons in aggregate in a financial year, per class of security, excluding qualified institutional buyers and employees under an ESOP. Beyond 200 the offer is a public offer.',
+    number: 200, unit: 'offerees', period: 'Financial year (April to March)', citation: 'Companies Act 2013 s42(2); Companies (Prospectus and Allotment of Securities) Rules 2014 r14(2)', source_url: 'https://taxguru.in/company-law/private-placement-guide-section-42-companies-act-2013.html', verified: false },
+  { jurisdiction: 'IN', basis: 'SEBI alternative investment fund scheme', limit_text: 'No scheme may have more than 1,000 investors (49 for an angel fund). Units are raised by private placement only.',
+    number: 1000, unit: 'investors', period: null, citation: 'SEBI (AIF) Regulations 2012 reg. 10(f)', source_url: 'https://taxguru.in/sebi/sebi-alternative-investment-funds-regulations-2012.html', verified: false },
+  { jurisdiction: 'IN', basis: 'Overseas portfolio investment by a resident individual (LRS)', limit_text: 'No head count. Each resident individual may remit up to USD 250,000 per financial year across all purposes; units of a regulated overseas fund are an overseas portfolio investment within that limit.',
+    number: null, unit: null, period: 'Financial year (April to March)', citation: 'RBI Master Direction No. 7/2015-16; FEM (Overseas Investment) Rules 2022 Sch. III', source_url: 'https://www.rbi.org.in/Scripts/BS_ViewMasDirections.aspx?id=10192', verified: true },
+  { jurisdiction: 'IN', basis: 'Overseas portfolio investment by an Indian entity', limit_text: 'No head count. An Indian entity may hold overseas portfolio investment up to 50% of its net worth as at its last audited balance sheet.',
+    number: null, unit: null, period: null, citation: 'FEM (Overseas Investment) Rules 2022 Sch. II', source_url: 'https://www.icsi.edu/media/filer_public/a3/61/a361f98b-4edc-4283-85a2-83faf64fa7a2/new_framework_on_overseas_investment_-_harshal_bhuta.pdf', verified: false },
+  { jurisdiction: 'IN', basis: 'IFSCA restricted scheme offered from GIFT City', limit_text: 'No numeric cap. Accredited investors with no minimum; other investors from USD 150,000 (USD 40,000 for employees and directors of the fund manager).',
+    number: null, unit: null, period: null, citation: 'IFSCA (Fund Management) Regulations; IFSCA FAQ on restricted schemes', source_url: 'https://ifsca.gov.in/Document/Legal/faqs-on-ifsca-fund-management-regulations-202209122022040455.pdf', verified: true },
 ];
 
 export const placementLimitsFor = (jurisdiction: string) => PLACEMENT_LIMITS.filter((l) => l.jurisdiction === jurisdiction);

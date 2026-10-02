@@ -69,7 +69,15 @@ export function RuleDrafts() {
   const [err, setErr] = useState<any>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const submit = async (e: Event) => { e.preventDefault(); setBusy('new'); setErr(null); try { await api('/v1/rule-drafts', { body: { ...f, source_url: f.source_url || undefined } }); r.reload(); } catch (x) { setErr(x); } finally { setBusy(null); } };
-  const decide = async (id: string, d: 'approve' | 'reject') => { setBusy(id + d); setErr(null); try { await api(`/v1/rule-drafts/${id}/${d}`, { body: {} }); r.reload(); } catch (x) { setErr(x); } finally { setBusy(null); } };
+  const decide = async (id: string, d: 'approve' | 'reject', force = false) => { setBusy(id + d); setErr(null); try { await api(`/v1/rule-drafts/${id}/${d}`, { body: force ? { force: true } : {} }); r.reload(); } catch (x) { setErr(x); } finally { setBusy(null); } };
+  const [reg, setReg] = useState<Record<string, any>>({});
+  const runRegression = async (id: string) => { setBusy(id + 'reg'); setErr(null); try { const x = await api(`/v1/rule-drafts/${id}/regression`, { body: {} }); setReg((m) => ({ ...m, [id]: x })); } catch (x) { setErr(x); } finally { setBusy(null); } };
+  const regressionCell = (d: any) => {
+    const x = reg[d.id] ?? (d.regression ? { regression: d.regression, warnings: d.warnings ?? [] } : null);
+    if (!x) return <span class="small muted">Not run</span>;
+    const g = x.regression;
+    return <>{g.failed ? <Chip tone="no">{g.failed} of {g.total} fail</Chip> : <Chip tone="ok">{g.passed} of {g.total} pass</Chip>}<div class="small muted">{g.pack}</div></>;
+  };
   const enabled = r.data?.agent_enabled;
   return (
     <>
@@ -90,7 +98,15 @@ export function RuleDrafts() {
           <div class="rule">
             <div class="rule-h"><h3>{d.draft.summary ?? d.id}</h3>{d.status === 'draft' ? <Chip tone="warn">Draft</Chip> : d.status === 'approved' ? <Chip tone="ok">Approved by {d.reviewer}</Chip> : <Chip tone="no">Rejected by {d.reviewer}</Chip>}{d.draft.source_status ? <Chip tone="info">Source: {d.draft.source_status}</Chip> : null}</div>
             <Json value={d.draft.changes ?? d.draft} />
-            {d.status === 'draft' ? <div class="row-inline"><PermBtn perm="compliance:write" kind="primary" busy={busy === d.id + 'approve'} onClick={() => decide(d.id, 'approve')}>Approve draft</PermBtn><PermBtn perm="compliance:write" kind="ghost" busy={busy === d.id + 'reject'} onClick={() => decide(d.id, 'reject')}>Reject draft</PermBtn><span class="small muted">Your name is recorded as the reviewer.</span></div> : null}
+            <div class="tw"><table class="t" style={{ marginBottom: '0.5rem' }}>
+              <thead><tr><th>Jurisdiction</th><th>Regression</th><th>Warnings</th></tr></thead>
+              <tbody><tr>
+                <td>{d.jurisdiction ? JUR[d.jurisdiction] ?? d.jurisdiction : <span class="muted">Not set</span>}</td>
+                <td>{regressionCell(d)}{(reg[d.id]?.regression ?? d.regression)?.cases?.some((c: any) => !c.ok) ? <ul class="plain small" style={{ marginTop: '0.3rem' }}>{(reg[d.id]?.regression ?? d.regression).cases.filter((c: any) => !c.ok).map((c: any) => <li><strong>{c.id}</strong> {c.message}</li>)}</ul> : null}</td>
+                <td class="small">{(reg[d.id]?.warnings ?? d.warnings ?? []).length ? <ul class="plain">{(reg[d.id]?.warnings ?? d.warnings).map((w: string) => <li><Chip tone="warn">Check</Chip> {w}</li>)}</ul> : <span class="muted">None</span>}</td>
+              </tr></tbody>
+            </table></div>
+            {d.status === 'draft' ? <div class="row-inline"><PermBtn perm="compliance:write" kind="primary" busy={busy === d.id + 'approve'} onClick={() => decide(d.id, 'approve', !!(reg[d.id]?.regression ?? d.regression)?.failed)}>{(reg[d.id]?.regression ?? d.regression)?.failed ? 'Approve despite failures' : 'Approve draft'}</PermBtn><PermBtn perm="compliance:write" kind="ghost" busy={busy === d.id + 'reject'} onClick={() => decide(d.id, 'reject')}>Reject draft</PermBtn><Btn kind="ghost" busy={busy === d.id + 'reg'} onClick={() => runRegression(d.id)}>Run regression</Btn><span class="small muted">Approval runs the golden cases for the jurisdiction; your name is recorded as the reviewer.</span></div> : null}
           </div>
         )) : <Empty title="No drafts yet" />}
       </Card>

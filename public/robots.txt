@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /laissez/app/
+Disallow: /laissez/portal/
+Disallow: /laissez/consent/
+
+Sitemap: https://parikshit7319.github.io/laissez/sitemap-index.xml

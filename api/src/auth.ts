@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { adminSql, tenantSql, type Sql } from './db';
-import { type Env, ApiError, rand, sha256, randomB64, b64url, rateLimit, ipAllowed, seal, unseal } from './util';
+import { type Env, ApiError, rand, sha256, randomB64, b64url, rateLimit, rateLimitStatus, requestGeo, parseUa, ipAllowed, seal, unseal, type RateStatus } from './util';
 import { type C, type Actor, type Role, router, body, bg, need, audit, auditQ, ROLE_LABEL } from './http';
+import { sendEmail, emailAdmins, templates, deliverable } from './email';
 import { rpFor, verifyRegistration, verifyAssertion, type RegistrationResponse, type AssertionResponse } from './webauthn';
 import { discover, pkce, verifyIdToken, exchangeCode, DEMO_IDP_CLIENT, DEMO_PEOPLE } from './oidc';
 import { seedQueries } from './seed';
@@ -15,10 +16,59 @@ const ipHash = async (c: C) => sha256(c.req.header('cf-connecting-ip') ?? 'unkno
 // ---------- Sessions ----------
 export async function createSession(c: C, admin: Sql, userId: string, ws: string, method: string, maxHours = 24 * 7) {
   const token = `lz_sess_${rand(40)}`;
-  await admin`insert into sessions (token_hash, user_id, workspace_id, method, expires_at, ip_hash, user_agent)
-    values (${await sha256(token)}, ${userId}, ${ws}, ${method}, now() + make_interval(hours => ${maxHours}), ${await ipHash(c)}, ${(c.req.header('user-agent') ?? '').slice(0, 200)})`;
+  const ip = await ipHash(c);
+  const ua = (c.req.header('user-agent') ?? '').slice(0, 200);
+  const { country, city } = requestGeo(c.req.raw, (n) => c.req.header(n));
+  const { browser, os } = parseUa(ua);
+  // A sign-in from a network this account has never used before triggers an alert, except on the very first session.
+  const [seen] = await admin`select exists (select 1 from sessions where user_id = ${userId} and ip_hash = ${ip}) as same_network, exists (select 1 from sessions where user_id = ${userId}) as any_session`;
+  await admin`insert into sessions (token_hash, user_id, workspace_id, method, expires_at, ip_hash, user_agent, country, city, browser, os)
+    values (${await sha256(token)}, ${userId}, ${ws}, ${method}, now() + make_interval(hours => ${maxHours}), ${ip}, ${ua}, ${country}, ${city}, ${browser}, ${os})`;
   await admin`update users set last_login_at = now() where id = ${userId}`;
+  if (seen?.any_session && !seen.same_network && method !== 'switch' && method !== 'sandbox') {
+    const [u] = await admin`select u.email, u.name, w.name as org, w.brand_name from users u join workspaces w on w.id = ${ws} where u.id = ${userId}`;
+    if (u && deliverable(u.email)) {
+      const m = templates.newDevice({ name: u.name, org: u.brand_name || u.org, browser, os, country, city, link: `${c.env.APP_URL}#/settings/sessions` });
+      bg(c, sendEmail(c.env, admin, { ws, to: u.email, kind: 'new_device', ...m }));
+      bg(c, audit(admin, ws, { kind: 'user', id: userId, name: u.name }, 'session.new_device', userId, { browser, os, country, city, method }));
+    }
+  }
   return token;
+}
+
+/** Paths a recovery-code session may use: enough to add a passkey and nothing else. */
+const RECOVERY_PATHS = /^\/v1\/(me|passkeys(\/.*)?|auth\/logout|sessions(\/.*)?)$/;
+
+/** Counts the request against the organization's monthly quota. One upsert per request. */
+async function checkQuota(admin: Sql, ws: string) {
+  const [q] = await admin`insert into quotas (workspace_id, month, count) values (${ws}, date_trunc('month', now())::date, 1)
+    on conflict (workspace_id, month) do update set count = quotas.count + 1, updated_at = now()
+    returning count, (select monthly_quota from workspaces where id = ${ws}) as quota`;
+  const used = Number(q.count); const quota = Number(q.quota);
+  if (used > quota) {
+    const reset = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1));
+    throw new ApiError(429, 'quota_exceeded', `This organization has used its ${quota.toLocaleString('en-US')} requests for the month. The quota resets on ${reset.toISOString().slice(0, 10)}.`, { used, quota, resets_at: reset.toISOString(), retry_after: Math.max(60, Math.floor((reset.getTime() - Date.now()) / 1000)) });
+  }
+  return { used, quota };
+}
+
+/** Records where an API key was used from; the first request from a new network after the first one alerts the administrators. */
+async function trackKeyNetwork(c: C, admin: Sql, k: { id: string; workspace_id: string; name: string; prefix: string; known_ip_hashes: string[] | null; last_used_ip_hash: string | null }) {
+  const ip = await ipHash(c);
+  const ua = (c.req.header('user-agent') ?? '').slice(0, 200);
+  const { country } = requestGeo(c.req.raw, (n) => c.req.header(n));
+  const known = k.known_ip_hashes ?? [];
+  if (known.includes(ip)) {
+    if (k.last_used_ip_hash !== ip) await admin`update api_keys set last_used_at = now(), last_used_ip_hash = ${ip}, last_used_country = ${country}, last_used_ua = ${ua} where id = ${k.id}`;
+    else await admin`update api_keys set last_used_at = now(), last_used_ua = ${ua}, last_used_country = coalesce(${country}, last_used_country) where id = ${k.id}`;
+    return;
+  }
+  const next = [...known, ip].slice(-20);
+  await admin`update api_keys set last_used_at = now(), last_used_ip_hash = ${ip}, last_used_country = ${country}, last_used_ua = ${ua}, known_ip_hashes = ${next} where id = ${k.id}`;
+  if (!known.length) return; // the very first use establishes the first network
+  const [w] = await admin`select name, brand_name from workspaces where id = ${k.workspace_id}`;
+  await audit(admin, k.workspace_id, { kind: 'key', id: k.prefix, name: `API key ${k.name} (${k.prefix}…)` }, 'api_key.new_network', k.prefix, { key_id: k.id, country, user_agent: ua, known_networks: next.length });
+  await emailAdmins(c.env, admin, k.workspace_id, 'api_key_new_network', templates.apiKeyNewNetwork({ org: w?.brand_name || w?.name || 'your organization', keyName: k.name, prefix: k.prefix, country, ua, link: `${c.env.APP_URL}#/settings/api-keys` }));
 }
 
 /** Resolves a session token or API key into an organization, an actor and a tenant connection. */
@@ -27,9 +77,9 @@ export async function authenticate(c: C, next: () => Promise<void>) {
   c.set('admin', admin);
   const h = c.req.header('authorization') ?? '';
   const tok = h.startsWith('Bearer ') ? h.slice(7).trim() : '';
-  let actor: Actor; let ws: string; let kind: string;
+  let actor: Actor; let ws: string; let kind: string; let rate: RateStatus;
   if (tok.startsWith('lz_sess_')) {
-    const rows = await admin`select s.id as sid, s.user_id, s.acting_as, s.workspace_id, s.last_seen_at, w.kind, u.name, m.role, au.name as act_name, am.role as act_role
+    const rows = await admin`select s.id as sid, s.user_id, s.acting_as, s.workspace_id, s.last_seen_at, s.method, w.kind, u.name, m.role, au.name as act_name, am.role as act_role
       from sessions s join users u on u.id = s.user_id join workspaces w on w.id = s.workspace_id
       join memberships m on m.workspace_id = s.workspace_id and m.user_id = s.user_id
       left join users au on au.id = s.acting_as left join memberships am on am.workspace_id = s.workspace_id and am.user_id = s.acting_as
@@ -37,25 +87,31 @@ export async function authenticate(c: C, next: () => Promise<void>) {
         and (w.expires_at is null or w.expires_at > now()) and (w.kind = 'sandbox' or s.last_seen_at > now() - interval '12 hours')`;
     if (!rows.length) throw new ApiError(401, 'session_expired', 'Your session has ended. Sign in again.');
     const r = rows[0];
+    // A recovery-code session exists to add a passkey. Everything else needs a full sign-in.
+    if (r.method === 'recovery' && !RECOVERY_PATHS.test(new URL(c.req.url).pathname)) throw new ApiError(403, 'recovery_session', 'You signed in with a recovery code. Add a passkey on the Security page, then sign in with it to continue.');
     const acting = r.acting_as && r.act_role;
     actor = { kind: 'user', id: acting ? r.acting_as : r.user_id, userId: acting ? r.acting_as : r.user_id, realUserId: r.user_id, name: acting ? r.act_name : r.name, role: (acting ? r.act_role : r.role) as Role, sessionId: r.sid };
     ws = r.workspace_id; kind = r.kind;
-    if (!(await rateLimit(admin, `sess:${r.sid}`, 600, 60))) throw new ApiError(429, 'rate_limited', 'More than 600 requests in a minute. Wait a moment and retry.');
+    rate = await rateLimitStatus(admin, `sess:${r.sid}`, 600, 60);
+    if (!rate.allowed) throw new ApiError(429, 'rate_limited', 'More than 600 requests in a minute. Wait a moment and retry.', { retry_after: rate.retryAfter, rate });
     if (Date.now() - new Date(r.last_seen_at).getTime() > 300_000) bg(c, admin`update sessions set last_seen_at = now() where id = ${r.sid}` as any);
   } else if (tok.startsWith('lz_test_')) {
-    const rows = await admin`select k.id, k.workspace_id, k.prefix, k.name, k.scopes, k.ip_allowlist, w.kind from api_keys k join workspaces w on w.id = k.workspace_id
+    const rows = await admin`select k.id, k.workspace_id, k.prefix, k.name, k.scopes, k.ip_allowlist, k.known_ip_hashes, k.last_used_ip_hash, w.kind from api_keys k join workspaces w on w.id = k.workspace_id
       where k.key_hash = ${await sha256(tok)} and (k.expires_at is null or k.expires_at > now()) and (w.expires_at is null or w.expires_at > now())`;
     if (!rows.length) throw new ApiError(401, 'unauthorized', 'This key is not valid, has expired, or its sandbox has expired.');
     const k = rows[0];
     const ip = c.req.header('cf-connecting-ip') ?? '';
     if (!ipAllowed(ip, k.ip_allowlist)) throw new ApiError(403, 'ip_not_allowed', `Requests from ${ip || 'this address'} are not on this key's IP allowlist.`);
-    if (!(await rateLimit(admin, `key:${k.id}`, 300, 60))) throw new ApiError(429, 'rate_limited', 'More than 300 requests in a minute. Wait a moment and retry.');
+    rate = await rateLimitStatus(admin, `key:${k.id}`, 300, 60);
+    if (!rate.allowed) throw new ApiError(429, 'rate_limited', 'More than 300 requests in a minute. Wait a moment and retry.', { retry_after: rate.retryAfter, rate });
     actor = { kind: 'key', id: k.prefix, name: `API key ${k.name} (${k.prefix}…)`, scopes: k.scopes, keyId: k.id };
     ws = k.workspace_id; kind = k.kind;
-    bg(c, admin`update api_keys set last_used_at = now() where id = ${k.id}` as any);
+    bg(c, trackKeyNetwork(c, admin, k));
   } else {
     throw new ApiError(401, 'unauthorized', 'Sign in, or send an API key as "Authorization: Bearer lz_test_...".');
   }
+  const quota = await checkQuota(admin, ws);
+  (c.set as any)('rate', { ...rate, quota });
   c.set('actor', actor); c.set('ws', ws); c.set('wsKind', kind);
   c.set('sql', tenantSql(c.env.DATABASE_URL_TENANT, ws));
   await next();
@@ -248,12 +304,25 @@ pub.get('/auth/sso/callback', async (c) => {
       await admin`insert into users (id, email, name, title, fictional, sandbox_workspace) values (${idNew}, ${email}, ${claims.name ?? email}, ${person?.title ?? null}, ${sandbox}, ${sandbox ? w.id : null})`;
       user = { id: idNew, name: claims.name ?? email };
     }
+    // Group to role mapping: the first configured group the person belongs to decides the role, listed order wins.
+    const groupClaim: string = cfg.group_claim || 'groups';
+    const rawGroups = (claims as any)[groupClaim];
+    const groups: string[] = Array.isArray(rawGroups) ? rawGroups.map(String) : typeof rawGroups === 'string' ? rawGroups.split(/[,\s]+/).filter(Boolean) : [];
+    const mapping: { group: string; role: Role }[] = Array.isArray(cfg.group_roles) ? cfg.group_roles : [];
+    const mapped = mapping.find((m) => groups.some((g) => g.toLowerCase() === String(m.group).toLowerCase()))?.role ?? null;
     const mem = await admin`select role from memberships where workspace_id = ${w.id} and user_id = ${user.id}`;
     if (!mem.length) {
-      await admin`insert into memberships (workspace_id, user_id, role) values (${w.id}, ${user.id}, ${cfg.default_role ?? 'auditor'})`;
-      await audit(admin, w.id, { kind: 'user', id: user.id, name: user.name }, 'member.joined', user.id, { email, role: cfg.default_role ?? 'auditor', via: 'sso_jit' });
+      const role = mapped ?? cfg.default_role ?? 'auditor';
+      await admin`insert into memberships (workspace_id, user_id, role) values (${w.id}, ${user.id}, ${role})`;
+      await audit(admin, w.id, { kind: 'user', id: user.id, name: user.name }, 'member.joined', user.id, { email, role, via: 'sso_jit', matched_group: mapped ? mapping.find((m) => m.role === mapped)?.group : null });
+    } else if (mapped && mapped !== mem[0].role) {
+      const [{ n }] = await admin`select count(*)::int as n from memberships where workspace_id = ${w.id} and role = 'admin' and user_id <> ${user.id}`;
+      if (mapped === 'admin' || n > 0) {
+        await admin`update memberships set role = ${mapped} where workspace_id = ${w.id} and user_id = ${user.id}`;
+        await audit(admin, w.id, { kind: 'user', id: user.id, name: user.name }, 'member.role_changed', user.id, { role: mapped, from: mem[0].role, via: 'sso_group', groups });
+      }
     }
-    await audit(admin, w.id, { kind: 'user', id: user.id, name: user.name }, 'session.sso', user.id, { issuer: cfg.issuer });
+    await audit(admin, w.id, { kind: 'user', id: user.id, name: user.name }, 'session.sso', user.id, { issuer: cfg.issuer, groups: groups.slice(0, 20) });
     const code = randomB64(24);
     await admin`insert into auth_challenges (challenge, purpose, data, expires_at) values (${code}, 'sso_code', ${JSON.stringify({ user_id: user.id, ws: w.id })}, now() + interval '2 minutes')`;
     return c.redirect(`${st.origin && allowedOrigins(c.env).includes(st.origin) ? st.origin + new URL(appUrl).pathname : appUrl}#/sso/${code}`, 302);
@@ -281,7 +350,25 @@ acct.get('/me', async (c) => {
   const [me] = await admin`select id, email, name, title, fictional from users where id = ${a.realUserId}`;
   const orgs = await admin`select m.workspace_id, w.name, w.kind, m.role from memberships m join workspaces w on w.id = m.workspace_id where m.user_id = ${a.realUserId} and (w.expires_at is null or w.expires_at > now()) order by w.name`;
   const teammates = w.kind === 'sandbox' ? await admin`select u.id, u.name, u.title, m.role from memberships m join users u on u.id = m.user_id where m.workspace_id = ${ws} and u.fictional order by u.name` : [];
-  return c.json({ user: me, acting_as: a.userId !== a.realUserId ? { id: a.userId, name: a.name, role: a.role } : null, role: a.role, role_label: ROLE_LABEL[a.role!], workspace: w, organizations: orgs, teammates });
+  const [sess] = a.sessionId ? await admin`select method from sessions where id = ${a.sessionId}` : [null];
+  return c.json({ user: me, acting_as: a.userId !== a.realUserId ? { id: a.userId, name: a.name, role: a.role } : null, role: a.role, role_label: ROLE_LABEL[a.role!], workspace: w, organizations: orgs, teammates, session_method: sess?.method ?? null, recovery_session: sess?.method === 'recovery' });
+});
+
+/** Name and email. In a sandbox, setting a real email is the first step of keeping the sandbox as an organization. */
+acct.patch('/me', async (c) => {
+  const admin = c.get('admin'); const a = c.get('actor');
+  if (a.kind !== 'user') throw new ApiError(403, 'human_required', 'Only a signed-in person has a profile to edit.');
+  if (a.userId !== a.realUserId) throw new ApiError(403, 'acting_as', 'Switch back to yourself before editing your profile.');
+  const b = await body(c, z.object({ name: z.string().trim().min(2).max(80).optional(), email: emailZ.optional(), title: z.string().trim().max(80).nullable().optional() }));
+  if (b.email) {
+    if (b.email.endsWith('.sandbox') || b.email.endsWith('.example')) throw new ApiError(422, 'real_email_required', 'Use a real email address you can receive mail at.');
+    const taken = await admin`select 1 from users where email = ${b.email} and sandbox_workspace is null and id <> ${a.realUserId}`;
+    if (taken.length) throw new ApiError(409, 'email_taken', 'An account with this email already exists. Sign in with it instead.');
+  }
+  const [me] = await admin`update users set name = coalesce(${b.name ?? null}, name), email = coalesce(${b.email ?? null}, email), title = case when ${b.title !== undefined} then ${b.title ?? null} else title end
+    where id = ${a.realUserId} returning id, email, name, title, fictional, sandbox_workspace`;
+  await audit(admin, c.get('ws'), a, 'user.profile_updated', a.realUserId!, { name: b.name ?? undefined, email: b.email ?? undefined });
+  return c.json({ user: me, conversion_ready: !!me.sandbox_workspace && deliverable(me.email) });
 });
 
 acct.post('/session/act-as', async (c) => {
@@ -328,7 +415,7 @@ acct.post('/auth/invites/:token/accept', async (c) => {
 acct.get('/sessions', async (c) => {
   const a = c.get('actor');
   if (a.kind !== 'user') throw new ApiError(403, 'human_required', 'Sessions belong to people, not API keys.');
-  const rows = await c.get('admin')`select s.id, s.method, s.created_at, s.last_seen_at, s.expires_at, s.user_agent, w.name as organization, (s.id = ${a.sessionId ?? null}) as current
+  const rows = await c.get('admin')`select s.id, s.method, s.created_at, s.last_seen_at, s.expires_at, s.user_agent, s.country, s.city, s.browser, s.os, w.name as organization, (s.id = ${a.sessionId ?? null}) as current
     from sessions s join workspaces w on w.id = s.workspace_id where s.user_id = ${a.realUserId} and s.revoked_at is null and s.expires_at > now() order by s.last_seen_at desc limit 50`;
   return c.json({ data: rows });
 });
@@ -345,8 +432,10 @@ acct.get('/passkeys', async (c) => {
 });
 acct.post('/passkeys/options', async (c) => {
   const admin = c.get('admin'); const a = c.get('actor');
-  if (a.kind !== 'user' || c.get('wsKind') === 'sandbox') throw new ApiError(403, 'account_required', 'Passkeys belong to real accounts. Create an account to add one.');
+  if (a.kind !== 'user') throw new ApiError(403, 'account_required', 'Passkeys belong to real accounts. Create an account to add one.');
   const [u] = await admin`select id, email, name from users where id = ${a.realUserId}`;
+  // Sandbox guests get a passkey only once they have set a real email, which is how a sandbox becomes an organization.
+  if (c.get('wsKind') === 'sandbox' && !deliverable(u?.email)) throw new ApiError(403, 'account_required', 'Passkeys belong to real accounts. Set your name and email under Organization, Keep this sandbox, then add one.');
   const existing = await admin`select id from passkeys where user_id = ${u.id}`;
   const challenge = randomB64(32);
   const { rpId } = rpFor(c.req.header('origin'), allowedOrigins(c.env));
@@ -413,7 +502,13 @@ acct.post('/invites', async (c) => {
   const token = `inv_${rand(32)}`;
   const [row] = await sql`insert into invites (workspace_id, email, role, token_hash, created_by) values (${ws}, ${b.email}, ${b.role}, ${await sha256(token)}, ${a.realUserId ?? null}) returning id, expires_at`;
   await audit(sql, ws, a, 'member.invited', row.id, { email: b.email, role: b.role });
-  return c.json({ id: row.id, email: b.email, role: b.role, expires_at: row.expires_at, link: `${c.env.APP_URL}#/invite/${token}`, note: 'Send this link to the person. It works once and expires in 7 days.' }, 201);
+  const link = `${c.env.APP_URL}#/invite/${token}`;
+  const [w] = await c.get('admin')`select name, brand_name from workspaces where id = ${ws}`;
+  const mail = await sendEmail(c.env, c.get('admin'), { ws, to: b.email, kind: 'invite', ...templates.invite({ org: w.brand_name || w.name, role: ROLE_LABEL[b.role], invitedBy: a.kind === 'user' ? a.name : null, link }) });
+  return c.json({
+    id: row.id, email: b.email, role: b.role, expires_at: row.expires_at, link, email_status: mail.status, outbox_id: mail.id,
+    note: mail.status === 'sent' ? `Emailed to ${b.email}. The link works once and expires in 7 days.` : 'The invite email is in the Outbox (no mail provider is connected here). Send this link to the person yourself. It works once and expires in 7 days.',
+  }, 201);
 });
 acct.delete('/invites/:id', async (c) => {
   need(c, 'members:admin');
@@ -434,7 +529,7 @@ acct.get('/sso', async (c) => {
   need(c, 'read');
   const [w] = await c.get('admin')`select slug, sso from workspaces where id = ${c.get('ws')}`;
   const s = w.sso ?? null;
-  return c.json({ org_slug: w.slug, redirect_uri: `${c.env.API_URL}/v1/auth/sso/callback`, config: s ? { enabled: s.enabled, label: s.label, issuer: s.issuer, client_id: s.client_id, email_domain: s.email_domain, default_role: s.default_role, demo: !!s.demo, has_secret: !!s.client_secret || !!s.demo } : null, start_url: `${c.env.API_URL}/v1/auth/sso/start?org=${w.slug}` });
+  return c.json({ org_slug: w.slug, redirect_uri: `${c.env.API_URL}/v1/auth/sso/callback`, config: s ? { enabled: s.enabled, label: s.label, issuer: s.issuer, client_id: s.client_id, email_domain: s.email_domain, default_role: s.default_role, demo: !!s.demo, has_secret: !!s.client_secret || !!s.demo, group_claim: s.group_claim ?? 'groups', group_roles: Array.isArray(s.group_roles) ? s.group_roles : [] } : null, start_url: `${c.env.API_URL}/v1/auth/sso/start?org=${w.slug}` });
 });
 acct.put('/sso', async (c) => {
   need(c, 'members:admin');
@@ -447,7 +542,7 @@ acct.put('/sso', async (c) => {
   await discover(c.env, b.issuer);
   const taken = await admin`select 1 from workspaces where kind = 'org' and id <> ${ws} and sso->>'email_domain' = ${b.email_domain} and (sso->>'enabled')::boolean`;
   if (taken.length && b.enabled) throw new ApiError(409, 'domain_taken', `Another organization already uses single sign-on for ${b.email_domain}.`);
-  await admin`update workspaces set sso = ${JSON.stringify({ enabled: b.enabled, issuer: b.issuer.replace(/\/$/, ''), client_id: b.client_id, client_secret: secret, email_domain: b.email_domain, default_role: b.default_role, label: b.label ?? 'Company sign-in' })} where id = ${ws}`;
+  await admin`update workspaces set sso = ${JSON.stringify({ enabled: b.enabled, issuer: b.issuer.replace(/\/$/, ''), client_id: b.client_id, client_secret: secret, email_domain: b.email_domain, default_role: b.default_role, label: b.label ?? 'Company sign-in', group_claim: w.sso?.group_claim ?? 'groups', group_roles: w.sso?.group_roles ?? [] })} where id = ${ws}`;
   await audit(c.get('sql'), ws, c.get('actor'), 'sso.configured', ws, { issuer: b.issuer, email_domain: b.email_domain, enabled: b.enabled });
   return c.json({ saved: true });
 });

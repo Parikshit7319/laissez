@@ -6,16 +6,15 @@ import { url } from '../../lib/url';
 <Layout title="For distributors" description="Offer tokenized funds from any issuer to clients in any booking center, with one credential per client and a pre-trade answer in the order ticket." path="solutions/distributors/">
   <section class="page-hero">
     <div class="wrap">
-      <p class="eyebrow">For distributors</p>
       <h1>Offer every tokenized fund your clients qualify for.</h1>
       <p class="lede">Private banks, wealth platforms and licensed digital distributors use Laissez to sell tokenized funds from many issuers across booking centers, without onboarding the same client once per issuer and once per chain.</p>
-      <div class="hero-cta"><a class="btn brass" href={url('access/')}>Become a design partner</a><a class="btn" href={url('demo/')}>See the distributor console</a></div>
+      <div class="hero-cta"><a class="btn primary" href={url('app/')}>Try the sandbox</a><a class="arrow-link" href={url('demo/')}>See the distributor console</a></div>
     </div>
   </section>
 
   <section class="band light">
     <div class="wrap cols-2">
-      <div><p class="eyebrow">Today</p><h2>Every new fund is a new onboarding project.</h2></div>
+      <div><h2>Every new fund is a new onboarding project.</h2></div>
       <div>
         <p class="lede">A client who is already verified with you still has to be re-papered for each issuer’s transfer agent, whitelisted wallet by wallet on each chain, and checked by hand against each fund’s country list. Six issuers on three chains across five jurisdictions is ninety mappings kept current by people.</p>
         <ul class="ticks">
@@ -29,13 +28,16 @@ import { url } from '../../lib/url';
 
   <section class="band">
     <div class="wrap">
-      <div class="sec-head"><div><p class="eyebrow">With Laissez</p><h2>Verify once. Know before you place the order.</h2></div></div>
+      <div class="sec-head"><h2>Verify once. Know before you place the order.</h2></div>
       <div class="cols-3">
         <div class="item"><span class="k">Onboarding</span><h4>One credential per client</h4><p>Your KYC becomes a credential every issuer on the network accepts. New funds no longer mean new paperwork for the client.</p></div>
         <div class="item"><span class="k">Order ticket</span><h4>A pre-trade answer with the reason</h4><p>Before you commit, Laissez tells your desk whether the order is allowed, which rule binds and, if not, exactly what fixes it.</p></div>
         <div class="item"><span class="k">Booking centers</span><h4>Your licence, applied automatically</h4><p>A Singapore client booked in Hong Kong is tested against both rulebooks. You stop maintaining that logic in spreadsheets.</p></div>
         <div class="item"><span class="k">Settlement</span><h4>Cash and units in one step</h4><p>Your client pays in USDC, EURC or your own deposit token and receives units in the same transaction.</p></div>
         <div class="item"><span class="k">Lapses</span><h4>Clients are never trapped</h4><p>When a client’s status lapses, they move to redemption-only. They can always exit, so you never field a client locked into a position.</p></div>
+        <div class="item"><span class="k">Network</span><h4>Rely on another firm’s verification</h4><p>With the investor’s consent, you can rely on a credential another distributor issued and place orders the same day, without re-papering the client.</p></div>
+        <div class="item"><span class="k">Portal</span><h4>An investor page in your brand</h4><p>Your clients see their credential, read and acknowledge fund documents and submit subscription requests on a page carrying your name and colour.</p></div>
+        <div class="item"><span class="k">Travel Rule</span><h4>IVMS101 handled in the flow</h4><p>Transfers of 1,000 or more exchange originator and beneficiary data over TRP before settlement. The timeline sits next to the decision.</p></div>
         <div class="item"><span class="k">Audit</span><h4>Evidence for every order</h4><p>Each decision comes with a signed receipt your compliance team can produce for any regulator on request.</p></div>
       </div>
     </div>
@@ -43,12 +45,23 @@ import { url } from '../../lib/url';
 
   <section class="band raised">
     <div class="wrap cols-2">
-      <div><p class="eyebrow">Integration</p><h2>One integration instead of one per issuer.</h2><p class="lede">Connect your order management and onboarding systems once. Laissez handles each issuer’s registry, each chain and each rulebook behind a single API.</p></div>
+      <div><h2>One integration instead of one per issuer.</h2><p class="lede">Connect your order management and onboarding systems once. Laissez handles each issuer’s registry, each chain and each rulebook behind a single API.</p></div>
       <ol class="steps">
         <li><div><h4>Map your client classifications</h4><p>We translate your existing suitability and classification records into credentials.</p></div></li>
         <li><div><h4>Call the decisions API from the order ticket</h4><p>One request per order. Allowed orders return a settlement instruction.</p></div></li>
-        <li><div><h4>Settle through your custody setup</h4><p>Custodial or client-held wallets, your choice of cash asset.</p></div></li>
+        <li><div><h4>Settle through your custody setup</h4><p>Custodial or client-held wallets, your choice of cash asset. Both SDKs poll the settlement for you.</p></div></li>
       </ol>
     </div>
   </section>
+
+  <section class="band cta-band">
+    <div class="wrap">
+      <h2>Place the first order today.</h2>
+      <p class="lede">The sandbox comes with a Singapore family office, a Swiss pension fund, a Dubai holding company and more, each already verified. Place an order, read the decision, settle it.</p>
+      <div class="hero-cta"><a class="btn primary" href={url('app/')}>Try the sandbox</a><a class="arrow-link" href={url('access/')}>Become a design partner</a></div>
+    </div>
+  </section>
 </Layout>
+<style>
+  .cta-band .hero-cta { display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap; margin-top: 1.75rem; }
+</style>

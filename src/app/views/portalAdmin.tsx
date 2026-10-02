@@ -147,6 +147,11 @@ function EvidenceRow({ e, onChange }: { e: any; onChange: () => void }) {
     setBusy(status); setErr(null);
     try { setDone(await api(`/v1/evidence/${e.id}/review`, { body: { status, note: note || undefined } })); onChange(); } catch (x) { setErr(x); } finally { setBusy(null); }
   };
+  const [months, setMonths] = useState(12);
+  const acceptAndIssue = async () => {
+    setBusy('issue'); setErr(null);
+    try { setDone({ ...(await api(`/v1/evidence/${e.id}/accept-and-issue`, { body: { valid_months: months, note: note || undefined } })), status: 'accepted', issued: true }); onChange(); } catch (x) { setErr(x); } finally { setBusy(null); }
+  };
   const fieldLabel = (k: string) => e.fields?.find((f: any) => f.key === k);
   const fmt = (k: string, v: unknown) => {
     const f = fieldLabel(k);
@@ -175,9 +180,14 @@ function EvidenceRow({ e, onChange }: { e: any; onChange: () => void }) {
           <input class="grow" maxLength={500} value={note} onInput={(x) => setNote((x.target as HTMLInputElement).value)} placeholder="Note for the record (optional)" aria-label="Review note" />
           <Btn kind="primary" onClick={() => review('accepted')} busy={busy === 'accepted'} disabled={!!busy}>Accept</Btn>
           <Btn kind="danger" onClick={() => review('rejected')} busy={busy === 'rejected'} disabled={!!busy}>Reject</Btn>
+          <span class="row-inline tight" style={{ marginLeft: 'auto' }}>
+            <select value={months} onChange={(x) => setMonths(Number((x.target as HTMLSelectElement).value))} aria-label="Credential validity" disabled={!!busy}>{[6, 12, 18, 24].map((m) => <option value={m}>{m} months</option>)}</select>
+            <Btn kind="default" onClick={acceptAndIssue} busy={busy === 'issue'} disabled={!!busy || e.precheck?.pass === false} title={e.precheck?.pass === false ? 'The figures do not meet the threshold.' : `Accept and issue a credential with ${e.label} for ${months} months`}>Accept and issue credential</Btn>
+          </span>
         </div>
       ) : e.review_note ? <p class="small muted" style={{ marginTop: '0.5rem' }}>Note: {e.review_note}{e.reviewed_by ? ` (${e.reviewed_by})` : ''}</p> : null}
-      {done?.next ? <p class="verdict-line ok">Accepted. Figures alone do not change eligibility: <a href={`#${done.next.path}`}>{done.next.label}</a>.</p> : null}
+      {done?.issued ? <p class="verdict-line ok">Accepted and issued credential <a href={`#/clients/${e.investor_id}`}><code>{done.credential_id}</code></a>, valid to {done.expires_on}{done.carried_classes?.length ? `, keeping ${done.carried_classes.join(', ')}` : ''}.</p>
+        : done?.next ? <p class="verdict-line ok">Accepted. Figures alone do not change eligibility: <a href={`#${done.next.path}`}>{done.next.label}</a>.</p> : null}
       <ErrorBox error={err} />
     </section>
   );
