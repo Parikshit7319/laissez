@@ -1,6 +1,12 @@
 // Thin client for the Laissez API. Credentials live in this browser only.
 // The session token is the primary credential. The sandbox API key is kept for the API explorer.
-export const API_BASE = 'https://laissez-api.laissez.workers.dev';
+/** API base: build-time PUBLIC_API_BASE (local dev), else a per-browser override in localStorage 'laissez-api-base', else the live API. */
+export const API_BASE: string = (() => {
+  const env = (import.meta as any).env?.PUBLIC_API_BASE as string | undefined;
+  if (env) return env.replace(/\/$/, '');
+  try { const o = localStorage.getItem('laissez-api-base'); if (o) return o.replace(/\/$/, ''); } catch { /* storage unavailable */ }
+  return 'https://laissez-api.laissez.workers.dev';
+})();
 export const API_VERSION = '2026-10-02';
 const SESSION = 'laissez-session';
 const KEY = 'laissez-sandbox-key';

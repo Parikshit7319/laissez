@@ -7,12 +7,5 @@ dist-preview/
 .DS_Store
 _to_delete/
 PLAN.md
-api/chain/.e2e/
-api/chain/.hardhat-cache/
-api/chain/.hardhat-artifacts/
-api/chain/deployment.local.json
-__pycache__/
-sdk/python/*.egg-info/
-tests/e2e/node_modules/
-test-results/
-playwright-report/
+api/.dev.local.vars
+api/.local/

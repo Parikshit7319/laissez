@@ -1,0 +1,15 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Run everything locally (db, api, site)", "type": "npm", "script": "dev:all", "isBackground": true, "problemMatcher": [], "group": { "kind": "build", "isDefault": true } },
+    { "label": "Local database only", "type": "npm", "script": "db:local", "isBackground": true, "problemMatcher": [] },
+    { "label": "Local API only", "type": "npm", "script": "api:local", "isBackground": true, "problemMatcher": [] },
+    { "label": "Site only (against the live API)", "type": "npm", "script": "dev", "isBackground": true, "problemMatcher": [] },
+    { "label": "Run all tests", "type": "npm", "script": "test:all", "group": { "kind": "test", "isDefault": true }, "problemMatcher": [] },
+    { "label": "API typecheck", "type": "shell", "command": "npx tsc --noEmit", "options": { "cwd": "${workspaceFolder}/api" }, "problemMatcher": ["$tsc"] },
+    { "label": "Live API smoke test", "type": "npm", "script": "test:api", "problemMatcher": [] },
+    { "label": "Deploy API to Cloudflare", "type": "shell", "command": "npx wrangler deploy", "options": { "cwd": "${workspaceFolder}/api" }, "problemMatcher": [] },
+    { "label": "Apply a migration to Neon", "type": "shell", "command": "node db/migrate.mjs ${input:migration}", "options": { "cwd": "${workspaceFolder}/api" }, "problemMatcher": [] }
+  ],
+  "inputs": [ { "id": "migration", "type": "promptString", "description": "Migration file, for example db/migrate-012-leads.sql" } ]
+}

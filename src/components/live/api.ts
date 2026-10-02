@@ -2,7 +2,7 @@
 // Source of truth: api/src/routes/platform.ts (GET /v1/status, GET /v1/metrics/public) and
 // api/src/routes/core.ts (GET /v1/rule-packs).
 
-export const API_BASE = 'https://laissez-api.laissez.workers.dev';
+export const API_BASE: string = ((import.meta as any).env?.PUBLIC_API_BASE as string | undefined)?.replace(/\/$/, '') || 'https://laissez-api.laissez.workers.dev';
 export const API_HOST = 'laissez-api.laissez.workers.dev';
 
 export type ComponentStatus = 'operational' | 'degraded' | 'unknown';

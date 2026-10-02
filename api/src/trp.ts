@@ -71,7 +71,7 @@ export async function encodeTravelAddress(uri: string): Promise<string> {
 export class TravelAddressError extends Error {}
 
 /** Decodes a Travel Address into its raw URI and the https URL to post the inquiry to. */
-export async function decodeTravelAddress(ta: string): Promise<{ raw: string; url: string }> {
+export async function decodeTravelAddress(ta: string, env?: Env): Promise<{ raw: string; url: string }> {
   if (!ta.startsWith('ta')) throw new TravelAddressError('A Travel Address starts with "ta".');
   const bytes = b58decode(ta.slice(2));
   if (!bytes || bytes.length < 5) throw new TravelAddressError('This Travel Address is not valid Base58Check.');
@@ -81,7 +81,10 @@ export async function decodeTravelAddress(ta: string): Promise<{ raw: string; ur
   const raw = new TextDecoder().decode(body);
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) throw new TravelAddressError('A Travel Address must not include a URI scheme.');
   if (new URLSearchParams(raw.split('?')[1] ?? '').get('t') !== 'i') throw new TravelAddressError('A Travel Address must carry the t=i parameter.');
-  return { raw, url: `https://${raw}` };
+  // The spec implies https. A local API (http://127.0.0.1:8787) is the one exception, so the sandbox works offline.
+  const apiHost = env?.API_URL?.replace(/^https?:\/\//, '');
+  const scheme = apiHost && raw.startsWith(apiHost) && env!.API_URL.startsWith('http://') ? 'http' : 'https';
+  return { raw, url: `${scheme}://${raw}` };
 }
 
 /** The TRP endpoint for one beneficiary account at Laissez. Each organization's booking center acts as its own VASP. */

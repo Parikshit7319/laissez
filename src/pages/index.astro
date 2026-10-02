@@ -8,7 +8,7 @@ import { RULE_PACKS, NEW_JURISDICTIONS } from '../proto/rulepacks';
 import { url } from '../lib/url';
 import '../styles/proto.css';
 
-const API = 'https://laissez-api.laissez.workers.dev';
+const API = import.meta.env.PUBLIC_API_BASE?.replace(/\/$/, '') || 'https://laissez-api.laissez.workers.dev';
 const jurName: Record<string, string> = { ...baseJurName };
 for (const j of NEW_JURISDICTIONS) jurName[j.code] = j.name;
 // Active eligibility packs, one row per jurisdiction, newest version wins.

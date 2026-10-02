@@ -1,0 +1,10 @@
+{
+  "editor.formatOnSave": false,
+  "editor.tabSize": 2,
+  "files.exclude": { "**/.astro": true, "**/dist": true, "**/node_modules": true, "api/.local": true },
+  "search.exclude": { "**/node_modules": true, "**/dist": true, "**/.astro": true, "api/chain/artifacts.json": true },
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.preferences.importModuleSpecifier": "relative",
+  "files.associations": { "*.astro": "astro", ".dev.vars": "properties", ".dev.local.vars": "properties" },
+  "[astro]": { "editor.defaultFormatter": "astro-build.astro-vscode" }
+}

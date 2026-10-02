@@ -175,6 +175,9 @@ async function dailyCleanup(env: Env) {
   catch (e) { console.error('work digest failed', e); }
 }
 
+export { app, dailyCleanup, uptimeChecks };
+export { setDriver, pgDriver } from './db';
+
 export default {
   fetch(req: Request, env: Env, ctx: ExecutionContext) {
     setSelfFetch((r) => Promise.resolve(app.fetch(r, env, ctx)));

@@ -75,7 +75,7 @@ async function sendInquiry(c: C, msgId: string, travelAddress: string, rid: stri
   const sql = c.get('sql'); const ws = c.get('ws');
   let res: TrpResult;
   try {
-    const { url } = await decodeTravelAddress(travelAddress);
+    const { url } = await decodeTravelAddress(travelAddress, c.env);
     res = await trpPost(c.env, url, rid, inquiry, [TRP_EXTENSION]);
   } catch (e: any) {
     res = { status: 0, body: null, error: e?.message ?? 'Could not decode the Travel Address' };

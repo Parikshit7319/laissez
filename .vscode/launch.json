@@ -1,0 +1,8 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    { "name": "Debug local API", "type": "node", "request": "launch", "program": "${workspaceFolder}/api/server.mjs", "cwd": "${workspaceFolder}", "console": "integratedTerminal", "skipFiles": ["<node_internals>/**"] },
+    { "name": "Debug engine tests", "type": "node", "request": "launch", "runtimeExecutable": "npm", "runtimeArgs": ["test"], "cwd": "${workspaceFolder}", "console": "integratedTerminal" },
+    { "name": "Debug smoke test against local API", "type": "node", "request": "launch", "program": "${workspaceFolder}/api/test/smoke.mjs", "args": ["http://127.0.0.1:8787"], "cwd": "${workspaceFolder}", "console": "integratedTerminal" }
+  ]
+}

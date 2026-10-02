@@ -1,0 +1,13 @@
+{
+  "recommendations": [
+    "astro-build.astro-vscode",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss",
+    "NomicFoundation.hardhat-solidity",
+    "ms-python.python",
+    "ckolkman.vscode-postgres",
+    "anthropic.claude-code",
+    "humao.rest-client"
+  ]
+}

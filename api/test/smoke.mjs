@@ -5,8 +5,8 @@
 import { webcrypto as wc, createHash, generateKeyPairSync, sign as nodeSign } from 'node:crypto';
 
 const BASE = process.argv[2] ?? 'https://laissez-api.laissez.workers.dev';
-const ORIGIN = 'https://parikshit7319.github.io';
-const RP_ID = 'parikshit7319.github.io';
+const ORIGIN = process.env.SMOKE_ORIGIN ?? (process.argv[2]?.includes('127.0.0.1') || process.argv[2]?.includes('localhost') ? 'http://localhost:4321' : 'https://parikshit7319.github.io');
+const RP_ID = new URL(ORIGIN).hostname;
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`ok   ${name}`); } else { fail++; console.log(`FAIL ${name} ${extra}`); } };
 const b64u = (b) => Buffer.from(b).toString('base64url');

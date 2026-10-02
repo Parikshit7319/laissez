@@ -1,7 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import { url } from '../lib/url';
-const API = 'https://laissez-api.laissez.workers.dev';
+const API = import.meta.env.PUBLIC_API_BASE?.replace(/\/$/, '') || 'https://laissez-api.laissez.workers.dev';
 ---
 <Layout title="Request access" description="Apply to the Laissez design partner program: production access for distributors and issuers with tokenized funds in market or in build." path="access/">
   <section class="page-hero">

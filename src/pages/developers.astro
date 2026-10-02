@@ -3,7 +3,7 @@ import Layout from '../layouts/Layout.astro';
 import { url } from '../lib/url';
 import { OPENAPI } from '../../api/src/openapi';
 
-const API = 'https://laissez-api.laissez.workers.dev';
+const API = import.meta.env.PUBLIC_API_BASE?.replace(/\/$/, '') || 'https://laissez-api.laissez.workers.dev';
 const opCount = Object.values(OPENAPI.paths as Record<string, Record<string, unknown>>).reduce((n, item) => n + Object.keys(item).filter((k) => k !== 'parameters').length, 0);
 const events = Object.entries(OPENAPI.webhooks as Record<string, { post: { description: string } }>).map(([name, w]) => [name, w.post.description] as const);
 const tags = (OPENAPI.tags as { name: string; description: string }[]);
