@@ -63,3 +63,13 @@ begin
   end if;
 end $$
 -- ;
+-- ;
+-- The settlements list joins the latest chain job per settlement, so the tenant role needs to read chain_jobs.
+-- Rows are tied to a settlement the tenant can already see, and the policy below keeps it that way.
+grant select on chain_jobs to laissez_rt
+-- ;
+alter table chain_jobs enable row level security
+-- ;
+drop policy if exists tenant on chain_jobs
+-- ;
+create policy tenant on chain_jobs using (workspace_id = app_ws() or workspace_id is null)
