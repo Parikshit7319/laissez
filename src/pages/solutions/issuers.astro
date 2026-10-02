@@ -1,0 +1,38 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Cite from '../../components/Cite.astro';
+import { url } from '../../lib/url';
+---
+<Layout title="For issuers" description="Reach verified investors across borders without rebuilding onboarding, and preview the effect of every distribution policy change before you publish it." path="solutions/issuers/">
+  <section class="page-hero">
+    <div class="wrap">
+      <p class="eyebrow">For issuers</p>
+      <h1>Your fund is tokenized. Now let it reach investors abroad.</h1>
+      <p class="lede">Asset managers and fund administrators use Laissez to open a tokenized fund to distributors in new jurisdictions. Your token, registry, transfer agent and chain stay exactly as they are.</p>
+      <div class="hero-cta"><a class="btn brass" href={url('access/')}>Talk to us</a><a class="btn" href={url('demo/')}>See the issuer view</a></div>
+    </div>
+  </section>
+
+  <section class="band light">
+    <div class="wrap cols-2">
+      <div><p class="eyebrow">The constraint</p><h2>Issuance scaled. Reach did not.</h2></div>
+      <div>
+        <p class="lede">Tokenized U.S. Treasury funds hold $14.69B across 108 products.<Cite id="rwa-treasuries" /> Yet the largest have only dozens to low hundreds of holders: 104 for BUIDL and 46 for iBENJI.<Cite id={['rwa-buidl', 'rwa-ibenji']} /> High minimums explain part of that. The rest is distribution: every new country and every new distributor means new eligibility work.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="sec-head"><div><p class="eyebrow">With Laissez</p><h2>Set the policy once. Laissez enforces it everywhere the fund is sold.</h2></div></div>
+      <div class="cols-3">
+        <div class="item"><span class="k">Reach</span><h4>Investors already verified</h4><p>Every distributor on the network brings credentialed investors. Opening a jurisdiction opens it to all of them on day one.</p></div>
+        <div class="item"><span class="k">Control</span><h4>Your distribution policy, machine-enforced</h4><p>Choose jurisdictions, investor classes, minimums, holder caps, lock-ups and accepted cash assets. Laissez checks them on every subscription and transfer.</p></div>
+        <div class="item"><span class="k">Change</span><h4>Impact before you publish</h4><p>Remove a jurisdiction and see how many holders and how much value move to redemption-only before the change goes live. Nobody is force-redeemed.</p></div>
+        <div class="item"><span class="k">Stack</span><h4>Nothing to replace</h4><p>Add Laissez as a trusted claim issuer in your ERC-3643 identity registry. Your transfer agent remains the register of record.</p></div>
+        <div class="item"><span class="k">Governance</span><h4>Two keys on every change</h4><p>Policy changes require a second approver. Rule packs change only with counsel sign-off.</p></div>
+        <div class="item"><span class="k">Cost</span><h4>Free for issuers in the pilot</h4><p>Distributors pay for the platform. Issuers integrate at no charge so more funds reach more investors.</p></div>
+      </div>
+    </div>
+  </section>
+</Layout>

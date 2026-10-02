@@ -1,0 +1,40 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { url } from '../lib/url';
+---
+<Layout title="Trust" description="How Laissez handles personal data, rule governance, keys, failure modes and audit evidence." path="trust/">
+  <section class="page-hero">
+    <div class="wrap">
+      <p class="eyebrow">Trust and security</p>
+      <h1>A compliance product has to be the most careful system in the room.</h1>
+      <p class="lede">These are the design commitments Laissez is built on. We are pre-launch, so where something is planned rather than done, this page says so.</p>
+    </div>
+  </section>
+  <section class="band">
+    <div class="wrap cols-2">
+      <div class="item"><span class="k">Personal data</span><h4>Identity stays with the institution that verified it</h4><p>Credentials hold classifications, evidence references and hashes. Documents and personal details remain in the distributor’s systems. The chain sees an outcome, an input hash and rule-pack versions.</p></div>
+      <div class="item"><span class="k">Rule governance</span><h4>No rule binds an order without counsel</h4><p>A regulatory change agent drafts rule-pack diffs from regulator publications, with citations. Counsel reviews and approves each one. Proposals stay inactive until they become law.</p></div>
+      <div class="item"><span class="k">Failure modes</span><h4>Fail closed in, never block the exit</h4><p>If a check cannot complete, subscriptions and inbound transfers do not settle. Redemptions remain available through any outage, subject only to sanctions.</p></div>
+      <div class="item"><span class="k">Change control</span><h4>Two people on every policy change</h4><p>Issuer policy changes and rule-pack releases require a second approver and show their effect on existing holders before release.</p></div>
+      <div class="item"><span class="k">Keys</span><h4>Decision signing keys isolated from operators</h4><p>Resolver signing keys will live in hardware security modules with role separation. Planned for production launch.</p></div>
+      <div class="item"><span class="k">Audit</span><h4>Evidence that survives the vendor</h4><p>Receipts are verifiable from the inputs and the on-chain hash, so a regulator can check a decision years later without relying on Laissez’s word.</p></div>
+    </div>
+  </section>
+  <section class="band light">
+    <div class="wrap cols-2">
+      <div><p class="eyebrow">Roadmap</p><h2>Assurance, in the order we will earn it.</h2></div>
+      <div class="table-wrap">
+        <table class="grid"><thead><tr><th>Milestone</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>Counsel review of launch rule packs</td><td>With design partners</td></tr>
+            <tr><td>Independent penetration test</td><td>Before production access</td></tr>
+            <tr><td>SOC 2 Type I</td><td>Planned</td></tr>
+            <tr><td>SOC 2 Type II</td><td>Planned, 12 months after Type I</td></tr>
+          </tbody>
+        </table>
+        <p class="fine" style="margin-top:1.25rem">Report a security concern: <span class="sel">parikshit.ambhore@rice.edu</span></p>
+      </div>
+    </div>
+  </section>
+</Layout>
+<style>.sel { user-select: all; color: var(--ink); font-weight: 500; }</style>

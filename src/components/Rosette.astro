@@ -1,0 +1,9 @@
+---
+import { rosette } from '../lib/guilloche';
+interface Props { size?: number; layers?: number; seed?: number; class?: string; stroke?: string; width?: number; label?: string }
+const { size = 64, layers = 4, seed = 0, class: cls = '', stroke = 'currentColor', width = 0.6, label } = Astro.props;
+const paths = rosette(size, layers, seed);
+---
+<svg class={cls} viewBox={`0 0 ${size} ${size}`} width={size} height={size} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : 'true'} fill="none" stroke={stroke} stroke-width={width}>
+  {paths.map((d) => <path d={d} vector-effect="non-scaling-stroke" />)}
+</svg>

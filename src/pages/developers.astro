@@ -1,0 +1,100 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { url } from '../lib/url';
+const endpoints = [
+  ['POST', '/v1/credentials', 'Issue or renew an eligibility credential from your KYC record'],
+  ['GET', '/v1/credentials/{id}', 'Read a credential, its classifications and expiry'],
+  ['POST', '/v1/decisions', 'Evaluate a subscription, transfer or redemption before execution'],
+  ['GET', '/v1/decisions/{id}', 'Fetch a decision with its full rule trace'],
+  ['POST', '/v1/settlements', 'Execute an allowed decision as an atomic swap'],
+  ['GET', '/v1/funds/{ticker}/policy', 'Read an issuer’s current distribution policy'],
+  ['POST', '/v1/funds/{ticker}/policy/preview', 'Preview the effect of a policy change on existing holders'],
+  ['GET', '/v1/rule-packs', 'List rule packs and versions in force'],
+];
+const events = [
+  ['decision.created', 'A pre-trade decision was evaluated'],
+  ['settlement.completed', 'Both legs settled in one transaction'],
+  ['settlement.reverted', 'A leg failed and both legs reverted'],
+  ['credential.expiring', 'A classification expires within 30 days'],
+  ['holder.status_changed', 'A holder moved to redemption-only or frozen'],
+  ['rule_pack.released', 'Counsel approved a new rule-pack version'],
+];
+---
+<Layout title="Developers" description="The Laissez API: credentials, pre-trade decisions, atomic settlement, policy previews and webhooks." path="developers/">
+  <section class="page-hero">
+    <div class="wrap">
+      <p class="eyebrow">Developers</p>
+      <h1>Compliance as one API call before every order.</h1>
+      <p class="lede">REST with JSON, idempotency keys on every write and signed webhooks. Sandbox access comes with the design partner program. The reference below is the planned v1 surface.</p>
+    </div>
+  </section>
+
+  <section class="band" id="decisions">
+    <div class="wrap cols-2">
+      <div>
+        <p class="eyebrow">Decisions API</p>
+        <h2>Ask before you trade.</h2>
+        <p class="lede">A decision evaluates the credential, the fund policy, residence law, the booking licence and global screens. It returns the outcome, the binding rules and, when allowed, a settlement instruction that expires after five minutes.</p>
+        <ul class="ticks"><li>Deterministic: the same inputs return the same decision</li><li>Every refusal includes machine-readable remedies</li><li>Redemptions bypass eligibility but never sanctions</li></ul>
+      </div>
+<pre class="codeblock"><code><span class="c">// TypeScript</span>
+<span class="k">const</span> decision = <span class="k">await</span> laissez.decisions.create(&#123;
+  action: <span class="s">'transfer'</span>,
+  credential: <span class="s">'LP-SG-0419-2207'</span>,
+  counterparty: <span class="s">'LP-AE-0077-5512'</span>,
+  fund: <span class="s">'TWLF'</span>,
+  amount: <span class="s">'500000.00'</span>,
+  settleWith: <span class="s">'USDC'</span>,
+&#125;, &#123; idempotencyKey: order.id &#125;);
+
+<span class="k">if</span> (decision.outcome === <span class="s">'allow'</span>) &#123;
+  <span class="k">await</span> laissez.settlements.create(&#123; decision: decision.id &#125;);
+&#125; <span class="k">else</span> &#123;
+  showRemedies(decision.remedies);
+  <span class="c">// e.g. "Ask the issuer to add UAE (DIFC) to the distribution list."</span>
+&#125;</code></pre>
+    </div>
+  </section>
+
+  <section class="band light">
+    <div class="wrap">
+      <div class="sec-head"><div><p class="eyebrow">Reference</p><h2>Endpoints</h2></div></div>
+      <div class="table-wrap">
+        <table class="grid ep"><thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead>
+          <tbody>{endpoints.map(([m, p, d]) => <tr><td><span class={`m ${m.toLowerCase()}`}>{m}</span></td><td><code>{p}</code></td><td>{d}</td></tr>)}</tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="webhooks">
+    <div class="wrap cols-2">
+      <div><p class="eyebrow">Webhooks</p><h2>Signed events for everything that changes.</h2><p class="lede">Each event is signed with your endpoint secret and retried with exponential backoff for 72 hours.</p></div>
+      <div class="table-wrap">
+        <table class="grid"><thead><tr><th>Event</th><th>When</th></tr></thead>
+          <tbody>{events.map(([e, d]) => <tr><td><code class="ev">{e}</code></td><td class="muted">{d}</td></tr>)}</tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="band raised">
+    <div class="wrap cols-2">
+      <div><p class="eyebrow">Getting started</p><h2>From sandbox to first settlement.</h2></div>
+      <ol class="steps">
+        <li><div><h4>Join the design partner program</h4><p>We issue sandbox keys and a test fund with fictional investors across six jurisdictions.</p></div></li>
+        <li><div><h4>Issue credentials from your KYC records</h4><p>Map your classifications once; the sandbox validates them against each rule pack.</p></div></li>
+        <li><div><h4>Call decisions from your order flow</h4><p>Start in shadow mode: log Laissez’s answer next to your current process before you rely on it.</p></div></li>
+        <li><div><h4>Settle on testnet, then mainnet</h4><p>Production access opens corridor by corridor, with counsel-approved rule packs.</p></div></li>
+      </ol>
+    </div>
+  </section>
+</Layout>
+<style>
+  .ep code, .ev { font-size: 0.86rem; }
+  .band.light code { color: var(--ink); }
+  .m { font: 600 0.72rem var(--f-mono); padding: 0.2rem 0.5rem; border-radius: 6px; }
+  .m.post { color: #6d5222; background: rgba(201, 169, 110, 0.18); }
+  .m.get { color: #0e6a50; background: rgba(14, 122, 91, 0.1); }
+  .ev { color: var(--brass-2); }
+</style>

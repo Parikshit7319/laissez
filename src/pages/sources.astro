@@ -1,0 +1,45 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { sources } from '../data/sources';
+const groups = [...new Set(sources.map((s) => s.group))];
+---
+<Layout title="Sources" description="Every figure and rule cited on the Laissez site, with dates and what each source supports." path="sources/">
+  <section class="page-hero"><div class="wrap">
+    <p class="eyebrow">Data sources</p>
+    <h1>Every number on this site, and where it comes from.</h1>
+    <p class="lede">Market data was read on October 1, 2026. Live dashboards move daily. Where sources disagree or use different methods, the note says so.</p>
+  </div></section>
+  <div class="wrap src-wrap">
+    {groups.map((g) => (
+      <section class="src-group">
+        <h2>{g}</h2>
+        <ol class="src-list">
+          {sources.map((s, i) => s.group === g ? (
+            <li id={s.id}>
+              <span class="n">{i + 1}</span>
+              <div>
+                <a href={s.url} target="_blank" rel="noopener">{s.title}</a>
+                <p class="meta">{s.publisher}. {s.date}.</p>
+                <p class="sup">{s.supports}</p>
+                {s.caution ? <p class="caution">Note: {s.caution}</p> : null}
+              </div>
+            </li>
+          ) : null)}
+        </ol>
+      </section>
+    ))}
+  </div>
+</Layout>
+<style>
+  .src-group h2 { margin-top: 3rem; }
+  .src-list { list-style: none; padding: 0; margin: 0; }
+  .src-wrap { padding-bottom: 4rem; max-width: 56rem; }
+  .src-list li { display: grid; grid-template-columns: 2.5rem 1fr; gap: 0.75rem; padding: 1rem 0; border-bottom: 1px solid var(--hair); scroll-margin-top: 6rem; }
+  .src-list li:target { background: var(--brass-wash); }
+  .n { font-weight: 600; color: var(--brass); font-variant-numeric: tabular-nums; }
+  .src-list a { font-weight: 500; font-size: 1.02rem; color: var(--text); text-decoration-color: var(--hair-2); text-underline-offset: 0.2em; }
+  .meta { margin: 0.2rem 0 0; font-size: 0.875rem; color: var(--text-3); }
+  .sup { margin: 0.35rem 0 0; font-size: 0.97rem; line-height: 1.55; color: var(--text-2); }
+  .caution { margin: 0.35rem 0 0; font-size: 0.875rem; color: var(--brass-2); }
+  .src-group h2 { font-size: 1.8rem; }
+</style>

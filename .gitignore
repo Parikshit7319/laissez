@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-preview/
+.astro/
+.DS_Store
+_to_delete/
+PLAN.md

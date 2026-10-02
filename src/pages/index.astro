@@ -1,0 +1,333 @@
+---
+import Layout from '../layouts/Layout.astro';
+import WorldMap from '../components/WorldMap.astro';
+import Cite from '../components/Cite.astro';
+import { Credential } from '../proto/Credential';
+import { investors } from '../proto/data';
+import { url } from '../lib/url';
+import '../styles/proto.css';
+
+const coverage = [
+  { j: 'Singapore', c: 'Accredited investor with opt-in; institutional investor', t: 'Corporations with net assets over S$10M', r: 'SFA s4A, s305', s: 'Launch set' },
+  { j: 'Hong Kong', c: 'Professional investor', t: 'Portfolio of HK$8M; corporations HK$8M portfolio or HK$40M assets', r: 'Cap. 571D', s: 'Launch set' },
+  { j: 'Switzerland', c: 'Professional client', t: 'Pension schemes with professional treasury; companies meeting 2 of 3 size tests', r: 'FinSA Art. 4', s: 'Launch set' },
+  { j: 'European Union', c: 'Professional client; retail for registered UCITS', t: '2 of 3: EUR 20M balance sheet, EUR 40M turnover, EUR 2M own funds', r: 'MiFID II Annex II', s: 'Launch set' },
+  { j: 'UAE (DIFC)', c: 'Professional client', t: 'Assessed undertakings with own funds of US$1M', r: 'DFSA COB 2.3', s: 'Launch set' },
+  { j: 'United States', c: 'Accredited investor; qualified purchaser', t: 'Net worth over $1M excluding residence; $5M in investments', r: 'Reg D 501(a); ICA 2(a)(51)', s: 'Launch set' },
+  { j: 'United Kingdom', c: 'Professional client', t: 'Proposed £10M investable-assets route, under consultation', r: 'FCA CP25/36', s: 'Drafting' },
+];
+---
+<Layout title="Laissez" description="Laissez lets distributors offer tokenized funds from any issuer to investors in any jurisdiction: one credential per investor, every rule resolved before a token moves, atomic settlement." path="">
+  <!-- Hero -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow reveal">Now onboarding design partners</p>
+        <h1 class="display reveal d1">Tokenized funds, cleared to cross borders.</h1>
+        <p class="lede reveal d2">Laissez lets distributors offer tokenized funds from any issuer to investors in any jurisdiction. Each investor is verified once. Every rule that applies is resolved before a token moves. Cash and fund units settle in one atomic step.</p>
+        <div class="hero-cta reveal d3">
+          <a class="btn brass" href={url('access/')}>Become a design partner</a>
+          <a class="btn" href={url('demo/')}>Try the live demo</a>
+        </div>
+      </div>
+      <div class="hero-map reveal d3"><WorldMap /></div>
+    </div>
+    <div class="wrap works-with">
+      <span>Designed to work with</span>
+      <ul>
+        <li>ERC-3643 identity registries</li>
+        <li>USDC, EURC and tokenized deposits</li>
+        <li>IVMS101 Travel Rule messaging</li>
+        <li>Ethereum and Base</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- The gap -->
+  <section class="band light">
+    <div class="wrap gap">
+      <div>
+        <p class="eyebrow">The distribution gap</p>
+        <h2>Tokenizing a fund is solved. Selling it across borders still takes a legal review in every country.</h2>
+      </div>
+      <div class="facts">
+        <div class="fact"><span class="fig">$14.69B</span><p>sits in 108 tokenized U.S. Treasury funds, up from $0.85B at the end of 2023.<Cite id={['rwa-treasuries', 'coingecko-2023']} /></p></div>
+        <div class="fact"><span class="fig">104</span><p>holders own BlackRock’s $2.25B BUIDL fund. Issuance scaled. Reach did not.<Cite id="rwa-buidl" /></p></div>
+        <div class="fact"><span class="fig">48%</span><p>of what EU fund investors pay goes to distribution, not management.<Cite id="esma-costs" /></p></div>
+        <div class="fact"><span class="fig">143,617</span><p>separate registrations keep 14,769 funds sellable across borders today.<Cite id="pwc-gfd" /></p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Platform -->
+  <section class="band">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><p class="eyebrow">The platform</p><h2>One layer between every issuer, every distributor and every rulebook.</h2></div>
+        <p class="lede">Issuers keep their token, their registry and their transfer agent. Distributors keep their clients and their KYC. Laissez resolves the rules between them and settles the trade.</p>
+      </div>
+
+      <div class="feature">
+        <div class="f-copy">
+          <span class="f-n">Verify once</span>
+          <h3>A credential that travels with the investor</h3>
+          <p class="muted">The distributor verifies the client one time. Laissez issues a credential recording their legal classification in each jurisdiction, the evidence behind it and when it expires. Issuers accept it as a trusted claim in the registry they already run.</p>
+          <ul class="ticks"><li>Classifications per jurisdiction, each with its legal citation</li><li>Personal data stays with the distributor</li><li>Expiry and re-verification built in</li></ul>
+        </div>
+        <div class="f-visual app"><Credential inv={investors.lumen} /></div>
+      </div>
+
+      <div class="feature rev" id="resolver">
+        <div class="f-copy">
+          <span class="f-n">Resolve the rules</span>
+          <h3>Every rule that applies, checked before a token moves</h3>
+          <p class="muted">For each subscription, transfer or redemption, Laissez evaluates the issuer’s policy, the investor’s home law, the booking center’s licence and global sanctions screens. Where two rulebooks overlap, the stricter one binds, and the decision says which.</p>
+          <ul class="ticks"><li>Most-restrictive-wins precedence, made explicit</li><li>A reason and a fix for every refusal</li><li>Redemption stays open when eligibility lapses</li></ul>
+        </div>
+        <div class="f-visual">
+          <div class="trace-card">
+            <div class="tc-head"><span>Decision</span><code>dec_8f3a1c27b9e0</code></div>
+            <ol>
+              <li><i class="ok"></i><span><b>Credential</b>LP-SG-0419-2207, valid to 14 Mar 2027</span></li>
+              <li><i class="ok"></i><span><b>Fund policy</b>TWLF offered in Singapore as a restricted scheme</span></li>
+              <li><i class="ok"></i><span><b>Residence law</b>Singapore accredited investor with opt-in</span><em>Binding</em></li>
+              <li><i class="ok"></i><span><b>Booking licence</b>Hong Kong professional investor</span><em>Binding</em></li>
+              <li><i class="ok"></i><span><b>Global screens</b>No sanctions match; USDC accepted</span></li>
+            </ol>
+            <div class="tc-foot"><span class="pill-ok">Admitted</span>8 of 8 checks passed. 2 rules bind.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature" id="settlement">
+        <div class="f-copy">
+          <span class="f-n">Settle atomically</span>
+          <h3>Both legs move together, or neither moves</h3>
+          <p class="muted">Fund units and the cash leg, in stablecoins or bank tokenized deposits, swap in a single transaction. No principal risk, no reconciliation between a payment system and a register, no cut-off time.</p>
+          <ul class="ticks"><li>USDC, EURC and tokenized deposits</li><li>Delivery versus payment on the issuer’s chain</li><li>Available 24 hours a day</li></ul>
+        </div>
+        <div class="f-visual">
+          <svg class="dvp" viewBox="0 0 520 300" role="img" aria-label="Delivery versus payment: fund units move from the fund to the investor while USDC moves from the investor to the fund, inside one settlement transaction">
+            <rect x="170" y="70" width="180" height="160" rx="18" class="dvp-core" />
+            <text x="260" y="128" text-anchor="middle" class="dvp-t">One transaction</text>
+            <text x="260" y="152" text-anchor="middle" class="dvp-s">both legs or neither</text>
+            <text x="260" y="186" text-anchor="middle" class="dvp-s">signed decision attached</text>
+            <rect x="12" y="110" width="120" height="80" rx="14" class="dvp-node" /><text x="72" y="146" text-anchor="middle" class="dvp-t">Fund</text><text x="72" y="168" text-anchor="middle" class="dvp-s">TWLF units</text>
+            <rect x="388" y="110" width="120" height="80" rx="14" class="dvp-node" /><text x="448" y="146" text-anchor="middle" class="dvp-t">Investor</text><text x="448" y="168" text-anchor="middle" class="dvp-s">USDC</text>
+            <path d="M132 135 C150 135 150 110 170 110" class="dvp-leg a" /><path d="M350 110 C370 110 370 135 388 135" class="dvp-leg a" />
+            <path d="M388 165 C370 165 370 190 350 190" class="dvp-leg b" /><path d="M170 190 C150 190 150 165 132 165" class="dvp-leg b" />
+            <text x="260" y="52" text-anchor="middle" class="dvp-s">2,000,000 TWLF to investor</text>
+            <text x="260" y="262" text-anchor="middle" class="dvp-s">2,000,000 USDC to fund</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="feature rev">
+        <div class="f-copy">
+          <span class="f-n">Prove it</span>
+          <h3>An evidence trail an auditor can verify years later</h3>
+          <p class="muted">Every decision produces a signed receipt: the outcome, the rule-pack versions that applied and a hash of the inputs. Only the hash goes on-chain. Anyone holding the inputs can prove what was checked, without exposing who was checked.</p>
+          <ul class="ticks"><li>Versioned, lawyer-reviewed rule packs</li><li>No personal data on-chain</li><li>Exportable for regulators</li></ul>
+        </div>
+        <div class="f-visual">
+<pre class="code"><code><span class="k">"decision_id"</span>: <span class="s">"dec_8f3a1c27b9e0"</span>,
+<span class="k">"outcome"</span>: <span class="s">"ALLOW"</span>,
+<span class="k">"binding_rules"</span>: [
+  <span class="s">"SG accredited investor with opt-in (SFA s305)"</span>,
+  <span class="s">"HK professional investor (Cap. 571D)"</span>
+],
+<span class="k">"rule_packs"</span>: [
+  <span class="s">"fund/TWLF@2026.09.1"</span>,
+  <span class="s">"SG/eligibility@2026.09.0"</span>,
+  <span class="s">"HK/eligibility@2026.04.2"</span>
+],
+<span class="k">"inputs_sha256"</span>: <span class="s">"8f3a1c27b9e0…"</span>,
+<span class="k">"on_chain"</span>: [<span class="s">"outcome"</span>, <span class="s">"inputs_sha256"</span>, <span class="s">"rule_packs"</span>]</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Solutions -->
+  <section class="band light">
+    <div class="wrap">
+      <div class="sec-head"><div><p class="eyebrow">Who it is for</p><h2>Built for the two sides of every fund sale.</h2></div></div>
+      <div class="split">
+        <a class="side" href={url('solutions/distributors/')}>
+          <span class="side-k">For distributors</span>
+          <h3>Offer every tokenized fund your clients qualify for, in every booking center.</h3>
+          <ul><li>Onboard a client once, use the credential with every issuer</li><li>Pre-trade answers in the order ticket, with the reason and the fix</li><li>One integration instead of one per issuer, per chain</li></ul>
+          <span class="text-link">Distributor solutions</span>
+        </a>
+        <a class="side" href={url('solutions/issuers/')}>
+          <span class="side-k">For issuers</span>
+          <h3>Reach verified investors across borders without rebuilding onboarding.</h3>
+          <ul><li>Accept Laissez as a trusted claim issuer in your existing registry</li><li>Preview who a policy change affects before you publish it</li><li>Keep your token standard, transfer agent and chain</li></ul>
+          <span class="text-link">Issuer solutions</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Coverage -->
+  <section class="band">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><p class="eyebrow">Rule packs</p><h2>Seven jurisdictions, written down to the threshold.</h2></div>
+        <p class="lede">Each rule pack is machine-readable, versioned and signed off by counsel before it goes live. These are the investor classes Laissez resolves at launch.</p>
+      </div>
+      <div class="table-wrap">
+        <table class="grid cover">
+          <thead><tr><th>Jurisdiction</th><th>Investor classes</th><th>Example threshold</th><th>Source</th><th>Status</th></tr></thead>
+          <tbody>
+            {coverage.map((r) => <tr><td class="j">{r.j}</td><td>{r.c}</td><td class="muted">{r.t}</td><td class="ref">{r.r}</td><td>{r.s === 'Launch set' ? <span class="status ok">{r.s}</span> : <span class="status warn">{r.s}</span>}</td></tr>)}
+          </tbody>
+        </table>
+      </div>
+      <p class="fine cov-note">Thresholds summarize the cited rules; full text and conditions apply. See <a class="text-link" href={url('sources/')}>sources</a>.</p>
+    </div>
+  </section>
+
+  <!-- Developers -->
+  <section class="band raised">
+    <div class="wrap dev">
+      <div>
+        <p class="eyebrow">For engineers</p>
+        <h2>One call before every order.</h2>
+        <p class="lede">Send the credential, the fund and the order. Get back a decision, the rules that bound it and a settlement instruction your systems can execute.</p>
+        <a class="btn" href={url('developers/')}>Read the API overview</a>
+      </div>
+<pre class="code big"><code><span class="c"># Pre-trade decision</span>
+POST /v1/decisions
+&#123;
+  <span class="k">"action"</span>: <span class="s">"subscribe"</span>,
+  <span class="k">"credential"</span>: <span class="s">"LP-SG-0419-2207"</span>,
+  <span class="k">"fund"</span>: <span class="s">"TWLF"</span>,
+  <span class="k">"amount"</span>: <span class="s">"2000000.00"</span>,
+  <span class="k">"settle_with"</span>: <span class="s">"USDC"</span>,
+  <span class="k">"booking_center"</span>: <span class="s">"HK"</span>
+&#125;
+
+<span class="c"># 200 OK</span>
+&#123;
+  <span class="k">"outcome"</span>: <span class="s">"allow"</span>,
+  <span class="k">"binding_rules"</span>: [<span class="s">"SG/accredited_opt_in"</span>, <span class="s">"HK/professional_investor"</span>],
+  <span class="k">"settlement"</span>: &#123; <span class="k">"mode"</span>: <span class="s">"atomic_dvp"</span>, <span class="k">"asset"</span>: <span class="s">"USDC"</span> &#125;
+&#125;</code></pre>
+    </div>
+  </section>
+
+  <!-- Principles -->
+  <section class="band light">
+    <div class="wrap">
+      <div class="sec-head"><div><p class="eyebrow">Commitments</p><h2>Four rules Laissez holds itself to.</h2></div></div>
+      <div class="principles">
+        <div><h4>Redemption is always open</h4><p class="muted">An investor whose status lapses can always exit. They cannot add or receive more. Nobody is trapped by a rule change.</p></div>
+        <div><h4>No personal data on-chain</h4><p class="muted">Identity stays with the distributor that verified it. The chain sees an outcome, a hash and rule versions.</p></div>
+        <div><h4>Counsel signs every rule</h4><p class="muted">Software drafts rule changes from regulator publications. A lawyer approves each one before it can bind an order.</p></div>
+        <div><h4>Fail closed on the way in</h4><p class="muted">If a check cannot complete, the subscription or inbound transfer does not settle. Exits are never blocked by an outage.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="band cta-band">
+    <div class="wrap cta">
+      <h2>Bring one fund and one corridor. We will take it live with you.</h2>
+      <p class="lede">The design partner program is open to distributors and issuers with tokenized funds in market or in build. Partners shape the first rule packs and get production access first.</p>
+      <div class="hero-cta"><a class="btn brass" href={url('access/')}>Request access</a><a class="btn" href={url('company/')}>Meet the founder</a></div>
+    </div>
+  </section>
+</Layout>
+
+<style>
+  .hero { position: relative; padding-top: clamp(3.5rem, 8vw, 6.5rem); overflow: hidden; }
+  .hero::before { content: ''; position: absolute; inset: -20% -10% auto; height: 80%; background: radial-gradient(ellipse at 30% 0%, rgba(201, 169, 110, 0.13), transparent 60%), radial-gradient(ellipse at 85% 20%, rgba(140, 120, 90, 0.12), transparent 55%); pointer-events: none; }
+  .hero-copy { position: relative; }
+  .hero .display { max-width: 11ch; font-size: clamp(2.9rem, 1.6rem + 4.4vw, 5.4rem); }
+  .hero-cta { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 2.4rem; }
+  .hero-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 2rem; align-items: center; position: relative; }
+  .hero-map { position: relative; margin-right: calc(-1 * var(--gutter)); }
+  .hero-map :global(svg) { -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 14%); mask-image: linear-gradient(90deg, transparent 0%, #000 14%); }
+  @media (max-width: 1080px) { .hero-grid { grid-template-columns: 1fr; } .hero-map { margin: 2rem 0 0; } }
+  .works-with { display: flex; align-items: center; gap: 1.5rem 2.5rem; flex-wrap: wrap; padding: 2.25rem 0 3rem; border-top: 1px solid var(--hair); margin-top: clamp(3rem, 6vw, 5rem); color: var(--text-3); font-size: 0.875rem; }
+  .works-with ul { display: flex; flex-wrap: wrap; gap: 0.75rem 2.25rem; list-style: none; margin: 0; padding: 0; }
+  .works-with li { color: var(--text-2); font-weight: 450; }
+
+  .gap { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 6fr); gap: 4rem; align-items: start; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-top: 1px solid #c9c2b6; }
+  .fact { padding: 1.75rem 1.5rem 1.75rem 0; border-bottom: 1px solid var(--line); }
+  .fact:nth-child(2n) { padding-left: 1.5rem; border-left: 1px solid var(--line); }
+  .fig { display: block; font-family: var(--f-display); font-weight: 300; font-size: clamp(2.4rem, 2rem + 1.4vw, 3.3rem); line-height: 1; letter-spacing: -0.03em; color: var(--ink); margin-bottom: 0.75rem; }
+  .fact p { margin: 0; color: var(--ink-2); font-size: 0.98rem; line-height: 1.55; }
+
+  .feature { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: clamp(2.5rem, 6vw, 6rem); align-items: center; padding: clamp(3rem, 6vw, 5rem) 0; border-top: 1px solid var(--hair); }
+  .feature.rev .f-copy { order: 2; }
+  .f-n { display: block; color: var(--brass); font-size: 0.875rem; font-weight: 500; margin-bottom: 1rem; }
+  .feature h3 { margin-bottom: 1rem; font-size: clamp(1.6rem, 1.3rem + 1vw, 2.2rem); font-weight: 300; }
+  .ticks { list-style: none; padding: 0; margin: 1.5rem 0 0; display: grid; gap: 0.7rem; }
+  .ticks li { display: grid; grid-template-columns: 1.1rem 1fr; gap: 0.65rem; color: var(--text-2); font-size: 0.97rem; }
+  .ticks li::before { content: ''; width: 0.5rem; height: 0.5rem; margin-top: 0.45rem; border: 1px solid var(--brass); transform: rotate(45deg); }
+  .f-visual.app { max-width: 31rem; justify-self: end; width: 100%; filter: drop-shadow(0 40px 60px rgba(0, 0, 0, 0.45)); }
+  .feature.rev .f-visual { justify-self: start; }
+
+  .trace-card { background: var(--night-3); border: 1px solid var(--hair-2); border-radius: 16px; padding: 1.4rem; box-shadow: 0 40px 70px -30px rgba(0, 0, 0, 0.6); max-width: 34rem; }
+  .tc-head { display: flex; justify-content: space-between; color: var(--text-3); font-size: 0.82rem; padding-bottom: 1rem; border-bottom: 1px solid var(--hair); }
+  .tc-head code { font-size: 0.78rem; }
+  .trace-card ol { list-style: none; margin: 0; padding: 0.4rem 0; }
+  .trace-card li { display: grid; grid-template-columns: 1.4rem 1fr auto; gap: 0.7rem; align-items: start; padding: 0.75rem 0; border-bottom: 1px solid var(--hair); font-size: 0.92rem; color: var(--text-2); }
+  .trace-card li b { display: block; color: var(--text); font-weight: 550; font-size: 0.85rem; margin-bottom: 0.1rem; }
+  .trace-card i.ok { width: 1.15rem; height: 1.15rem; border-radius: 50%; background: rgba(108, 196, 168, 0.15); position: relative; margin-top: 0.15rem; }
+  .trace-card i.ok::after { content: ''; position: absolute; left: 0.38rem; top: 0.2rem; width: 0.3rem; height: 0.55rem; border: solid var(--verdigris); border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); }
+  .trace-card em { font-style: normal; font-size: 0.72rem; font-weight: 600; color: var(--brass-2); border: 1px solid rgba(230, 210, 164, 0.4); border-radius: 999px; padding: 0.1rem 0.5rem; margin-top: 0.15rem; }
+  .tc-foot { display: flex; align-items: center; gap: 0.75rem; padding-top: 1rem; font-size: 0.86rem; color: var(--text-2); }
+  .pill-ok { font-weight: 650; font-size: 0.75rem; color: #0b1a14; background: var(--verdigris); border-radius: 999px; padding: 0.2rem 0.6rem; }
+
+  .dvp { width: 100%; max-width: 34rem; }
+  .dvp-core { fill: rgba(201, 169, 110, 0.07); stroke: rgba(230, 210, 164, 0.55); stroke-width: 1.2; }
+  .dvp-node { fill: var(--night-3); stroke: var(--hair-2); }
+  .dvp-t { font: 400 20px var(--f-display); fill: var(--text); }
+  .dvp-s { font: 400 13px var(--f-ui); fill: var(--text-3); }
+  .dvp-leg { fill: none; stroke-width: 1.6; stroke-dasharray: 5 6; animation: flow 1.6s linear infinite; }
+  .dvp-leg.a { stroke: var(--brass-2); } .dvp-leg.b { stroke: var(--verdigris); animation-direction: reverse; }
+  @keyframes flow { to { stroke-dashoffset: -22; } }
+
+  .code { background: #090807; border: 1px solid var(--hair-2); border-radius: 16px; padding: 1.4rem 1.5rem; font-size: 0.84rem; line-height: 1.65; color: var(--text-2); overflow-x: auto; margin: 0; max-width: 100%; }
+  .code .k { color: #d9cfbd; } .code .s { color: var(--brass-2); } .code .c { color: var(--text-3); }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .side { display: flex; flex-direction: column; gap: 1rem; text-decoration: none; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: clamp(1.75rem, 3vw, 2.5rem); transition: border-color 200ms, transform 200ms; }
+  .side:hover { border-color: #b8a072; transform: translateY(-2px); }
+  .side-k { color: #8a6a2f; font-size: 0.875rem; font-weight: 500; }
+  .side h3 { color: var(--ink); }
+  .side ul { margin: 0.5rem 0 0.75rem; padding-left: 1.1rem; color: var(--ink-2); display: grid; gap: 0.5rem; }
+  .side .text-link { margin-top: auto; align-self: flex-start; }
+
+  .cover td.j { color: var(--text); font-weight: 550; white-space: nowrap; }
+  .cover td.ref { color: var(--brass-2); white-space: nowrap; font-size: 0.875rem; }
+  .cov-note { margin-top: 1.25rem; }
+
+  .dev { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 4rem; align-items: center; }
+  .dev .btn { margin-top: 2rem; }
+  .code.big { font-size: 0.86rem; }
+
+  .principles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2.5rem; }
+  .principles div { border-top: 1px solid #b8a072; padding-top: 1.4rem; }
+  .principles h4 { color: var(--ink); font-size: 1.05rem; margin-bottom: 0.65rem; }
+  .principles p { font-size: 0.95rem; line-height: 1.6; margin: 0; }
+
+  .cta-band { background: radial-gradient(ellipse at 50% 120%, rgba(201, 169, 110, 0.18), transparent 60%), var(--night); }
+  .cta { max-width: 52rem; text-align: left; }
+  .cta h2 { font-size: clamp(2.2rem, 1.5rem + 2.6vw, 3.8rem); }
+
+  @media (max-width: 960px) {
+    .gap, .feature, .dev, .split { grid-template-columns: 1fr; gap: 2.5rem; }
+    .feature.rev .f-copy { order: 0; }
+    .f-visual.app, .feature.rev .f-visual { justify-self: start; }
+    .principles { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 560px) {
+    .facts, .principles { grid-template-columns: 1fr; }
+    .fact:nth-child(2n) { padding-left: 0; border-left: 0; }
+  }
+</style>

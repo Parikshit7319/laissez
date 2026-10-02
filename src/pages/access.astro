@@ -1,0 +1,60 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="Request access" description="Apply to the Laissez design partner program." path="access/">
+  <section class="page-hero">
+    <div class="wrap access">
+      <div>
+        <p class="eyebrow">Design partner program</p>
+        <h1>Take one fund through one corridor with us.</h1>
+        <p class="lede">We are working with a small number of distributors and issuers that have tokenized funds in market or in build. Partners shape the launch rule packs and get production access first.</p>
+        <ul class="ticks">
+          <li>Sandbox keys and a test fund across six jurisdictions</li>
+          <li>Founder-led integration, no platform fee during the pilot</li>
+          <li>Your corridors prioritized in the rule-pack roadmap</li>
+        </ul>
+        <p class="fine" style="margin-top:2rem">Prefer email? Write to <span class="sel">parikshit.ambhore@rice.edu</span></p>
+      </div>
+      <form class="form" id="access-form" novalidate>
+        <div class="row"><label for="f-name">Full name</label><input id="f-name" name="name" required autocomplete="name" /></div>
+        <div class="row"><label for="f-email">Work email</label><input id="f-email" name="email" type="email" required autocomplete="email" /></div>
+        <div class="row"><label for="f-org">Institution</label><input id="f-org" name="org" required autocomplete="organization" /></div>
+        <div class="row"><label for="f-role">You are</label>
+          <select id="f-role" name="role"><option>A distributor</option><option>An issuer or asset manager</option><option>A transfer agent or fund administrator</option><option>Something else</option></select>
+        </div>
+        <div class="row"><label for="f-msg">Funds and corridors you care about</label><textarea id="f-msg" name="msg" rows="4" placeholder="For example: a tokenized Treasury fund, Singapore and Hong Kong investors, settlement in USDC"></textarea></div>
+        <button class="btn brass" type="submit">Prepare my request</button>
+        <p class="fine" id="f-out" role="status"></p>
+      </form>
+    </div>
+  </section>
+</Layout>
+<script is:inline>
+  (function () {
+    var f = document.getElementById('access-form');
+    var out = document.getElementById('f-out');
+    f.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var v = function (id) { return document.getElementById(id).value.trim(); };
+      if (!v('f-name') || !v('f-email') || !v('f-org')) { out.textContent = 'Add your name, work email and institution so we can reply.'; return; }
+      var body = 'Name: ' + v('f-name') + '\nEmail: ' + v('f-email') + '\nInstitution: ' + v('f-org') + '\nRole: ' + v('f-role') + '\n\n' + v('f-msg');
+      var href = 'mailto:parikshit.ambhore@rice.edu?subject=' + encodeURIComponent('Laissez design partner request: ' + v('f-org')) + '&body=' + encodeURIComponent(body);
+      out.innerHTML = '';
+      var a = document.createElement('a'); a.href = href; a.className = 'text-link'; a.textContent = 'Open the drafted email in your mail app';
+      out.appendChild(document.createTextNode('Your request is drafted. ')); out.appendChild(a);
+      out.appendChild(document.createTextNode('. If nothing opens, email parikshit.ambhore@rice.edu directly.'));
+    });
+  })();
+</script>
+<style>
+  .access { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: clamp(2.5rem, 6vw, 6rem); align-items: start; }
+  .form { background: var(--night-2); border: 1px solid var(--hair-2); border-radius: 22px; padding: 2rem; display: grid; gap: 1.1rem; }
+  .row { display: grid; gap: 0.45rem; }
+  .row label { font-size: 0.875rem; color: var(--text-2); }
+  .row input, .row select, .row textarea { font: inherit; color: var(--text); background: var(--night); border: 1px solid var(--hair-2); border-radius: 10px; padding: 0.8rem 0.9rem; width: 100%; }
+  .row input:focus, .row select:focus, .row textarea:focus { outline: none; border-color: var(--brass); }
+  .row textarea { resize: vertical; }
+  .form .btn { justify-self: start; margin-top: 0.5rem; }
+  .sel { user-select: all; color: var(--text); }
+  @media (max-width: 960px) { .access { grid-template-columns: 1fr; } }
+</style>

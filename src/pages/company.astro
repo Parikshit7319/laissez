@@ -1,0 +1,78 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Cite from '../components/Cite.astro';
+import Mark from '../components/Mark.astro';
+import { url } from '../lib/url';
+---
+<Layout title="Company" description="Why Laissez exists, who is building it and how we work." path="company/">
+  <section class="page-hero">
+    <div class="wrap">
+      <p class="eyebrow">Company</p>
+      <h1>A fund should be sellable everywhere it is allowed to be.</h1>
+      <p class="lede">Laissez is building the layer that makes that true for tokenized funds: one credential per investor, every rulebook resolved, settlement in one step. We are in private development in Houston, working with design partners.</p>
+      <p class="name-note">The name comes from the <em>laissez-passer</em>, the document that lets its holder cross a border. Our credential does the same for an investor.</p>
+    </div>
+  </section>
+
+  <section class="band light">
+    <div class="wrap memo-wrap">
+      <article class="memo">
+        <p class="eyebrow">A note from the founder</p>
+        <h2>Why I’m building Laissez</h2>
+        <p>I spent years inside a transfer agency platform, as lead engineer delivering Franklin Templeton’s institutional transfer agency platform at FIS. Most of what a transfer agent does is quiet enforcement: who may hold a share class, which countries a fund can be sold into, which accounts are on hold and why. None of it is glamorous. All of it is the reason a fund can be sold at all.</p>
+        <p>When funds started moving on-chain, issuance got faster. The enforcement did not move with it. Each issuer rebuilt its own whitelist. Each distributor re-verified the same client for every fund. When a Singapore investor banks through Hong Kong and buys a fund domiciled in the British Virgin Islands, the question of whose rules apply is still answered by a person with a spreadsheet. A working group with contributors including the Banque de France, the IMF and the Monetary Authority of Singapore wrote this year that cross-jurisdiction policy precedence is still unresolved.<Cite id="gl1" /> That is the problem Laissez exists to solve.</p>
+        <p>I am building it as a layer, not a platform that asks anyone to move. Issuers keep their registries. Distributors keep their clients. Laissez answers one question before every token moves, explains the answer and proves it later.</p>
+        <p>If you run distribution or digital assets at a fund manager, a private bank or a fund platform, I would like to take one fund through one corridor with you.</p>
+        <div class="sig"><span class="name">Parikshit Ambhore</span><span>Founder</span></div>
+      </article>
+      <aside class="bio">
+        <div class="bio-card">
+          <div class="mono-mark"><Mark size={44} /></div>
+          <h3>Parikshit Ambhore</h3>
+          <p class="muted">Founder</p>
+          <ul>
+            <li><b>FIS</b>Lead engineer, delivering Franklin Templeton’s institutional transfer agency platform</li>
+            <li><b>Cybermatic Systems</b>Software engineer across supply chain and payments</li>
+            <li><b>Founder</b>Built and ran a healthcare SaaS startup</li>
+            <li><b>Sarvm.ai</b>Initial team at a 10-minute grocery delivery startup in India</li>
+            <li><b>Rice University</b>MBA, Jones Graduate School of Business, Class of 2027</li>
+          </ul>
+          <div class="bio-links">
+            <a class="text-link" href="https://www.linkedin.com/in/parikshitambhore" target="_blank" rel="noopener">LinkedIn</a>
+            <a class="text-link" href={url('access/')}>Get in touch</a>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="sec-head"><div><p class="eyebrow">How we build</p><h2>Four habits that shape the product.</h2></div></div>
+      <div class="cols-4">
+        <div class="item"><h4>Show the rule, not just the result</h4><p>Every answer names the rule that decided it and the fix when it says no. A compliance tool nobody can read is a liability.</p></div>
+        <div class="item"><h4>Never trap an investor</h4><p>Rules can stop someone from adding. They should never stop someone from leaving.</p></div>
+        <div class="item"><h4>Plug in, do not replace</h4><p>Institutions have registries, agents and custody that work. We connect them instead of asking them to migrate.</p></div>
+        <div class="item"><h4>Every number sourced</h4><p>Market figures on this site carry a source and a date. When sources disagree, we say so.</p></div>
+      </div>
+    </div>
+  </section>
+</Layout>
+<style>
+  .name-note { margin-top: 1.5rem; color: var(--text-3); font-size: 0.95rem; max-width: 40rem; }
+  .name-note em { font-family: var(--f-display); font-style: italic; color: var(--brass-2); font-size: 1.05rem; }
+  .memo-wrap { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); gap: clamp(2.5rem, 6vw, 6rem); align-items: start; }
+  .memo h2 { margin-bottom: 2rem; }
+  .memo p:not(.eyebrow) { font-family: var(--f-display); font-weight: 350; font-size: 1.2rem; line-height: 1.65; color: #2a2622; font-variation-settings: 'SOFT' 0, 'WONK' 0, 'opsz' 18; max-width: 38rem; margin-bottom: 1.4rem; }
+  .sig { display: grid; gap: 0.2rem; margin-top: 2.5rem; color: var(--ink-3); font-size: 0.92rem; }
+  .sig .name { font-family: var(--f-display); font-style: italic; font-size: 1.7rem; color: var(--ink); font-weight: 400; }
+  .bio { position: sticky; top: 6rem; }
+  .bio-card { background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: 2rem; }
+  .mono-mark { width: 4.5rem; height: 4.5rem; border-radius: 50%; background: var(--night); color: var(--text); display: grid; place-items: center; margin-bottom: 1.25rem; }
+  .bio-card h3 { color: var(--ink); }
+  .bio-card ul { list-style: none; margin: 1.5rem 0; padding: 0; display: grid; gap: 1rem; }
+  .bio-card li { font-size: 0.93rem; color: var(--ink-2); line-height: 1.5; }
+  .bio-card li b { display: block; color: var(--ink); font-weight: 600; font-size: 0.875rem; }
+  .bio-links { display: flex; gap: 1.5rem; }
+  @media (max-width: 960px) { .memo-wrap { grid-template-columns: 1fr; } .bio { position: static; } }
+</style>

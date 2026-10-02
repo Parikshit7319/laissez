@@ -1,0 +1,13 @@
+---
+import { sourceIndex, getSource } from '../data/sources';
+import { url } from '../lib/url';
+interface Props { ids: string[] }
+const ids = [...new Set(Astro.props.ids)].sort((a, b) => sourceIndex[a] - sourceIndex[b]);
+---
+<section class="page-sources" aria-label="Sources on this page">
+  <strong>Sources on this page</strong>
+  <ol>
+    {ids.map((id) => { const s = getSource(id)!; return <li><span class="n">{sourceIndex[id]}</span><span><a href={s.url} rel="noopener" target="_blank">{s.publisher}, {s.title}</a> ({s.date})</span></li>; })}
+  </ol>
+  <p>Full list with what each source supports: <a href={url('sources/')}>Sources</a>.</p>
+</section>

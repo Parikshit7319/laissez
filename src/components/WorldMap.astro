@@ -1,0 +1,123 @@
+---
+// Build-time dotted world map with animated distribution corridors.
+import { feature } from 'topojson-client';
+import { geoNaturalEarth1, geoContains } from 'd3-geo';
+import land110 from 'world-atlas/land-110m.json';
+
+const W = 1400, H = 640;
+const topo: any = land110;
+const land: any = feature(topo, topo.objects.land);
+const proj = geoNaturalEarth1().fitExtent([[0, -40], [W, H + 150]], { type: 'Sphere' } as any);
+
+const step = 8.5;
+let dots = '';
+let row = 0;
+for (let y = step / 2; y < H; y += step * 0.866, row++) {
+  for (let x = (row % 2 ? step / 2 : 0) + step / 2; x < W; x += step) {
+    const ll = proj.invert!([x, y]);
+    if (!ll || ll[1] < -56 || ll[1] > 78) continue;
+    if (geoContains(land, ll)) dots += `M${x.toFixed(1)} ${y.toFixed(1)}h0`;
+  }
+}
+
+type City = { id: string; name: string; ll: [number, number]; label?: 'l' | 'r' | 't' | 'b' };
+const cities: City[] = [
+  { id: 'nyc', name: 'New York', ll: [-74.0, 40.71], label: 'l' },
+  { id: 'bvi', name: 'Tortola', ll: [-64.62, 18.42], label: 'b' },
+  { id: 'dub', name: 'Dublin', ll: [-6.26, 53.35], label: 'l' },
+  { id: 'lux', name: 'Luxembourg', ll: [6.13, 49.61] },
+  { id: 'zrh', name: 'Zurich', ll: [8.54, 47.37], label: 'b' },
+  { id: 'fra', name: 'Frankfurt', ll: [8.68, 50.11] },
+  { id: 'dxb', name: 'Dubai', ll: [55.27, 25.2], label: 'b' },
+  { id: 'sg', name: 'Singapore', ll: [103.82, 1.35], label: 'b' },
+  { id: 'hk', name: 'Hong Kong', ll: [114.17, 22.32], label: 'r' },
+];
+const P = Object.fromEntries(cities.map((c) => [c.id, proj(c.ll)!]));
+const routes: [string, string][] = [['nyc', 'sg'], ['dub', 'hk'], ['lux', 'dxb'], ['bvi', 'zrh'], ['nyc', 'fra'], ['dub', 'sg'], ['hk', 'dxb'], ['lux', 'sg']];
+const arcs = routes.map(([a, b], i) => {
+  const [x1, y1] = P[a], [x2, y2] = P[b];
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  const dx = x2 - x1, dy = y2 - y1, dist = Math.hypot(dx, dy);
+  const lift = Math.min(dist * 0.32, 190);
+  const cx = mx + (dy / dist) * lift * (dx > 0 ? 1 : -1) * 0.0 , cy = my - lift;
+  return { d: `M${x1.toFixed(1)} ${y1.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`, i };
+});
+// Crop to Europe, the Gulf and Asia; corridors from the Americas enter from the left edge.
+const X0 = proj([-28, 0])![0], X1 = proj([150, 0])![0];
+const Y0 = Math.max(0, proj([20, 70])![1]), Y1 = proj([105, -14])![1];
+const CW = X1 - X0, CH = Y1 - Y0;
+const pct = (id: string) => ({ left: `${((P[id][0] - X0) / CW) * 100}%`, top: `${((P[id][1] - Y0) / CH) * 100}%` });
+const sg = pct('sg'), dxb = pct('dxb');
+---
+<div class="map" style={`aspect-ratio:${CW.toFixed(0)} / ${CH.toFixed(0)}`} role="img" aria-label="World map showing tokenized fund corridors between New York, Tortola, Dublin, Luxembourg, Zurich, Frankfurt, Dubai, Singapore and Hong Kong">
+  <svg viewBox={`${X0.toFixed(1)} ${Y0.toFixed(1)} ${CW.toFixed(1)} ${CH.toFixed(1)}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <defs>
+      <linearGradient id="arc-g" x1="0" x2="1"><stop offset="0" stop-color="#c9a96e" stop-opacity="0.15" /><stop offset="0.5" stop-color="#e6d2a4" stop-opacity="0.75" /><stop offset="1" stop-color="#c9a96e" stop-opacity="0.15" /></linearGradient>
+      <radialGradient id="glow"><stop offset="0" stop-color="#e6d2a4" stop-opacity="0.55" /><stop offset="1" stop-color="#e6d2a4" stop-opacity="0" /></radialGradient>
+    </defs>
+    <path d={dots} class="land" />
+    {arcs.map((a) => (<>
+      <path d={a.d} class="arc-base" />
+      <path d={a.d} class="arc-pulse" pathLength="100" style={`animation-delay:${(a.i * 0.9).toFixed(1)}s`} />
+    </>))}
+    {cities.map((c) => {
+      const [x, y] = P[c.id];
+      const lx = c.label === 'l' ? x - 12 : c.label === 'r' ? x + 12 : x;
+      const ly = c.label === 'b' ? y + 22 : c.label === 't' ? y - 14 : y + 4;
+      const anchor = c.label === 'l' ? 'end' : c.label === 'r' ? 'start' : 'middle';
+      return (<g class="city">
+        <circle cx={x} cy={y} r="22" fill="url(#glow)" />
+        <circle cx={x} cy={y} r="3.6" class="node" />
+        <circle cx={x} cy={y} r="3.6" class="ring" />
+        {c.label ? <text x={lx} y={ly} text-anchor={anchor}>{c.name}</text> : null}
+      </g>);
+    })}
+  </svg>
+  <div class="map-card ok" style={`left:${sg.left};top:${sg.top}`}>
+    <span class="mc-k">TWLF subscription</span>
+    <strong>Lumen Family Office</strong>
+    <span class="mc-l">Singapore resident, booked in Hong Kong</span>
+    <span class="mc-row"><span class="pill ok">Admitted</span><span>2 binding rules, 8 checks</span></span>
+    <span class="mc-l">Settled atomically against USDC</span>
+  </div>
+  <div class="map-card no" style={`left:${dxb.left};top:${dxb.top}`}>
+    <span class="mc-k">AGPC transfer</span>
+    <strong>Refused before settlement</strong>
+    <span class="mc-l">12-month lock-up ends 1 Jun 2027</span>
+    <span class="mc-row"><span class="pill no">Refused</span><span>Nothing moved</span></span>
+  </div>
+</div>
+
+<style>
+  .map { position: relative; width: 100%; max-width: 100%; }
+  .map svg { width: 100%; height: 100%; overflow: hidden; }
+  .land { stroke: rgba(205, 195, 178, 0.34); stroke-width: 2.6; stroke-linecap: round; fill: none; }
+  .arc-base { fill: none; stroke: rgba(201, 169, 110, 0.22); stroke-width: 1.1; }
+  .arc-pulse { fill: none; stroke: url(#arc-g); stroke: #e6d2a4; stroke-width: 1.8; stroke-linecap: round; stroke-dasharray: 9 100; stroke-dashoffset: 109; opacity: 0.95; animation: travel 7.2s linear infinite; filter: drop-shadow(0 0 4px rgba(230, 210, 164, 0.7)); }
+  @keyframes travel { from { stroke-dashoffset: 109; } to { stroke-dashoffset: 0; } }
+  .node { fill: #ece8e1; }
+  .ring { fill: none; stroke: #e6d2a4; stroke-width: 1.2; transform-box: fill-box; transform-origin: center; animation: ping 3.6s ease-out infinite; }
+  .city:nth-of-type(2n) .ring { animation-delay: 1.2s; }
+  .city:nth-of-type(3n) .ring { animation-delay: 2.1s; }
+  @keyframes ping { 0% { transform: scale(1); opacity: 0.9; } 70%, 100% { transform: scale(4.2); opacity: 0; } }
+  .city text { font: 500 13px var(--f-ui); fill: #b5afa5; letter-spacing: 0.01em; }
+  .map-card {
+    position: absolute; transform: translate(-50%, 1.6rem); display: grid; gap: 0.15rem; width: 14.5rem;
+    background: rgba(22, 21, 19, 0.86); border: 1px solid var(--hair-2); border-radius: 14px; padding: 0.85rem 1rem;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 24px 48px -24px rgba(0, 0, 0, 0.7); font-size: 0.78rem; line-height: 1.4; color: var(--text-2);
+  }
+  .map-card.no { transform: translate(-96%, 2.2rem); }
+  .map-card.ok { transform: translate(-58%, 2rem); }
+  .map-card strong { color: var(--text); font-weight: 560; font-size: 0.95rem; }
+  .mc-k { color: var(--text-3); font-size: 0.75rem; }
+  .mc-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0 0.1rem; }
+  .pill { font-weight: 650; font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 999px; }
+  .pill.ok { color: #0b1a14; background: var(--verdigris); }
+  .pill.no { color: #24100b; background: var(--coral); }
+  @media (max-width: 760px) {
+    .map-card { position: static; transform: none !important; margin-top: 0.75rem; }
+    .map { aspect-ratio: auto !important; }
+    .map svg { height: auto; }
+  }
+  @media (prefers-reduced-motion: reduce) { .arc-pulse { animation: none; stroke-dasharray: none; opacity: 0.35; } .ring { animation: none; opacity: 0; } }
+</style>
