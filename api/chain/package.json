@@ -12,7 +12,7 @@
   "dependencies": {
     "@onchain-id/solidity": "2.2.1",
     "@tokenysolutions/t-rex": "4.1.6",
-    "solc": "0.8.24",
+    "solc": "0.8.37",
     "viem": "^2.21.0"
   },
   "devDependencies": {
