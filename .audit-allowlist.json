@@ -1,0 +1,9 @@
+[
+  {
+    "id": "GHSA-ch52-4w7c-c8xp",
+    "package": "http-cache-semantics",
+    "reason": "Build-time dependency of Astro. The flaw is a shared HTTP cache disclosing one user's response to another; the site build fetches no user-specific responses and ships no server. No patched version exists as of 2026-10-03 (4.2.0 is the latest and is affected).",
+    "added": "2026-10-03",
+    "review_by": "2026-12-31"
+  }
+]
