@@ -101,10 +101,10 @@ const globalPacks = RULE_PACKS.filter((p) => p.jurisdiction === 'GLOBAL' && p.st
         <p class="muted">Read from <code>GET /v1/metrics/public</code> when this page loads. Fictional money, real code paths. <a class="text-link" href={url('metrics/')}>All metrics</a></p>
       </div>
       <dl class="proof-grid" id="proof-grid" data-api={API}>
-        <div><dt>Credentials reused</dt><dd data-k="reuse">—</dd><p>investors cleared for two or more funds on one credential</p></div>
-        <div><dt>Cross-border settlements</dt><dd data-k="settlements">—</dd><p>orders that passed every check and settled across a border</p></div>
-        <div><dt>Settled without a passing re-check</dt><dd data-k="guardrail">—</dd><p>the guardrail. The target is zero, always.</p></div>
-        <div><dt>Median time to first settlement</dt><dd data-k="ttv">—</dd><p>from an empty sandbox to a settled cross-border order</p></div>
+        <div><dt>Credentials reused</dt><dd data-k="reuse">...</dd><p>investors cleared for two or more funds on one credential</p></div>
+        <div><dt>Cross-border settlements</dt><dd data-k="settlements">...</dd><p>orders that passed every check and settled across a border</p></div>
+        <div><dt>Settled without a passing re-check</dt><dd data-k="guardrail">...</dd><p>the guardrail. The target is zero, always.</p></div>
+        <div><dt>Median time to first settlement</dt><dd data-k="ttv">...</dd><p>from an empty sandbox to a settled cross-border order</p></div>
       </dl>
       <p class="fine proof-note" id="proof-note">Loading live figures.</p>
     </div>
@@ -184,7 +184,7 @@ const globalPacks = RULE_PACKS.filter((p) => p.jurisdiction === 'GLOBAL' && p.st
     <div class="wrap">
       <div class="sec-head">
         <h2>What is live today.</h2>
-        <p class="lede">Everything below runs in the sandbox now. Nothing on this list is a mock-up.</p>
+        <p class="lede">Everything below is built and tested. The sandbox shows most of it; the last three apply to production organizations. Nothing on this list is a mock-up.</p>
       </div>
       <div class="cols-3 live-grid">
         <div class="item"><h4>Credential network</h4><p>Distributors share credentials with each other, with the investor's consent, so a client verified by one bank can buy through another without a second onboarding.</p></div>
@@ -193,6 +193,9 @@ const globalPacks = RULE_PACKS.filter((p) => p.jurisdiction === 'GLOBAL' && p.st
         <div class="item"><h4>On-chain settlement</h4><p>ERC-3643 token and settlement contracts on the Base Sepolia testnet, with reconciliation against the register. The testnet deployment is pending; simulated settlement runs everywhere today.</p></div>
         <div class="item"><h4>Rule packs for {packCount} jurisdictions</h4><p>From Singapore to the United States and India, each pack versioned, dated and covered by regression cases. Plus global packs for sanctions and the Travel Rule.</p></div>
         <div class="item"><h4>SDKs, status and metrics</h4><p>TypeScript and Python clients, an OpenAPI 3.1 document, a public status page with 90 days of uptime, and product metrics read live from the API.</p></div>
+        <div class="item"><h4>Accounts a bank can approve</h4><p>Passkeys or single sign-on, a confirmed email, recovery with a waiting period, an authenticator app, and an organization policy for session length, networks and allowed domains. A person reviews each organization before it can settle. <a class="text-link" href={url('product/#accounts')}>How accounts work</a></p></div>
+        <div class="item"><h4>Contracts and billing</h4><p>An order form accepted electronically, usage metered from settled value, numbered invoices with a PDF, and reminders before anything is switched off. <a class="text-link" href={url('pricing/#billing')}>How a bill is made</a></p></div>
+        <div class="item"><h4>Vendor review pack</h4><p>Sub-processors, a draft data processing agreement, privacy and terms, and a control-by-control list of what is done and what is not yet against SOC 2. <a class="text-link" href={url('trust/')}>Trust and security</a></p></div>
       </div>
     </div>
   </section>

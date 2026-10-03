@@ -2,7 +2,7 @@
 import Layout from '../layouts/Layout.astro';
 import { url } from '../lib/url';
 ---
-<Layout title="Pricing" description="Indicative Laissez pricing: free design partner pilots, a platform fee plus basis points for distributors, and no charge for issuers." path="pricing/">
+<Layout title="Pricing" description="Indicative Laissez pricing: free design partner pilots, a platform fee plus basis points for distributors, no charge for issuers, and exactly how an invoice is made." path="pricing/">
   <section class="page-hero">
     <div class="wrap">
       <h1>Distributors pay for reach. Issuers integrate free.</h1>
@@ -43,7 +43,33 @@ import { url } from '../lib/url';
         <h4>Why are issuers free?</h4><p class="muted">The network is only useful if funds are on it. Charging issuers would slow the supply side that makes Laissez valuable to distributors.</p>
         <h4>Why basis points?</h4><p class="muted">A distributor’s gain is new cross-border volume it could not serve before. A small share of settled value aligns our revenue with that gain. At 1.5 bps, $1B settled costs $150K.</p>
         <h4>What does a decision cost?</h4><p class="muted">Nothing on its own. Pre-trade checks are free and unlimited so desks use them on every order, including the ones that never trade.</p>
+        <h4>Do you take card or bank details?</h4><p class="muted">No. Where Stripe is connected, payment happens on Stripe's hosted invoice page by card or ACH. Otherwise you pay by bank transfer against the PDF and quote the invoice number, and we mark it paid when it arrives. Card and bank numbers never reach Laissez.</p>
+        <h4>Can we take our data with us?</h4><p class="muted">Yes, at any time. An administrator can export every record in the organization, and the export keeps working after a billing suspension. Each person can also export or delete their own account data.</p>
+        <h4>What if an invoice is late?</h4><p class="muted">One day after the due date the organization is marked past due and its administrators are emailed. At fourteen days they get a final warning. At thirty days the organization becomes read-only until the invoice is paid. Reads, exports and payment keep working, and it restores itself when the invoice is paid.</p>
       </div>
+    </div>
+  </section>
+  <section class="band" id="billing">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>How a bill is made.</h2>
+        <p class="lede">One order form, a platform fee each year, and a usage fee that follows what you settled. The Billing screen in the app shows this month's usage and the projected fee before anything becomes an invoice.</p>
+      </div>
+      <ol class="bill">
+        <li><h4>You accept an order form</h4><p>We send the plan, fees and payment terms as exact text. An administrator accepts it in the app. Laissez records their name, title, the time and a SHA-256 hash of the text they accepted.</p></li>
+        <li><h4>The platform fee comes first</h4><p>Invoiced annually in advance on the start date and on each anniversary. Design partner pilots have none.</p></li>
+        <li><h4>Usage follows settled value</h4><p>Basis points of the value of orders recorded as settled, counted per UTC day, invoiced monthly in arrears. Euro funds convert at the rate printed in the order form. Settlements later reverted are not counted.</p></li>
+        <li><h4>You pay net 30</h4><p>Net 30 unless the order form says otherwise. Each invoice has a number, a PDF and the tax line your contract calls for.</p></li>
+      </ol>
+      <table class="ex">
+        <caption>A distributor on the Platform plan, 1.5 bps, settling $40M in a month</caption>
+        <tbody>
+          <tr><th scope="row">Platform fee, annual, in advance</th><td>$60,000</td></tr>
+          <tr><th scope="row">Usage fee for that month: $40,000,000 &times; 0.015%</th><td>$6,000</td></tr>
+          <tr><th scope="row">Tax</th><td>Added only if the order form says so</td></tr>
+        </tbody>
+      </table>
+      <div class="hero-cta"><a class="btn primary" href={`${url('app/')}#/settings/billing`}>Ask for a quote in the sandbox</a><a class="arrow-link" href={url('terms/')}>Read the terms</a><a class="arrow-link" href={url('subprocessors/')}>See who processes data for us</a></div>
     </div>
   </section>
 </Layout>
@@ -58,5 +84,16 @@ import { url } from '../lib/url';
   .tier .arrow-link { margin-top: auto; }
   .faq h4 { margin: 0 0 0.4rem; }
   .faq p { margin: 0 0 1.5rem; }
+  .bill { list-style: none; margin: 0 0 2.25rem; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.5rem clamp(1.25rem, 2.5vw, 2rem); counter-reset: step; }
+  .bill li { counter-increment: step; border-top: 2px solid var(--green); padding-top: 0.9rem; min-width: 0; }
+  .bill li::before { content: counter(step); display: block; font: 500 0.82rem var(--f-mono); color: var(--green); margin-bottom: 0.4rem; }
+  .bill h4 { margin: 0 0 0.4rem; }
+  .bill p { margin: 0; color: var(--ink-2); font-size: 0.94rem; }
+  .ex { width: 100%; max-width: 40rem; border-collapse: collapse; margin: 0 0 2rem; font-size: 0.96rem; }
+  .ex caption { text-align: left; font-weight: 600; color: var(--ink); padding-bottom: 0.6rem; }
+  .ex th, .ex td { padding: 0.7rem 0; border-top: 1px solid var(--line); text-align: left; font-weight: 400; vertical-align: top; }
+  .ex td { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); padding-left: 1.5rem; }
+  .ex tbody tr:last-child th, .ex tbody tr:last-child td { border-bottom: 1px solid var(--line); }
+  #billing .hero-cta { display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap; }
   @media (max-width: 960px) { .tiers { grid-template-columns: 1fr; } }
 </style>
