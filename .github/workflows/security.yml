@@ -3,7 +3,8 @@ name: Security
 # Three independent checks, none of which gate the deploy (deploy.yml calls ci.yml only), so a new advisory never blocks
 # a fix from shipping. They run on every pull request and push to main, and weekly, because advisories appear without a commit.
 #   secrets   gitleaks over the full git history, with allowlist in .gitleaks.toml
-#   audit     npm audit on what ships: the site, the Worker and the scheduled jobs (production dependencies, high and above)
+#   audit     npm audit on what ships: the site, the Worker and the scheduled jobs (production dependencies, high and above),
+#             through scripts/audit-gate.mjs so a no-fix advisory can be excepted in .audit-allowlist.json until a review date
 #   codeql    static analysis of the TypeScript and Python in the repository
 
 on:
@@ -45,13 +46,11 @@ jobs:
         with:
           node-version: 22
       - name: Site
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-gate.mjs .
       - name: Worker
-        working-directory: api
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-gate.mjs api
       - name: Scheduled jobs
-        working-directory: api/jobs
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-gate.mjs api/jobs
 
   codeql:
     name: CodeQL
@@ -66,10 +65,10 @@ jobs:
         language: [javascript-typescript, python]
     steps:
       - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           queries: security-extended
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}

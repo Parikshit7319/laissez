@@ -285,7 +285,7 @@ Each feature is off until its secrets exist, and the product says so on screen i
 `.github/workflows/security.yml` runs on every push to `main`, every pull request and weekly (Monday 05:17 UTC). It does not gate the deploy, so a new advisory never blocks a fix.
 
 - **Secret scan.** gitleaks over the full git history with `.gitleaks.toml`. A failure means a credential-shaped string is in a commit. Rotate the secret first (Rotating keys), then remove it from the tree; allowlist only values that are provably fake, by their exact text.
-- **Dependency audit.** `npm audit --omit=dev --audit-level=high` for the site, the Worker and the jobs. Dependabot (`.github/dependabot.yml`) opens weekly update pull requests grouped by ecosystem.
+- **Dependency audit.** `scripts/audit-gate.mjs` runs `npm audit --omit=dev` for the site, the Worker and the jobs and fails on any high or critical advisory. An advisory with no patched version can be excepted in `.audit-allowlist.json` with a reason and a review date; the exception stops working on that date and the build fails again. Dependabot (`.github/dependabot.yml`) opens weekly pull requests for minor and patch updates grouped by ecosystem. It never proposes major versions: review those by hand once a quarter.
 - **CodeQL.** `security-extended` queries over the TypeScript and the Python SDK. Results appear under the repository's Security tab.
 
 Spreadsheet-formula escaping for CSV exports lives in one place, `src/proto/csv.ts`, and `npm run test:csv` covers it. Any new export must build its cells through it.
