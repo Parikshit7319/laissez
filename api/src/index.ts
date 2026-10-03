@@ -31,6 +31,10 @@ import * as account2 from './routes/account2';
 import * as workflow from './routes/workflow';
 import * as rules from './routes/rules';
 import * as imports from './routes/import';
+import * as security from './routes/security';
+import * as billing from './routes/billing';
+import { staff } from './internal';
+import { runBilling } from './billing';
 import { scim } from './scim';
 import { sendDigests } from './email';
 import * as chainLib from './chain';
@@ -107,6 +111,10 @@ mount('/v1', opt(chainRoutes, 'publicRoutes'));
 mount('/v1', opt(leads, 'publicRoutes'));
 mount('/v1/portal', opt(portal, 'publicRoutes'));
 mount('/v1', opt(account2, 'publicRoutes'));
+mount('/v1', opt(security, 'publicRoutes'));
+mount('/v1', opt(billing, 'publicRoutes'));
+// Staff routes: INTERNAL_TOKEN only, not documented in the public API reference.
+app.route('/v1/internal', staff as unknown as App);
 mount('/trp', opt(travel, 'publicRoutes'));
 // SCIM 2.0 provisioning, authenticated by the organization's SCIM token.
 app.route('/scim/v2', scim as unknown as App);
@@ -121,7 +129,7 @@ v1.route('/', core.routes);
 v1.route('/', platform.routes);
 v1.route('/', flags.routes);
 v1.route('/', integrations.routes);
-for (const m of [compliance, compliance2, fundops, network, reports, chainRoutes, travel, portal, account2, workflow, imports, rules]) {
+for (const m of [compliance, compliance2, fundops, network, reports, chainRoutes, travel, portal, account2, workflow, imports, rules, security, billing]) {
   const r = opt(m, 'routes');
   if (r) v1.route('/', r);
 }
@@ -183,7 +191,14 @@ async function dailyCleanup(env: Env) {
     admin`delete from sessions where expires_at < now() - interval '7 days' or revoked_at < now() - interval '7 days'`,
     admin`delete from uptime_checks where checked_at < now() - interval '120 days'`,
     admin`delete from request_log_samples where ts < now() - interval '30 days'`,
+    // Confirmation and recovery links are single use and expire in hours; a week after expiry nothing needs the row.
+    admin`delete from email_tokens where expires_at < now() - interval '7 days'`,
+    admin`delete from stripe_events where received_at < now() - interval '90 days'`,
+    admin`delete from email_outbox where created_at < now() - interval '90 days'`,
   ]);
+  // Metering, invoices, dunning and Stripe sync. Idempotent: a second run on the same day creates nothing new.
+  try { console.log(JSON.stringify({ job: 'billing', ...(await runBilling(env, admin)) })); }
+  catch (e) { console.error('billing run failed', e); }
   // Work queue digest to administrators and compliance officers of every organization with open items.
   try { const d = await sendDigests(env, admin); console.log(JSON.stringify({ job: 'work_digest', ...d })); }
   catch (e) { console.error('work digest failed', e); }

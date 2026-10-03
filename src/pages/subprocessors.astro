@@ -1,0 +1,61 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { url } from '../lib/url';
+
+type Status = 'Active' | 'When enabled' | 'Optional' | 'Not yet deployed';
+const rows: { name: string; purpose: string; data: string; where: string; status: Status; note?: string }[] = [
+  { name: 'Cloudflare', purpose: 'Runs the API (Workers), terminates TLS, and provides the bot check (Turnstile) on sign-up and account recovery when it is switched on.', data: 'Every API request in transit, including network addresses. Turnstile sees browser signals from the visitor completing the check.', where: 'Global edge network; the API holds no data at the edge', status: 'Active' },
+  { name: 'Neon', purpose: 'Managed Postgres. The system of record for every organization.', data: 'All customer data at rest: clients, credentials, decisions, settlements, members, billing records, audit log.', where: 'One United States region', status: 'Active' },
+  { name: 'GitHub', purpose: 'Hosts the static site and this app (GitHub Pages) and runs the scheduled jobs (sanctions list ingest, holder monitoring, fund operations) and CI.', data: 'No customer content is stored at GitHub. Scheduled jobs reach the database with a secret kept in GitHub Actions.', where: 'United States', status: 'Active' },
+  { name: 'Google (Fonts)', purpose: 'Typefaces for the site and the app.', data: 'The visitor’s network address, as for any web request. No account data.', where: 'Global', status: 'Active' },
+  { name: 'Resend', purpose: 'Sends transactional email: confirmation links, invites, recovery, security alerts, invoices, report schedules.', data: 'Recipient name and email address and the content of the message.', where: 'United States', status: 'When enabled', note: 'Until a production mail key is set, messages stay in the organization’s Outbox and nothing is sent.' },
+  { name: 'Stripe', purpose: 'Hosted invoice pages for card and ACH payment, and payment status.', data: 'Billing contact name and email, the organization’s legal name and address, invoice amounts. Card and bank details go from the payer to Stripe and never reach Laissez.', where: 'United States and Stripe’s global network', status: 'When enabled', note: 'Until Stripe keys are set, invoices are issued as PDFs and paid by bank transfer.' },
+  { name: 'Anthropic', purpose: 'Drafts rule-change proposals from public regulator text in the change agent.', data: 'Public regulatory text only. No client, investor or organization data is sent.', where: 'United States', status: 'Optional', note: 'Off unless an API key is set.' },
+  { name: 'Base Sepolia (public test network)', purpose: 'Optional on-chain settlement and anchoring on a test network.', data: 'Decision outcomes and hashes. Never a name, an address that identifies a person, or a document.', where: 'Public blockchain', status: 'Not yet deployed', note: 'Testnet only. Public chains cannot delete data.' },
+];
+---
+<Layout title="Sub-processors" description="The companies that process data for Laissez, what each one sees, where, and whether it is switched on." path="subprocessors/">
+  <section class="page-hero">
+    <div class="wrap">
+      <h1>Sub-processors</h1>
+      <p class="lede">Every company that handles data on Laissez’s behalf, what it sees, where it runs, and whether it is switched on today. If a vendor is not on this page, it does not touch your data.</p>
+      <p class="updated">Last updated 2 October 2026.</p>
+    </div>
+  </section>
+  <section class="band">
+    <div class="wrap">
+      <div class="table-wrap">
+        <table class="grid">
+          <thead><tr><th scope="col">Provider</th><th scope="col">What it does for Laissez</th><th scope="col">What it sees</th><th scope="col">Where</th><th scope="col">Status</th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr>
+                <th scope="row">{r.name}</th>
+                <td>{r.purpose}{r.note ? <span class="fine" style="display:block;margin-top:0.35rem">{r.note}</span> : null}</td>
+                <td>{r.data}</td>
+                <td>{r.where}</td>
+                <td>{r.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div class="prose" style="margin-top:2.5rem">
+        <h2>How changes are made</h2>
+        <p>A new sub-processor that handles customer data is added to this page before it is used. Customers with a signed data processing agreement are told by email at least 30 days ahead and can object; the <a href={url('dpa/')}>data processing agreement draft</a> sets out the process. Sandboxes contain only fictional data, so they are not covered by that notice.</p>
+        <h2>What the statuses mean</h2>
+        <ul>
+          <li><strong>Active</strong>: in use on the live deployment today.</li>
+          <li><strong>When enabled</strong>: built and tested, switched on when the deployment is configured for production. Until then it sees nothing.</li>
+          <li><strong>Optional</strong>: used only if an organization or the operator turns the feature on.</li>
+          <li><strong>Not yet deployed</strong>: planned and not live.</li>
+        </ul>
+        <p>Questions, or a request to subscribe to changes: <a href="mailto:parikshit.ambhore@rice.edu">parikshit.ambhore@rice.edu</a>. See also the <a href={url('privacy/')}>privacy page</a> and the <a href={url('trust/')}>trust page</a>.</p>
+      </div>
+    </div>
+  </section>
+</Layout>
+<style>
+  .table-wrap { overflow-x: auto; }
+  .table-wrap table { min-width: 52rem; }
+</style>

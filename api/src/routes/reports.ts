@@ -1,5 +1,6 @@
 // Regulatory and distribution reports: private placement headroom per fund and jurisdiction,
 // settled value and decision outcomes by jurisdiction, and CSV exports.
+import { csvCell } from '../../../src/proto/csv';
 import type { Context } from 'hono';
 import { router, need, type C } from '../http';
 import { today } from '../util';
@@ -153,11 +154,7 @@ routes.get('/reports/distribution', async (c) => {
 });
 
 // ---------- CSV exports ----------
-const cell = (v: unknown) => {
-  let s = v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : typeof v === 'object' ? JSON.stringify(v) : String(v);
-  if (typeof v === 'string' && /^[=+@\t\r]|^-[^0-9]/.test(s)) s = `'${s}`; // keep spreadsheets from evaluating text as a formula
-  return `"${s.replace(/"/g, '""')}"`;
-};
+const cell = csvCell;
 const csv = (c: Context, name: string, header: string[], rows: unknown[][]) =>
   c.body([header.join(','), ...rows.map((r) => r.map(cell).join(','))].join('\r\n') + '\r\n', 200, {
     'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="laissez-${name}-${today()}.csv"`, 'cache-control': 'no-store',

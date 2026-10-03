@@ -2,6 +2,7 @@
 // holdings, audit), run on demand as rows or CSV, or delivered on a schedule by email. The client never sends
 // SQL: it names columns and operators from the catalog below, and every value is a bound parameter.
 // Mounted by routes/reports.ts under /v1. runScheduledReports is exported for the daily cron (index.ts).
+import { csvCell } from '../../../src/proto/csv';
 import { z } from 'zod';
 import type { Context } from 'hono';
 import { router, need, body, auditQ, audit, type C } from '../http';
@@ -184,11 +185,7 @@ export async function runDefinition(sql: Sql, ws: string, def: DefinitionIn, lim
 }
 
 // ---------- CSV ----------
-const cell = (v: unknown) => {
-  let s = v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : typeof v === 'object' ? JSON.stringify(v) : String(v);
-  if (typeof v === 'string' && /^[=+@\t\r]|^-[^0-9]/.test(s)) s = `'${s}`;
-  return `"${s.replace(/"/g, '""')}"`;
-};
+const cell = csvCell;
 export const toCsv = (header: { key: string; label: string }[], rows: Record<string, unknown>[]) =>
   [header.map((h) => cell(h.label)).join(','), ...rows.map((r) => header.map((h) => cell(r[h.key])).join(','))].join('\r\n') + '\r\n';
 const wantsCsv = (c: Context) => /text\/csv/i.test(c.req.header('accept') ?? '') || c.req.query('format') === 'csv';

@@ -2,12 +2,12 @@
 import Layout from '../layouts/Layout.astro';
 import { url } from '../lib/url';
 ---
-<Layout title="Terms" description="Sandbox terms for Laissez: testnet only, no real assets, no warranty, fictional institutions, 7-day deletion, acceptable use and limits." path="terms/">
+<Layout title="Terms" description="Terms for Laissez: sandbox use, testnet only, no real assets, no warranty, fictional institutions, 7-day deletion, acceptable use, and how paid plans and order forms work." path="terms/">
   <section class="page-hero">
     <div class="wrap">
       <h1>Sandbox terms</h1>
-      <p class="lede">These terms cover the public sandbox, the guided demo, the API and this site. Production access is governed by a separate written agreement with each design partner. Short, because the sandbox is simple: it is a demonstration environment with fictional data and no real assets.</p>
-      <p class="updated">Last updated 2 October 2026.</p>
+      <p class="lede">These terms cover the public sandbox, the guided demo, the API, this site, and the order forms organizations accept inside Laissez. They are short because the sandbox is simple: a demonstration environment with fictional data and no real assets. Real organizations also accept a written order form, described below.</p>
+      <p class="updated">Last updated 2 October 2026. Version 2026-10-02. Draft for counsel review before production use.</p>
     </div>
   </section>
   <section class="band">
@@ -38,7 +38,17 @@ import { url } from '../lib/url';
       <p>To the extent the law allows, Laissez and its founder are not liable for any loss arising from use of the sandbox, the demo, the API or this site, including loss of data in a deleted sandbox, reliance on a rule pack, or downtime. Where liability cannot be excluded it is limited to the amount you paid for the sandbox, which is nothing.</p>
 
       <h2>Accounts and organizations</h2>
-      <p>If you create an account with a passkey or single sign-on, you are responsible for the devices that hold your passkeys and for the people you invite. An organization administrator can remove members and delete the organization. Deletion is permanent, apart from the dated record that something was deleted.</p>
+      <p>If you create an account with a passkey or single sign-on, you must accept these terms, and Laissez records the version and the time. You are responsible for the devices that hold your passkeys, for keeping your recovery email address current, and for the people you invite. You can delete your own account from the Security page. An organization administrator can remove members and delete the organization. Deletion is permanent, apart from the dated record that something was deleted.</p>
+
+      <h2>Paid plans and order forms</h2>
+      <ul>
+        <li>Production use needs a verified organization and an order form. An administrator reviews and accepts it inside Laissez: the plan, the price, the billing period and these terms, with the person's name, the time and a hash of their network address recorded. That acceptance is the signature. Nothing is charged before it.</li>
+        <li>Fees are the platform fee and the usage fee on the order form, in US dollars. Usage is counted per UTC day from settlements the product records, and reversed settlements are removed from the count. Taxes, where they apply, are added as a separate line on the invoice.</li>
+        <li>Invoices are issued after each billing period and are due by the date printed on them. Payment is made on a page hosted by Stripe. Laissez never receives card or bank details.</li>
+        <li>If an invoice is still unpaid after its due date, Laissez emails the organization's administrators 1 day and 14 days past due. At 30 days past due the organization is suspended: reads, data exports and the billing page keep working, and anything that writes (new decisions, settlements, changes) stops until the balance is paid. Paying restores access immediately.</li>
+        <li>An organization can export its data at any time and may end the agreement as the order form says. Laissez keeps invoices and the audit log as the law and the audit trail require.</li>
+        <li>The data processing terms are in the <a href={url('dpa/')}>draft data processing addendum</a>, and the processors Laissez uses are on the <a href={url('subprocessors/')}>sub-processors page</a>.</li>
+      </ul>
 
       <h2>Privacy</h2>
       <p>What is collected and for how long is on the <a href={url('privacy/')}>privacy page</a>.</p>

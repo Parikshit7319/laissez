@@ -2,7 +2,7 @@
 // Covers accounts (passkeys simulated with a software authenticator), SSO through the demo
 // identity provider, roles, tenant isolation, the hash-chained audit log, decisions, settlement,
 // screening, monitoring, documents, fund terms, the credential network, the portal, Travel Rule and reports.
-import { webcrypto as wc, createHash, generateKeyPairSync, sign as nodeSign } from 'node:crypto';
+import { webcrypto as wc, createHash, createHmac, generateKeyPairSync, sign as nodeSign } from 'node:crypto';
 
 const BASE = process.argv[2] ?? 'https://laissez-api.laissez.workers.dev';
 const ORIGIN = process.env.SMOKE_ORIGIN ?? (process.argv[2]?.includes('127.0.0.1') || process.argv[2]?.includes('localhost') ? 'http://localhost:4321' : 'https://parikshit7319.github.io');
@@ -24,6 +24,17 @@ async function call(method, path, { token, body, headers = {}, raw = false } = {
 }
 const get = (p, o) => call('GET', p, o);
 const post = (p, body, o = {}) => call('POST', p, { ...o, body });
+const put = (p, body, o = {}) => call('PUT', p, { ...o, body });
+const patch = (p, body, o = {}) => call('PATCH', p, { ...o, body });
+
+// RFC 6238 code for a base32 secret, used to exercise the authenticator-app endpoints.
+function totp(secret, atMs = Date.now()) {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; let bits = 0, val = 0; const bytes = [];
+  for (const ch of secret) { val = (val << 5) | A.indexOf(ch); bits += 5; if (bits >= 8) { bytes.push((val >>> (bits - 8)) & 255); bits -= 8; } }
+  const msg = Buffer.alloc(8); msg.writeBigUInt64BE(BigInt(Math.floor(atMs / 30000)));
+  const h = createHmac('sha1', Buffer.from(bytes)).update(msg).digest(); const o = h[19] & 15;
+  return String((((h[o] & 127) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3]) % 1_000_000).padStart(6, '0');
+}
 
 // ---------- Software passkey ----------
 function softAuthenticator() {
@@ -36,11 +47,11 @@ function softAuthenticator() {
       const clientDataJSON = Buffer.from(JSON.stringify({ type: 'webauthn.create', challenge: options.challenge, origin: ORIGIN, crossOrigin: false }));
       return { id, rawId: id, type: 'public-key', response: { clientDataJSON: b64u(clientDataJSON), attestationObject: '', publicKey: b64u(spki), publicKeyAlgorithm: -7, transports: ['internal'] } };
     },
-    assert(options) {
+    assert(options, { uv = true } = {}) {
       counter++;
       const clientDataJSON = Buffer.from(JSON.stringify({ type: 'webauthn.get', challenge: options.challenge, origin: ORIGIN, crossOrigin: false }));
       const rpHash = createHash('sha256').update(RP_ID).digest();
-      const authData = Buffer.concat([rpHash, Buffer.from([0x05]), Buffer.from([0, 0, 0, counter])]);
+      const authData = Buffer.concat([rpHash, Buffer.from([uv ? 0x05 : 0x01]), Buffer.from([0, 0, 0, counter])]);
       const signed = Buffer.concat([authData, createHash('sha256').update(clientDataJSON).digest()]);
       const signature = nodeSign('sha256', signed, privateKey);
       return { id, rawId: id, type: 'public-key', response: { clientDataJSON: b64u(clientDataJSON), authenticatorData: b64u(authData), signature: b64u(signature), userHandle: null } };
@@ -213,7 +224,7 @@ function softAuthenticator() {
   // ---------- Passkey account ----------
   const auth = softAuthenticator();
   const email = `smoke+${Date.now()}@laissez.test`;
-  const ro1 = await post('/v1/auth/register/options', { email, name: 'Smoke Test', org_name: 'Smoke Test Org', demo_data: false });
+  const ro1 = await post('/v1/auth/register/options', { email, name: 'Smoke Test', org_name: 'Smoke Test Org', demo_data: false, accept_terms: true });
   ok('register options', ro1.status === 200 && ro1.json?.options?.challenge);
   const rv = await post('/v1/auth/register/verify', { challenge_id: ro1.json.challenge_id, credential: auth.register(ro1.json.options) });
   ok('passkey registered and org created', rv.status === 201 && rv.json?.session_token, JSON.stringify(rv.json));
@@ -224,6 +235,97 @@ function softAuthenticator() {
   const forged = auth.assert(lo2.json.options); forged.response.signature = b64u(Buffer.from('nope'));
   const lv2 = await post('/v1/auth/login/verify', { challenge_id: lo2.json.challenge_id, credential: forged });
   ok('forged passkey signature refused', lv2.status >= 400);
+
+  // ---------- Account security ----------
+  const noTerms = await post('/v1/auth/register/options', { email: `noterms+${Date.now()}@laissez.test`, name: 'No Terms', org_name: 'No Terms Org', demo_data: false });
+  ok('sign-up refuses without accepting the terms', noTerms.status === 422 && noTerms.json?.error?.code === 'terms_required', JSON.stringify(noTerms.json));
+  const authCfg = await get('/v1/auth/config');
+  ok('sign-in configuration is public', authCfg.status === 200 && typeof authCfg.json?.terms_version === 'string' && 'turnstile_site_key' in authCfg.json, JSON.stringify(authCfg.json));
+  const P = rv.json.session_token;
+  const meP = await get('/v1/me', { token: P });
+  ok('new account starts unconfirmed', meP.json?.email_verified === false && meP.json?.user?.email === email, JSON.stringify(meP.json)?.slice(0, 200));
+  const vtok = rv.json?.verification?.dev_link?.split('#/verify-email/')[1];
+  if (vtok) {
+    const badTok = await post('/v1/auth/verify-email', { token: 'ver_' + 'x'.repeat(40) });
+    ok('unknown confirmation link refused', badTok.status === 400 && badTok.json?.error?.code === 'verify_link_invalid');
+    const vf = await post('/v1/auth/verify-email', { token: vtok });
+    ok('email confirmed with the link', vf.status === 200 && vf.json?.verified === true, JSON.stringify(vf.json));
+    const vf2 = await post('/v1/auth/verify-email', { token: vtok });
+    ok('a confirmation link works once', vf2.status === 400);
+    ok('account shows as confirmed', (await get('/v1/me', { token: P })).json?.email_verified === true);
+  } else console.log('skip confirmation link checks: the deployment sent mail instead of exposing a link');
+  const rs = await post('/v1/auth/verify-email/resend', {}, { token: P });
+  ok('confirmation can be requested again', rs.status === 200 && 'verified' in (rs.json ?? {}), JSON.stringify(rs.json));
+  const secOv = await get('/v1/account/security', { token: P });
+  ok('security overview', secOv.status === 200 && secOv.json?.passkeys === 1 && secOv.json?.totp?.enabled === false && secOv.json?.terms?.accepted_version, JSON.stringify(secOv.json)?.slice(0, 300));
+  // Authenticator app: set up, wrong code refused, right code accepted, the same code cannot be replayed.
+  const ts = await post('/v1/account/totp/setup', {}, { token: P });
+  ok('authenticator setup returns a key and URI', ts.status === 201 && /^[A-Z2-7]{32}$/.test(ts.json?.secret ?? '') && ts.json?.uri?.startsWith('otpauth://totp/'), JSON.stringify(ts.json));
+  const tBad = await post('/v1/account/totp/enable', { code: '000000' }, { token: P });
+  ok('wrong authenticator code refused', tBad.status === 400 && tBad.json?.error?.code === 'totp_invalid', JSON.stringify(tBad.json));
+  const tOn = await post('/v1/account/totp/enable', { code: totp(ts.json.secret) }, { token: P });
+  ok('authenticator app enabled', tOn.status === 200 && tOn.json?.enabled === true, JSON.stringify(tOn.json));
+  const tReplay = await post('/v1/account/totp/disable', { code: totp(ts.json.secret) }, { token: P });
+  ok('an authenticator code cannot be replayed', tReplay.status === 400 && tReplay.json?.error?.code === 'totp_invalid', JSON.stringify(tReplay.json));
+  const recoveryStart = await post('/v1/auth/recover/start', { email: `nobody+${Date.now()}@laissez.test` });
+  ok('recovery answers the same for an unknown address', recoveryStart.status === 202 && recoveryStart.json?.requested === true, JSON.stringify(recoveryStart.json));
+  ok('unknown recovery link refused', (await get('/v1/auth/recover/rec_' + 'x'.repeat(40))).status === 404);
+  // Organization security policy.
+  const pol0 = await get('/v1/security-policy', { token: P });
+  ok('default security policy', pol0.status === 200 && pol0.json?.is_default === true && pol0.json?.policy?.session_hours === 168, JSON.stringify(pol0.json)?.slice(0, 200));
+  const polLock = await put('/v1/security-policy', { allowed_email_domains: ['example.com'] }, { token: P });
+  ok('a policy that locks out its author is refused', polLock.status === 422 && polLock.json?.error?.code === 'policy_locks_you_out', JSON.stringify(polLock.json));
+  const polSso = await put('/v1/security-policy', { require_sso: true }, { token: P });
+  ok('requiring SSO before it is set up is refused', polSso.status === 422 && polSso.json?.error?.code === 'sso_not_enabled', JSON.stringify(polSso.json));
+  const polSet = await put('/v1/security-policy', { require_user_verification: true, session_hours: 12, idle_minutes: 60, allowed_email_domains: ['laissez.test'] }, { token: P });
+  ok('policy saved', polSet.status === 200 && polSet.json?.policy?.session_hours === 12, JSON.stringify(polSet.json));
+  const loP1 = await post('/v1/auth/login/options', {});
+  const lvNoUv = await post('/v1/auth/login/verify', { challenge_id: loP1.json.challenge_id, credential: auth.assert(loP1.json.options, { uv: false }) });
+  ok('passkey without user verification refused by policy', lvNoUv.status === 403 && lvNoUv.json?.error?.code === 'user_verification_required', JSON.stringify(lvNoUv.json));
+  const loP2 = await post('/v1/auth/login/options', {});
+  const lvUv = await post('/v1/auth/login/verify', { challenge_id: loP2.json.challenge_id, credential: auth.assert(loP2.json.options) });
+  ok('verified passkey accepted', lvUv.status === 200 && lvUv.json?.session_token, JSON.stringify(lvUv.json));
+  const polInv = await post('/v1/invites', { email: 'person@other-company.com', role: 'ops' }, { token: P });
+  ok('invite outside the allowed domains refused', polInv.status === 422 && polInv.json?.error?.code === 'invite_domain_not_allowed', JSON.stringify(polInv.json));
+  const polOk = await post('/v1/invites', { email: 'colleague@laissez.test', role: 'ops' }, { token: P });
+  ok('invite inside the allowed domains accepted', polOk.status === 201, JSON.stringify(polOk.json));
+  const polReset = await put('/v1/security-policy', {}, { token: P });
+  ok('policy reset to defaults', polReset.status === 200 && polReset.json?.policy?.session_hours === 168 && polReset.json?.policy?.require_user_verification === false);
+  const polSandbox = await put('/v1/security-policy', {}, { token: S });
+  ok('sandboxes carry no security policy', polSandbox.status === 403);
+  // Organization verification.
+  const vs0 = await get('/v1/organization/verification', { token: P });
+  ok('verification starts unverified', vs0.status === 200 && ['unverified', 'verified'].includes(vs0.json?.status), JSON.stringify(vs0.json));
+  const vsBad = await put('/v1/organization/verification', { legal_name: 'X' }, { token: P });
+  ok('verification form validates', vsBad.status === 400);
+  const vsSub = await put('/v1/organization/verification', { legal_name: 'Smoke Test Org Ltd', entity_type: 'fintech', registration_number: 'SMK-0001', country: 'GB', address: '1 Test Street, London EC1A 1AA', contact_name: 'Smoke Test', contact_email: email, use_case: 'Distribute a tokenized money market fund to professional investors in three countries.', attest: true }, { token: P });
+  ok('verification submitted', (vsSub.status === 200 && vsSub.json?.status === 'pending') || vsSub.status === 409, JSON.stringify(vsSub.json));
+  const vsSandbox = await put('/v1/organization/verification', { legal_name: 'Sandbox Ltd', entity_type: 'fintech', registration_number: 'SMK-0002', country: 'GB', address: '1 Test Street, London', contact_name: 'Guest', contact_email: 'guest@laissez.test', use_case: 'Trying the sandbox, which is not a real organization.', attest: true }, { token: S });
+  ok('sandboxes cannot be verified', vsSandbox.status === 403);
+  // Billing.
+  const bill = await get('/v1/billing', { token: P });
+  ok('billing overview for a new organization', bill.status === 200 && bill.json?.plan === 'none' && bill.json?.status === 'none' && bill.json?.usage?.settled_value_usd === 0 && bill.json?.sandbox === false, JSON.stringify(bill.json)?.slice(0, 300));
+  const billSb = await get('/v1/billing', { token: S });
+  ok('sandbox billing shows the days left', billSb.status === 200 && billSb.json?.sandbox === true && billSb.json?.trial?.days_left >= 1, JSON.stringify(billSb.json)?.slice(0, 200));
+  const billProf = await patch('/v1/billing/profile', { legal_name: 'Smoke Test Org Ltd', billing_email: email, address: '1 Test Street, London EC1A 1AA', country: 'gb', tax_id: 'GB123456789', tax_exempt: false }, { token: P });
+  ok('billing profile saved', billProf.status === 200 && billProf.json?.profile?.country === 'GB', JSON.stringify(billProf.json));
+  const billKey = await get('/v1/billing', { token: K });
+  ok('API keys cannot read billing', billKey.status === 403, JSON.stringify(billKey.json));
+  ok('no invoices yet', (await get('/v1/billing/invoices', { token: P })).json?.data?.length === 0);
+  ok('usage endpoint answers', (await get('/v1/billing/usage', { token: P })).json?.totals?.settled_value_usd === 0);
+  const quote = await post('/v1/billing/quote-request', { plan: 'platform', expected_value_usd: 50_000_000, message: 'Smoke test quote request.' }, { token: P });
+  ok('quote request recorded', quote.status === 201 && quote.json?.status === 'new', JSON.stringify(quote.json));
+  const quoteSb = await post('/v1/billing/quote-request', { plan: 'platform' }, { token: S });
+  ok('a sandbox guest needs a real email to ask for a quote', quoteSb.status === 422 && quoteSb.json?.error?.code === 'real_email_required', JSON.stringify(quoteSb.json));
+  ok('staff routes are closed to customers', [401, 501].includes((await get('/v1/internal/revenue', { token: P })).status));
+  ok('stripe webhook rejects an unsigned call', [400, 501].includes((await post('/v1/billing/stripe/webhook', { id: 'evt_x', type: 'invoice.paid' })).status));
+  // A person's own data.
+  const exp = await get('/v1/account/export', { token: P });
+  ok('account export', exp.status === 200 && exp.json?.user?.email === email && exp.json?.passkeys?.length === 1 && !JSON.stringify(exp.json).includes('public_key'), JSON.stringify(exp.json)?.slice(0, 200));
+  const delSole = await call('DELETE', '/v1/account', { token: P, body: { confirm_email: email } });
+  ok('the only administrator cannot delete the account', delSole.status === 409 && delSole.json?.error?.code === 'sole_admin', JSON.stringify(delSole.json));
+  const delMismatch = await call('DELETE', '/v1/account', { token: P, body: { confirm_email: 'wrong@laissez.test' } });
+  ok('account deletion needs the exact email', delMismatch.status === 422);
 
   // ---------- Public metrics and status ----------
   const ev = await post('/v1/events', { event: 'demo_started', anon_id: 'smoke' });

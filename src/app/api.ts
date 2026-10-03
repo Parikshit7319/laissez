@@ -92,6 +92,25 @@ export async function api<T = any>(path: string, opts: ApiOpts = {}): Promise<T>
   return data as T;
 }
 
+// ---------- Deployment configuration (public) ----------
+export type AuthConfig = { mode: 'sandbox' | 'production'; turnstile_site_key: string | null; verification_required: boolean; signup_open: boolean; terms_version: string; recovery_wait_minutes: number };
+const CONFIG_FALLBACK: AuthConfig = { mode: 'sandbox', turnstile_site_key: null, verification_required: false, signup_open: true, terms_version: '', recovery_wait_minutes: 1 };
+let configP: Promise<AuthConfig> | null = null;
+/** What the sign-up and recovery screens need from the API. Cached; never throws, so a slow API does not block the form. */
+export const authConfig = (): Promise<AuthConfig> => (configP ??= api<AuthConfig>('/v1/auth/config', { auth: false }).catch(() => { configP = null; return CONFIG_FALLBACK; }));
+
+/** Fetch a binary response (an invoice PDF) with the session and hand it to the browser as a download. */
+export async function downloadFile(path: string, filename: string) {
+  const res = await api<Response>(path, { raw: true });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, data?.error?.code ?? 'error', data?.error?.message ?? `Download failed (${res.status}).`);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
 // ---------- Product events (fire and forget) ----------
 export const anonId = (): string => {
   let id = ls.get(ANON);

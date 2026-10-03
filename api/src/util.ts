@@ -23,6 +23,18 @@ export type Env = {
   RESEND_API_KEY?: string;
   /** Optional. Sender for outgoing email, for example "Laissez <no-reply@laissez.example>". */
   EMAIL_FROM?: string;
+  /** Optional. Cloudflare Turnstile secret and public site key; the sign-up and recovery forms require a passing check once set. */
+  TURNSTILE_SECRET?: string;
+  TURNSTILE_SITE_KEY?: string;
+  /** Optional. Stripe secret key and webhook signing secret; invoices get a hosted payment page once set. */
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  /** Optional. Seller details printed on invoices. */
+  SELLER_NAME?: string;
+  SELLER_ADDRESS?: string;
+  SELLER_TAX_ID?: string;
+  /** Optional. Where staff notifications (organization verification, quote requests) are sent. */
+  STAFF_EMAIL?: string;
 };
 
 const ALPHA = 'abcdefghijkmnopqrstuvwxyz23456789';

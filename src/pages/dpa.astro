@@ -1,0 +1,72 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { url } from '../lib/url';
+---
+<Layout title="Data processing agreement" description="Draft data processing agreement for Laissez customers: roles, instructions, security, sub-processors, breach notice, transfers and deletion. Not yet reviewed by counsel." path="dpa/">
+  <section class="page-hero">
+    <div class="wrap">
+      <h1>Data processing agreement</h1>
+      <p class="lede">What Laissez commits to when it processes personal data for a customer. This is the draft Laissez will propose to design partners and customers.</p>
+      <p class="updated">Draft of 2 October 2026.</p>
+    </div>
+  </section>
+  <section class="band">
+    <div class="wrap prose">
+      <div class="note-box" role="note">
+        <strong>Status: draft for counsel.</strong> This text has not been reviewed by a lawyer, is not legal advice and is not offered for signature as written. Bracketed items need a decision or a lawyer’s drafting. A reviewed version will replace it before any production customer signs.
+      </div>
+
+      <h2>1. Parties and roles</h2>
+      <p>The customer is the controller of personal data it puts into Laissez, including data about its own clients and investors. Laissez is the processor and acts only on the customer’s documented instructions. The customer’s use of the application and the API is its instruction. Laissez is the controller of its own account, billing and security records, which the <a href={url('privacy/')}>privacy page</a> describes.</p>
+
+      <h2>2. What is processed, and why</h2>
+      <table class="grid">
+        <thead><tr><th>Item</th><th>Detail</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Purpose</th><td>Checking investor eligibility against jurisdictional rules before a trade, recording decisions and settlements, screening names against sanctions lists, and keeping an audit log.</td></tr>
+          <tr><th scope="row">Data subjects</th><td>The customer’s clients and investors (individuals and the representatives of entities); the customer’s staff who use Laissez.</td></tr>
+          <tr><th scope="row">Categories</th><td>Name, country of residence, booking centre, investor classifications and the evidence references behind them, sanctions screening matches, holdings, orders and settlements. For staff: name, work email, role, passkey public key, session records.</td></tr>
+          <tr><th scope="row">Special categories</th><td>None intended. The customer should not enter any. Sanctions matches can imply criminal or political exposure; Laissez stores them only as screening results.</td></tr>
+          <tr><th scope="row">Duration</th><td>The term of the order form, then deletion as set out in section 8.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>3. Laissez’s obligations</h2>
+      <ul>
+        <li>Process personal data only on the customer’s instructions, and tell the customer if an instruction appears to break data protection law.</li>
+        <li>Keep everyone who can access the data bound by confidentiality. Today that is the founder only.</li>
+        <li>Keep the technical and organizational measures in section 4.</li>
+        <li>Help the customer answer requests from data subjects and regulators, using the export and deletion features and, where those are not enough, on written request. [For counsel: any fee for assistance beyond the product.]</li>
+        <li>Not sell the data, use it for advertising or use it to train models.</li>
+      </ul>
+
+      <h2>4. Security measures</h2>
+      <p>The measures that exist today, and the ones that do not, are described on the <a href={url('trust/')}>trust page</a>, which is part of this agreement as Annex II. In short: passkey sign-in with email confirmation and an optional authenticator app for recovery, organization-level sign-in policies, role-based access with a two-person rule for policy changes, row-level tenant isolation in the database, hashed credentials, encryption in transit, a hash-chained audit log, and CSV exports that neutralize spreadsheet formulas. Laissez has no external audit or penetration test yet; the trust page says so. [For counsel: whether to state a commitment date for a penetration test and for SOC 2.]</p>
+
+      <h2>5. Sub-processors</h2>
+      <p>The customer gives general authorization to the sub-processors on the <a href={url('subprocessors/')}>sub-processors page</a> (Annex III). Laissez adds or replaces a sub-processor only after updating that page and emailing the customer’s administrators at least 30 days ahead. The customer may object on reasonable data protection grounds within that time. If the parties cannot agree, the customer may end the affected service and receive a refund of prepaid fees for the unused period. Laissez stays responsible for its sub-processors and binds each to terms no less protective than these.</p>
+
+      <h2>6. Personal data breach</h2>
+      <p>Laissez tells the customer’s administrators without undue delay, and within 72 hours, after becoming aware of a breach affecting the customer’s personal data. The notice says what happened, which data and records are affected, what Laissez has done and what it recommends the customer does. Laissez has no incident response program beyond this commitment yet; the trust page lists that as a gap. [For counsel: confirm 72 hours against the customer’s own regulatory deadlines.]</p>
+
+      <h2>7. Transfers</h2>
+      <p>Customer data is stored in the United States. Where the customer’s data is subject to GDPR, UK GDPR or the Swiss FADP, the parties incorporate the EU Standard Contractual Clauses (Commission Decision 2021/914), Module Two, with the UK Addendum and the Swiss amendments as needed. Laissez is not certified under the EU-US Data Privacy Framework and does not rely on it. [For counsel: select the clause options, governing law and supervisory authority, and complete the annexes.]</p>
+
+      <h2>8. Return and deletion</h2>
+      <p>During the term the customer can export everything in its organization from Settings, and can delete the organization at any time. Within 30 days after the agreement ends, or after the customer deletes the organization, Laissez deletes the customer’s personal data from live systems. Database backups age out under the provider’s retention window, and Laissez keeps only a dated deletion record: the organization’s name, who deleted it, when, and a hash of the final export. Entries a customer’s own audit log recorded about it are deleted with the organization.</p>
+
+      <h2>9. Audits</h2>
+      <p>Laissez gives the customer the information needed to show compliance with this agreement. Once a year, and after a breach, the customer may audit Laissez’s relevant controls on 30 days’ notice, during business hours and without access to other customers’ data. When Laissez has a SOC 2 report, delivering it satisfies a routine audit request. [For counsel: cost allocation and scope.]</p>
+
+      <h2>10. Liability and order of precedence</h2>
+      <p>Liability under this agreement is subject to the limits in the order form. If this agreement and the order form conflict on the processing of personal data, this agreement prevails. [For counsel.]</p>
+
+      <h2>Ask for a copy to sign</h2>
+      <p>Design partners and customers who need a signed agreement can write to <a href="mailto:parikshit.ambhore@rice.edu">parikshit.ambhore@rice.edu</a>. Until counsel has reviewed this text, expect the first agreements to be negotiated with the customer’s own lawyers.</p>
+    </div>
+  </section>
+</Layout>
+<style>
+  .note-box { border: 1px solid var(--brass, #b8975a); background: rgba(184, 151, 90, 0.1); border-radius: 10px; padding: 0.9rem 1.1rem; font-size: 0.95rem; }
+  .prose table.grid th[scope='row'] { width: 10rem; font-weight: 560; }
+</style>

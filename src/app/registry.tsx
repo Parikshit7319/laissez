@@ -24,6 +24,8 @@ import { ReportBuilder } from './views/reports2';
 import { ChainOverview, ChainJobsPage, Reconciliation } from './views/chain';
 import { ImportPage } from './views/import';
 import { RuleWorkbench } from './views/rules';
+import { Billing } from './views/billing';
+import { SecurityPolicy, Verification } from './views/policy';
 
 export type RouteProps = { params: Record<string, string>; query: URLSearchParams };
 /** Sidebar groups shown open at the top. Every other group sits under More, collapsed by default. */
@@ -116,12 +118,15 @@ export const ROUTES: RouteEntry[] = [
   { pattern: '/settings/members', group: 'Organization', label: 'Members', component: Members },
   { pattern: '/settings/sso', group: 'Organization', label: 'Single sign-on', component: SingleSignOn },
   { pattern: '/settings/security', group: 'Organization', label: 'Security', component: Security },
+  { pattern: '/settings/security-policy', group: 'Organization', label: 'Security policy', component: SecurityPolicy },
   { pattern: '/settings/sessions', group: 'Organization', label: 'Sessions and recovery', component: Sessions },
   { pattern: '/settings/provisioning', group: 'Organization', label: 'Provisioning', component: Provisioning },
   { pattern: '/settings/api-keys', group: 'Organization', label: 'API keys', component: ApiKeys, perm: 'keys:admin' },
   { pattern: '/settings/branding', group: 'Organization', label: 'Branding', component: Branding },
   { pattern: '/settings/outbox', group: 'Organization', label: 'Outbox', component: Outbox },
   { pattern: '/settings/organization', group: 'Organization', label: 'Organization', component: Organization },
+  { pattern: '/settings/verification', group: 'Organization', label: 'Verification', component: Verification },
+  { pattern: '/settings/billing', group: 'Organization', label: 'Billing', component: Billing, perm: 'billing:read' },
   { pattern: '/approval-policies', group: 'Organization', label: 'Approval policies', component: ApprovalPolicies },
   { pattern: '/keys', group: 'Organization', component: ApiKeys, perm: 'keys:admin', hidden: true },
 ];

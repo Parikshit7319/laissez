@@ -1,5 +1,6 @@
 // Platform: API keys, idempotency, security headers, webhooks, the audit log and its verification,
 // product analytics, the public status page and public product metrics.
+import { csvRow } from '../../../src/proto/csv';
 import { z } from 'zod';
 import type { MiddlewareHandler } from 'hono';
 import { adminSql } from '../db';
@@ -8,6 +9,7 @@ import { type Vars, router, body, bg, need, audit, auditQ, SCOPES } from '../htt
 import { deliver } from '../ctx';
 import { VERSIONS, LATEST_VERSION } from '../version';
 import { pageParams, pageOut } from '../pagination';
+import { emailAdmins, templates as mailTemplates } from '../email';
 
 export const routes = router();
 export const publicRoutes = router();
@@ -134,6 +136,7 @@ routes.post('/api-keys', async (c) => {
       returning id, name, prefix, scopes, ip_allowlist, expires_at, created_at, last_used_at, rotated_from`,
     auditQ(sql, ws, a, 'api_key.created', key.slice(0, 12), { name: b.name, scopes, ip_allowlist: allow, expires_at: expires }),
   ]);
+  bg(c, emailAdmins(c.env, c.get('admin'), ws, 'security_alert', mailTemplates.securityAlert({ title: `API key ${b.name} was created`, lines: [`${a.name} created an API key named "${b.name}" with ${scopes.length} scope${scopes.length === 1 ? '' : 's'}: ${scopes.join(', ')}.${allow ? ` It only works from ${allow.join(', ')}.` : ' It has no IP allowlist.'}`, 'If this was not expected, revoke the key under Settings, API keys.'], link: `${c.env.APP_URL}#/settings/api-keys`, button: 'Review API keys' })));
   return c.json({ ...keyRow(row), api_key: key, note: 'Store this key now. It is shown once.' }, 201);
 });
 routes.post('/api-keys/:id/rotate', async (c) => {
@@ -152,6 +155,7 @@ routes.post('/api-keys/:id/rotate', async (c) => {
     sql`update api_keys set expires_at = least(coalesce(expires_at, 'infinity'::timestamptz), now() + interval '24 hours') where workspace_id = ${ws} and id = ${old.id} returning expires_at`,
     auditQ(sql, ws, a, 'api_key.rotated', key.slice(0, 12), { from: old.prefix, old_key_id: old.id }),
   ]);
+  bg(c, emailAdmins(c.env, c.get('admin'), ws, 'security_alert', mailTemplates.securityAlert({ title: `API key ${old.name} was rotated`, lines: [`${a.name} rotated the API key "${old.name}". The old key stops working in 24 hours.`], link: `${c.env.APP_URL}#/settings/api-keys`, button: 'Review API keys' })));
   return c.json({ ...keyRow(row), api_key: key, old_key_expires_at: oldRow.expires_at, note: 'Store this key now. It is shown once. The old key keeps working for 24 hours so you can deploy the new one.' }, 201);
 });
 routes.delete('/api-keys/:id', async (c) => {
@@ -255,9 +259,8 @@ routes.get('/audit-events.csv', async (c) => {
   need(c, 'audit:export');
   const sql = c.get('sql'); const ws = c.get('ws');
   const rows = await sql`select seq, created_at, type, subject, actor, actor_name, data, prev_hash, hash from audit_events where workspace_id = ${ws} order by seq desc limit 5000`;
-  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const csv = ['seq,created_at,type,subject,actor,actor_name,data,prev_hash,hash',
-    ...rows.map((r) => [r.seq, new Date(r.created_at).toISOString(), r.type, r.subject, r.actor, r.actor_name, JSON.stringify(r.data), r.prev_hash, r.hash].map(esc).join(','))].join('\n');
+    ...rows.map((r) => csvRow([r.seq, new Date(r.created_at).toISOString(), r.type, r.subject, r.actor, r.actor_name, JSON.stringify(r.data), r.prev_hash, r.hash]))].join('\r\n') + '\r\n';
   bg(c, audit(sql, ws, c.get('actor'), 'audit.exported', null, { rows: rows.length }));
   return c.body(csv, 200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': 'attachment; filename="laissez-audit-log.csv"' });
 });

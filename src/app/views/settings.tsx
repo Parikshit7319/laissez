@@ -5,6 +5,7 @@ import { useApi, Head, Btn, Chip, ErrorBox, Loading, Empty, Field, Card, Copy, R
 import { useMe, PermBtn, PermNote, ROLE_LABEL, type Role } from '../auth';
 import { createPasskey } from '../webauthn';
 import { KeysExtras } from './settings2';
+import { AccountSecurity } from './account';
 import { THEMES, readTheme, setTheme, onThemeChange, type Theme } from '../theme';
 
 const ROLE_HELP: Record<Role, string> = {
@@ -229,6 +230,7 @@ export function Security() {
       <Head title="Security" sub="Where you are signed in, and the passkeys that can sign you in. Laissez has no passwords to leak or reset." />
       <ErrorBox error={err} />
       <p class="small muted">Locations, signing out everywhere else and recovery codes are on <a href="#/settings/sessions">Sessions and recovery</a>.</p>
+      {isSandbox ? null : <AccountSecurity />}
       <Card title="Signed-in sessions" pad={false}>
         {s.loading && !s.data ? <div class="pad"><Loading /></div> : s.error ? <div class="pad"><ErrorBox error={s.error} onRetry={s.reload} /></div> : (
           <div class="tw"><table class="t">

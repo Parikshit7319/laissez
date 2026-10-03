@@ -2,9 +2,10 @@
 import { createContext } from 'preact';
 import type { ComponentChildren } from 'preact';
 import { useContext, useEffect, useRef, useState } from 'preact/hooks';
-import { api, API_BASE, ApiError, adoptSession, clearCredentials, getSession, setKey, setSession, track } from './api';
+import { api, API_BASE, ApiError, adoptSession, authConfig, clearCredentials, getSession, setKey, setSession, track, type AuthConfig } from './api';
 import { Btn, ErrorBox, Field, Loading } from './ui';
 import { createPasskey, getPasskey } from './webauthn';
+import { Turnstile } from './turnstile';
 
 // ---------- Roles and permissions (mirrors api/src/http.ts) ----------
 export type Role = 'admin' | 'ops' | 'compliance' | 'legal' | 'issuer' | 'developer' | 'auditor';
@@ -17,7 +18,7 @@ const ROLE_PERMS: Record<Role, string[]> = {
   admin: ['*'],
   ops: ['read', 'clients:write', 'orders:write', 'work:write'],
   compliance: ['read', 'clients:write', 'compliance:write', 'policy:approve', 'work:write', 'audit:export', 'rules:write', 'rules:approve'],
-  legal: ['read', 'compliance:write', 'rules:approve'],
+  legal: ['read', 'compliance:write', 'rules:approve', 'billing:read'],
   issuer: ['read', 'funds:write', 'policy:approve'],
   developer: ['read', 'developer', 'keys:admin'],
   auditor: ['read', 'audit:export'],
@@ -26,12 +27,13 @@ const SCOPE_PERMS: Record<string, string[]> = {
   read: ['read', 'audit:export'], orders: ['orders:write'], clients: ['clients:write'], funds: ['funds:write'],
   compliance: ['compliance:write', 'work:write', 'rules:write'], developer: ['developer'], admin: ['keys:admin'],
 };
-const HUMAN_ONLY = new Set(['policy:approve', 'members:admin', 'rules:approve']);
+const HUMAN_ONLY = new Set(['policy:approve', 'members:admin', 'rules:approve', 'billing:write']);
 export const PERM_TEXT: Record<string, string> = {
   'read': 'read this organization', 'clients:write': 'manage clients and credentials', 'orders:write': 'place orders or settle',
   'funds:write': 'change funds or propose policy changes', 'policy:approve': 'approve policy changes', 'compliance:write': 'make compliance decisions',
   'work:write': 'resolve work items', 'developer': 'manage webhooks', 'keys:admin': 'manage API keys', 'members:admin': 'manage members, single sign-on and branding', 'audit:export': 'export the audit log',
   'rules:write': 'author or edit custom rules', 'rules:approve': 'approve custom rules',
+  'billing:read': 'view billing, invoices and contracts', 'billing:write': 'accept contracts and manage billing',
 };
 
 export type Me = {
@@ -39,7 +41,12 @@ export type Me = {
   actor?: { kind: string; name: string; scopes?: string[] };
   acting_as?: { id: string; name: string; role: Role } | null;
   role?: Role; role_label?: string;
-  workspace: { id: string; name: string; kind: 'sandbox' | 'org'; slug: string; brand_name?: string; brand_color?: string; expires_at?: string | null; sso_enabled?: boolean };
+  workspace: { id: string; name: string; kind: 'sandbox' | 'org'; slug: string; brand_name?: string; brand_color?: string; expires_at?: string | null; sso_enabled?: boolean; billing_status?: 'none' | 'active' | 'past_due' | 'suspended'; verification_status?: 'unverified' | 'pending' | 'verified' | 'rejected' };
+  /** False until the address is confirmed. Only meaningful when verification_required. */
+  email_verified?: boolean;
+  verification_required?: boolean;
+  totp_enabled?: boolean;
+  recovery_session?: boolean;
   organizations?: { workspace_id: string; name: string; kind: string; role: Role }[];
   teammates?: { id: string; name: string; title?: string; role: Role }[];
 };
@@ -138,7 +145,7 @@ export function NoAccess({ perm, title }: { perm: string; title: string }) {
 }
 
 // ---------- Signed-out screens ----------
-function Frame({ children }: { children: ComponentChildren }) {
+export function Frame({ children }: { children: ComponentChildren }) {
   return (
     <div class="gate">
       <div class="gate-wrap">
@@ -152,7 +159,7 @@ function Frame({ children }: { children: ComponentChildren }) {
             <div><dt>1</dt><dd>hash-chained audit log you can verify</dd></div>
           </dl>
           <p class="gate-foot">Institutions and people in the app are fictional. Thresholds and legal references are real.</p>
-          <p class="gate-links"><a href="../demo/">Guided demo</a><a href="../developers/">Developers</a><a href="../privacy/">Privacy</a><a href="../terms/">Terms</a></p>
+          <p class="gate-links"><a href="../demo/">Guided demo</a><a href="../developers/">Developers</a><a href="../trust/">Security</a><a href="../privacy/">Privacy</a><a href="../terms/">Terms</a></p>
         </div>
         <div class="gate-card">{children}</div>
       </div>
@@ -219,7 +226,7 @@ export function Gate({ onReady, notice }: { onReady: () => void; notice?: string
         <Btn onClick={() => setSso(!sso)}>{sso ? 'Hide single sign-on' : 'Sign in with SSO'}</Btn>
         <Btn kind="ghost" onClick={() => { setErr(null); setMode('register'); }}>Create an account</Btn>
       </div>
-      <p class="muted small"><a href="#/recover">Lost your passkeys?</a> Use a recovery code.</p>
+      <p class="muted small">Lost your passkeys? <a href="#/recover/email">Recover by email</a> or <a href="#/recover">use a recovery code</a>.</p>
       {sso ? (
         <form class="gate-sso" onSubmit={(e) => { e.preventDefault(); run('sso', () => startSso(email)); }}>
           <Field label="Work email" hint="We send you to your company's sign-in page.">
@@ -235,40 +242,61 @@ export function Gate({ onReady, notice }: { onReady: () => void; notice?: string
 }
 
 type Invite = { token: string; organization: string; role_label: string; email?: string };
+/** The confirmation link a deployment without a mail provider hands back, kept so the confirm screen can show it. */
+let pendingVerification: { sent: boolean; dev_link: string | null } | null = null;
+export const takePendingVerification = () => pendingVerification;
+
 function RegisterForm({ onBack, onDone, invite }: { onBack?: () => void; onDone: () => void; invite?: Invite }) {
   const [f, setF] = useState({ name: '', email: invite?.email ?? '', org_name: '', demo_data: true });
+  const [accept, setAccept] = useState(false);
+  const [cfg, setCfg] = useState<AuthConfig | null>(null);
+  const [ts, setTs] = useState<string | null>(null);
+  const [tsNonce, setTsNonce] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<any>(null);
   const set = (k: string, v: unknown) => setF({ ...f, [k]: v });
+  useEffect(() => { authConfig().then(setCfg); }, []);
+  const needsCheck = !!cfg?.turnstile_site_key;
+  const closed = cfg ? !cfg.signup_open : false;
   const submit = async (e: Event) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try {
-      const body: Record<string, unknown> = { name: f.name.trim(), email: f.email.trim() };
+      const body: Record<string, unknown> = { name: f.name.trim(), email: f.email.trim(), accept_terms: true };
+      if (needsCheck) body.turnstile_token = ts;
       if (invite) body.invite_token = invite.token; else { body.org_name = f.org_name.trim(); body.demo_data = f.demo_data; }
       const o = await api('/v1/auth/register/options', { body, auth: false });
       const credential = await createPasskey(o.options);
       const r = await api('/v1/auth/register/verify', { body: { challenge_id: o.challenge_id, credential }, auth: false });
+      pendingVerification = r.verification ? { sent: !!r.verification.sent, dev_link: r.verification.dev_link ?? null } : null;
       adoptSession(r.session_token, r.workspace_id);
       track('account_created', { via: invite ? 'invite' : 'signup', demo_data: invite ? null : f.demo_data });
       onDone();
-    } catch (x) { setErr(x); } finally { setBusy(false); }
+    } catch (x) { setErr(x); setTs(null); setTsNonce((n) => n + 1); } finally { setBusy(false); }
   };
   return (
     <>
       {onBack ? <button type="button" class="link gate-back" onClick={onBack}>Back</button> : null}
       <h2 class="gate-h">{invite ? `Join ${invite.organization}` : 'Create an account'}</h2>
       <p>{invite ? `You join as ${invite.role_label}. Your account is yours: you can belong to more than one organization.` : 'Your organization gets its own workspace. You become its administrator and can invite your team.'}</p>
+      {closed ? <div class="note" role="status">New accounts are closed on this deployment until outbound email is set up, because every account must confirm its address. Try again later, or open a sandbox, which needs no account.</div> : null}
       <form class="gate-form" onSubmit={submit}>
-        <Field label="Your name"><input required minLength={2} autoComplete="name" value={f.name} onInput={(e) => set('name', (e.target as HTMLInputElement).value)} placeholder="Elena Marsh" /></Field>
-        <Field label="Work email"><input type="email" required autoComplete="email" value={f.email} onInput={(e) => set('email', (e.target as HTMLInputElement).value)} placeholder="elena@harbourline.example" /></Field>
-        {invite ? null : <Field label="Organization name"><input required minLength={2} autoComplete="organization" value={f.org_name} onInput={(e) => set('org_name', (e.target as HTMLInputElement).value)} placeholder="Harbourline Capital" /></Field>}
-        {invite ? null : (
+        <fieldset class="plain-fs" disabled={closed}>
+          <Field label="Your name"><input required minLength={2} autoComplete="name" value={f.name} onInput={(e) => set('name', (e.target as HTMLInputElement).value)} placeholder="Elena Marsh" /></Field>
+          <Field label="Work email" hint={invite?.email ? 'Your invite was sent to this address.' : 'We send a confirmation link here. Use an address you can open.'}><input type="email" required autoComplete="email" value={f.email} onInput={(e) => set('email', (e.target as HTMLInputElement).value)} placeholder="elena@harbourline.example" /></Field>
+          {invite ? null : <Field label="Organization name"><input required minLength={2} autoComplete="organization" value={f.org_name} onInput={(e) => set('org_name', (e.target as HTMLInputElement).value)} placeholder="Harbourline Capital" /></Field>}
+          {invite ? null : (
+            <label class="check gate-check">
+              <input type="checkbox" checked={f.demo_data} onChange={(e) => set('demo_data', (e.target as HTMLInputElement).checked)} />
+              <span>Start with demo data<span class="f-h"> Fictional clients, funds and holdings, so the app is not empty on day one.</span></span>
+            </label>
+          )}
           <label class="check gate-check">
-            <input type="checkbox" checked={f.demo_data} onChange={(e) => set('demo_data', (e.target as HTMLInputElement).checked)} />
-            <span>Start with demo data<span class="f-h"> Fictional clients, funds and holdings, so the app is not empty on day one.</span></span>
+            <input type="checkbox" required checked={accept} onChange={(e) => setAccept((e.target as HTMLInputElement).checked)} />
+            <span>I agree to the <a href="../terms/" target="_blank" rel="noopener">terms of service</a> and have read the <a href="../privacy/" target="_blank" rel="noopener">privacy notice</a>.{cfg?.terms_version ? <span class="f-h"> Terms version {cfg.terms_version}. We record the version and time you accept.</span> : null}</span>
           </label>
-        )}
-        <Btn type="submit" kind="primary" class="b-wide" busy={busy}>{busy ? 'Waiting for your passkey' : 'Create passkey and account'}</Btn>
+          {needsCheck ? <Turnstile siteKey={cfg!.turnstile_site_key!} nonce={tsNonce} onToken={setTs} onError={(m) => setErr(new Error(m))} /> : null}
+        </fieldset>
+        <Btn type="submit" kind="primary" class="b-wide" busy={busy} disabled={closed || !accept || (needsCheck && !ts)}>{busy ? 'Waiting for your passkey' : 'Create passkey and account'}</Btn>
       </form>
       <ErrorBox error={err} />
       <p class="gate-fine">Your browser asks you to create a passkey for Laissez. {PASSKEY_LINE}</p>

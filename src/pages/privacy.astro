@@ -2,18 +2,18 @@
 import Layout from '../layouts/Layout.astro';
 import { url } from '../lib/url';
 ---
-<Layout title="Privacy" description="What Laissez collects on this site, in the sandbox and in the API, how long it is kept, and what it never does: no third-party trackers, no personal data on-chain, sandbox data deleted after 7 days." path="privacy/">
+<Layout title="Privacy" description="What Laissez collects on this site, in the sandbox, in accounts, billing and the API, how long it is kept, and what it never does: no third-party trackers, no card numbers, no personal data on-chain, sandbox data deleted after 7 days." path="privacy/">
   <section class="page-hero">
     <div class="wrap">
       <h1>Privacy</h1>
-      <p class="lede">This page describes exactly what Laissez collects and why, in plain terms. It covers the marketing site, the sandbox and the API. Laissez is pre-launch software run by its founder; there is no data team and no advertising business behind it.</p>
-      <p class="updated">Last updated 2 October 2026.</p>
+      <p class="lede">This page describes exactly what Laissez collects and why, in plain terms. It covers the marketing site, the sandbox, accounts, billing and the API. Laissez is pre-launch software run by its founder; there is no data team and no advertising business behind it.</p>
+      <p class="updated">Last updated 2 October 2026. Draft for counsel review before production use.</p>
     </div>
   </section>
   <section class="band">
     <div class="wrap prose">
       <h2>In one paragraph</h2>
-      <p>The site has no cookies, no pixels and no third-party analytics. The sandbox app sends anonymous first-party events to the Laissez API under a random identifier stored in your browser; the API strips anything that looks personal before storing them. Sandboxes contain fictional institutions, people and money and are deleted after 7 days. Tokens that could grant access (sessions, API keys, invites) are stored only as SHA-256 hashes. If you request production access, we keep what you typed into the form and reply by email. Nothing personal is ever written to a blockchain.</p>
+      <p>The site has no cookies, no pixels and no third-party analytics. The sandbox app sends anonymous first-party events to the Laissez API under a random identifier stored in your browser; the API strips anything that looks personal before storing them. Sandboxes contain fictional institutions, people and money and are deleted after 7 days. Tokens that could grant access (sessions, API keys, invites, confirmation and recovery links) are stored only as SHA-256 hashes. If you sign up, we keep your name, email, the terms version you accepted and when. If an organization signs a paid order form, we keep the contract, usage counts and invoices; card and bank details go to Stripe and never reach us. Nothing personal is ever written to a blockchain.</p>
 
       <h2>What is collected, where</h2>
       <table class="grid">
@@ -23,10 +23,16 @@ import { url } from '../lib/url';
           <tr><td>Home page, status page</td><td>Your browser reads public JSON from the API (<code>/v1/status</code>, <code>/v1/metrics/public</code>). No identifier is sent.</td><td>Live figures</td><td>Not stored</td></tr>
           <tr><td>Sandbox app</td><td>Anonymous product events (for example <code>sandbox_opened</code>, <code>order_placed</code>) with a random local id kept in your browser's local storage, never linked to a name or email. Property values that look like names, emails, wallets or long numbers are dropped by the API before storage. A hash of your network address is kept for rate limiting only.</td><td>The <a href={url('metrics/')}>live metrics page</a> and improving the product</td><td>Events: 90 days. Hashes: 1 day.</td></tr>
           <tr><td>Sandbox workspace</td><td>Everything you create in a sandbox: fictional clients, credentials, orders, decisions, settlements, policy changes and the audit log. The sandbox name is the only free text you can give it.</td><td>Running the product</td><td>Deleted with the sandbox 7 days after it is opened</td></tr>
-          <tr><td>Account (passkey or SSO)</td><td>Your name, your work email, your passkey's public key and signature counter, your organization's name, your role, and the sessions you have open with device details. No passwords exist.</td><td>Signing you in and showing you your own sessions</td><td>Until you or an administrator removes the account</td></tr>
+          <tr><td>Account (passkey or SSO)</td><td>Your name, your work email and whether you confirmed it, your passkey's public key and signature counter, your organization's name, your role, the sessions you have open with device details, and the terms version you accepted with the time you accepted it. No passwords exist.</td><td>Signing you in, showing you your own sessions, and proving which terms you agreed to</td><td>Until you delete the account or an administrator removes it. The terms record is deleted with the account.</td></tr>
+          <tr><td>Authenticator app (optional)</td><td>The shared secret for your six-digit codes, encrypted with AES-GCM, and the time step of the last code used so a code cannot be replayed. Never included in a data export.</td><td>Protecting account recovery</td><td>Until you turn it off or delete the account</td></tr>
+          <tr><td>Confirmation and recovery links</td><td>A SHA-256 hash of each link, the email address it was sent to, when it was sent, used or cancelled, and a hash of the network address that asked.</td><td>Confirming your email and recovering an account safely</td><td>Seven days after the link expires</td></tr>
+          <tr><td>Sign-up bot check</td><td>When enabled, Cloudflare Turnstile receives your browser's signals and network address on the sign-up form and returns a pass or fail. Laissez stores neither.</td><td>Keeping automated sign-ups out</td><td>Not stored by Laissez</td></tr>
+          <tr><td>Organization verification</td><td>The legal name, entity type, country, registration number and website you submit, the name of the person who submitted it, the sanctions screening result, and the decision with who made it and when.</td><td>Knowing which organization is on the other side before real settlements run</td><td>As long as the organization exists</td></tr>
+          <tr><td>Contracts, usage and invoices</td><td>The plan, price and terms on the order form, the name of the person who accepted it with the time and a hash of the network address, daily counts of decisions and settled value, and invoices with their line items, tax lines and status. When Stripe Invoicing is on, the Stripe customer and invoice identifiers.</td><td>Billing you correctly and keeping the accounting records the law requires</td><td>Kept while the organization is a customer and afterwards for the period accounting law requires; no purge job exists yet</td></tr>
+          <tr><td>Payment details</td><td>Nothing. Invoices are paid on a page hosted by Stripe. Laissez never sees, receives or stores a card or bank account number.</td><td>Not applicable</td><td>Not stored by Laissez</td></tr>
           <tr><td>API keys, sessions, invites, challenges</td><td>Stored as SHA-256 hashes. The plain value is shown once and never kept.</td><td>Authentication</td><td>Until revoked or expired; expired rows are purged daily</td></tr>
           <tr><td>Request access form</td><td>Name, work email, organization, role, what you distribute, your message, a hash of your network address and your browser's user agent string.</td><td>Replying to you and preventing abuse</td><td>Until the conversation ends or you ask us to delete it</td></tr>
-          <tr><td>Email</td><td>Messages Laissez sends (invites, consent requests, portal links, access request confirmations) are written to an outbox table first. When no email provider is configured they stay there and are shown in the app instead of being sent.</td><td>Delivering the message, and letting sandboxes work without a mail server</td><td>90 days</td></tr>
+          <tr><td>Email</td><td>Messages Laissez sends (invites, consent requests, portal links, access request confirmations, email confirmation and recovery links, security alerts, invoices and payment notices) are written to an outbox table first. When no email provider is configured they stay there and are shown in the app instead of being sent. Once a message with a confirmation or recovery link is handed to the provider, the link is removed from the stored copy.</td><td>Delivering the message, and letting sandboxes work without a mail server</td><td>90 days</td></tr>
           <tr><td>Investor portal and consent pages</td><td>The investor's name as the distributor recorded it, the credential and its classifications, document acknowledgements and subscription requests. Access is by a signed link; the page sends no referrer.</td><td>Showing an investor their own eligibility and documents</td><td>As long as the distributor's organization keeps the client</td></tr>
           <tr><td>Blockchain (testnet)</td><td>Decision outcome, a hash of the inputs and rule-pack versions. Never a name, address, wallet owner or document.</td><td>Proving a decision later without exposing who was checked</td><td>Permanent, by nature of the chain</td></tr>
         </tbody>
@@ -38,17 +44,19 @@ import { url } from '../lib/url';
         <li>No cookies. Sign-in state lives in your browser's local storage and is sent only to the Laissez API.</li>
         <li>No selling or sharing of data with anyone for their own purposes.</li>
         <li>No personal data on-chain, in webhooks' signatures, or in product events.</li>
+        <li>No card, bank account or payment credential of any kind. Stripe handles payment.</li>
         <li>No real money and no real investors in the sandbox. Every institution and person in it is fictional; thresholds and legal references are real.</li>
       </ul>
 
       <h2>Who processes the data</h2>
-      <p>The API runs on Cloudflare Workers and the database is Neon Postgres, both in a single US region. Email, when a provider is configured, goes through Resend. Fonts come from Google Fonts. Each of these providers sees only what is needed to do its job; none of them receives sandbox content for its own use.</p>
+      <p>The API runs on Cloudflare Workers and the database is Neon Postgres, both in a single US region. Email, when a provider is configured, goes through Resend. Invoices, when Stripe Invoicing is on, go through Stripe. The sign-up bot check, when on, is Cloudflare Turnstile. Fonts come from Google Fonts. The <a href={url('subprocessors/')}>sub-processors page</a> lists each one with what it receives, where, and how to be told before one is added. Each of these providers sees only what is needed to do its job; none of them receives sandbox content for its own use.</p>
 
       <h2>Your choices</h2>
       <ul>
         <li>Sign out of a sandbox and it is forgotten in your browser immediately; the workspace itself is deleted at the 7-day mark.</li>
+        <li>Download everything Laissez holds about your account as one JSON file, and delete the account, from Settings, Security. No email to us is needed. Deletion removes your passkeys, sessions, memberships and confirmation links and strips your name and email from the user record. Audit entries your organizations already recorded stay, because the audit log is hash-linked and the organization must keep it. It is refused while you are the only administrator of an organization.</li>
         <li>Clear your browser's local storage to reset the anonymous event identifier.</li>
-        <li>Ask for your account, organization or access request to be deleted by writing to <a href="mailto:parikshit.ambhore@rice.edu">parikshit.ambhore@rice.edu</a>. Deleting an organization removes its data and keeps only the dated deletion record the audit trail needs.</li>
+        <li>Ask for an organization or an access request to be deleted, or for anything you cannot do yourself, by writing to <a href="mailto:parikshit.ambhore@rice.edu">parikshit.ambhore@rice.edu</a>. Deleting an organization removes its data and keeps only the dated deletion record the audit trail needs.</li>
         <li>Report a security concern to the same address.</li>
       </ul>
 

@@ -1,4 +1,5 @@
 /** @jsxImportSource preact */
+import { csvRow } from '../../proto/csv';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, money, when, day, JUR, CLASS_LABEL, BOOKING, track, trackOnce } from '../api';
 import { useApi, Head, Btn, Chip, outcomeChip, statusChip, ErrorBox, Loading, Empty, Field, Card, Json, go, Hash, TxLink, ConfirmBtn, Copy } from '../ui';
@@ -729,7 +730,6 @@ Aurelia Pensionskasse,Pension fund,CH,ZRH,CH_PRO
 Wen Li,Individual,HK,HK,
 Al Safa Holdings,Holding company,AE-DIFC,DIFC,DIFC_PRO
 Marcus Hale,Individual,US,NY,US_AI`;
-const csvCell = (v: unknown) => { const s = String(v ?? ''); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 function downloadText(name: string, text: string, type = 'text/csv') {
   try {
     const url = URL.createObjectURL(new Blob([text], { type: `${type};charset=utf-8` }));
@@ -764,7 +764,7 @@ export function Bulk() {
     if (!res) return;
     const head = ['row', 'name', 'residence', 'screening_match', ...res.funds.flatMap((f: string) => [`${f}_outcome`, `${f}_reason`, `${f}_binding_rules`])];
     const body = res.data.map((r: any) => [r.row, r.name, r.residence, r.screening ? `${r.screening.entry} (${r.screening.program}, ${Math.round(r.screening.score * 100)}%)` : '', ...r.results.flatMap((x: any) => [x.outcome, x.reason, (x.binding ?? []).join('; ')])]);
-    downloadText(`laissez-bulk-results-${new Date().toISOString().slice(0, 10)}.csv`, [head, ...body].map((line: unknown[]) => line.map(csvCell).join(',')).join('\n') + '\n');
+    downloadText(`laissez-bulk-results-${new Date().toISOString().slice(0, 10)}.csv`, [head, ...body].map((line: unknown[]) => csvRow(line)).join('\r\n') + '\r\n');
     track('bulk_results_downloaded', { rows: res.data.length });
   };
   const resHint = jurList.length ? jurList.map((j) => j.code).join(', ') : 'SG, HK, CH, DE, AE-DIFC, US';

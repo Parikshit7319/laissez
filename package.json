@@ -13,6 +13,8 @@
     "test:import": "esbuild scripts/test-import.ts --bundle --platform=node --format=esm --outfile=.astro/test-import.mjs --log-level=warning && node .astro/test-import.mjs",
     "test:custom": "esbuild scripts/test-custom-rules.ts --bundle --platform=node --format=esm --outfile=.astro/test-custom.mjs --log-level=warning && node .astro/test-custom.mjs",
     "test:openapi": "esbuild scripts/test-openapi.ts --bundle --platform=node --format=esm --outfile=.astro/test-openapi.mjs --log-level=warning --external:@seriousme/openapi-schema-validator --external:pg --external:pg-native --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" && node .astro/test-openapi.mjs",
+    "test:csv": "esbuild scripts/test-csv.ts --bundle --platform=node --format=esm --outfile=.astro/test-csv.mjs --log-level=warning && node .astro/test-csv.mjs",
+    "test:security-billing": "node api/test/security-billing.mjs",
     "test:mode": "esbuild scripts/test-mode.ts --bundle --platform=node --format=esm --outfile=.astro/test-mode.mjs --log-level=warning --external:pg --external:pg-native --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" && node .astro/test-mode.mjs",
     "docs:openapi": "esbuild scripts/gen-openapi.ts --bundle --platform=node --format=esm --outfile=.astro/gen-openapi.mjs --log-level=warning --external:pg --external:pg-native --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" && node .astro/gen-openapi.mjs",
     "docs:errors": "esbuild scripts/gen-errors.ts --bundle --platform=node --format=esm --outfile=.astro/gen-errors.mjs --log-level=warning --packages=external && node .astro/gen-errors.mjs",
@@ -22,14 +24,15 @@
     "db:reset": "node api/db/local.mjs reset",
     "api:local": "node api/server.mjs",
     "dev:all": "concurrently -k -n db,api,web -c blue,green,magenta \"npm run db:local\" \"sleep 6 && npm run api:local\" \"PUBLIC_API_BASE=http://127.0.0.1:8787 astro dev\"",
-    "test:all": "npm test && npm run test:rules && npm run test:custom && npm run test:import && npm run test:openapi && npm run test:mode"
+    "test:all": "npm test && npm run test:rules && npm run test:custom && npm run test:import && npm run test:openapi && npm run test:mode && npm run test:csv"
   },
   "dependencies": {
-    "@astrojs/preact": "^4.1.3",
+    "@astrojs/preact": "^6.0.5",
     "@astrojs/sitemap": "^3.7.4",
-    "astro": "^5.18.2",
+    "astro": "^7.3.5",
     "d3-geo": "^3.1.1",
     "preact": "^10.29.8",
+    "qrcode-generator": "^2.0.4",
     "topojson-client": "^3.1.0",
     "world-atlas": "^2.0.2"
   },

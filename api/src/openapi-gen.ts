@@ -17,6 +17,8 @@ import * as errors from './errors';
 import * as integrations from './routes/integrations';
 import * as rules from './routes/rules';
 import * as imports from './routes/import';
+import * as security from './routes/security';
+import * as billing from './routes/billing';
 
 type S = Record<string, unknown>;
 
@@ -77,10 +79,12 @@ export type ExtraOp = {
   q?: S[];
   /** Sessions only, even when the permission itself is not human-only. */
   human?: boolean;
+  /** Response content type when it is not JSON. */
+  ct?: string;
 };
 const SCOPE_PERMS: Record<string, string[]> = { read: ['read', 'audit:export'], orders: ['orders:write'], clients: ['clients:write'], funds: ['funds:write'], compliance: ['compliance:write', 'work:write', 'rules:write'], developer: ['developer'], admin: ['keys:admin'] };
-const ROLE_PERMS: Record<string, string[]> = { admin: ['*'], ops: ['read', 'clients:write', 'orders:write', 'work:write'], compliance: ['read', 'clients:write', 'compliance:write', 'policy:approve', 'work:write', 'audit:export', 'rules:write', 'rules:approve'], legal: ['read', 'compliance:write', 'rules:approve'], issuer: ['read', 'funds:write', 'policy:approve'], developer: ['read', 'developer', 'keys:admin'], auditor: ['read', 'audit:export'] };
-const HUMAN_ONLY = ['policy:approve', 'members:admin', 'rules:approve'];
+const ROLE_PERMS: Record<string, string[]> = { admin: ['*'], ops: ['read', 'clients:write', 'orders:write', 'work:write'], compliance: ['read', 'clients:write', 'compliance:write', 'policy:approve', 'work:write', 'audit:export', 'rules:write', 'rules:approve'], legal: ['read', 'compliance:write', 'rules:approve', 'billing:read'], issuer: ['read', 'funds:write', 'policy:approve'], developer: ['read', 'developer', 'keys:admin'], auditor: ['read', 'audit:export'] };
+const HUMAN_ONLY = ['policy:approve', 'members:admin', 'rules:approve', 'billing:write'];
 const ERR_NAME: Record<number, string> = { 400: 'BadRequest', 401: 'Unauthorized', 403: 'Forbidden', 404: 'NotFound', 409: 'Conflict', 410: 'Gone', 422: 'Unprocessable', 429: 'RateLimited', 501: 'NotConfigured', 502: 'BadGateway', 503: 'Unavailable' };
 const isZod = (x: unknown): x is z.ZodTypeAny => !!x && typeof x === 'object' && '_zod' in (x as object);
 
@@ -98,7 +102,7 @@ function buildOp(op: ExtraOp): S {
   if (bearer && write) params.push({ $ref: '#/components/parameters/IdempotencyKey' });
   const ok = op.ok ?? 200;
   const headers: S = { 'Laissez-Version': { $ref: '#/components/headers/LaissezVersion' }, ...(bearer && write ? { 'Idempotent-Replayed': { $ref: '#/components/headers/IdempotentReplayed' } } : {}) };
-  const responses: S = { [String(ok)]: { description: ok === 201 ? 'Created.' : 'OK.', headers, content: { 'application/json': { schema: op.res ?? { description: 'JSON object.' } } } } };
+  const responses: S = { [String(ok)]: { description: ok === 201 ? 'Created.' : 'OK.', headers, content: { [op.ct ?? 'application/json']: { schema: op.res ?? { description: 'JSON object.' } } } } };
   const codes = new Set<number>([400, ...(bearer ? [401, 403] : []), ...(params.some((p) => p.in === 'path') ? [404] : []), ...(op.err ?? []), ...(bearer ? [429] : [])]);
   for (const c of [...codes].sort()) if (!responses[String(c)]) responses[String(c)] = { $ref: `#/components/responses/${ERR_NAME[c]}` };
   const bodySchema = op.body ? (isZod(op.body) ? zodToSchema(op.body) : op.body) : null;
@@ -110,7 +114,7 @@ function buildOp(op: ExtraOp): S {
   };
 }
 
-const EXTRA_MODULES: { OPENAPI_OPS: ExtraOp[]; OPENAPI_SCHEMAS?: Record<string, S> }[] = [flags as any, errors as any, integrations as any, imports as any, rules as any];
+const EXTRA_MODULES: { OPENAPI_OPS: ExtraOp[]; OPENAPI_SCHEMAS?: Record<string, S> }[] = [flags as any, errors as any, integrations as any, imports as any, rules as any, security as any, billing as any];
 
 // ---------- Cursor pagination contract ----------
 /** Lists that page with limit and cursor and answer { data, next_cursor, limit }. */

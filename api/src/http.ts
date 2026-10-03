@@ -26,7 +26,7 @@ const ROLE_PERMS: Record<Role, string[]> = {
   admin: ['*'],
   ops: ['read', 'clients:write', 'orders:write', 'work:write'],
   compliance: ['read', 'clients:write', 'compliance:write', 'policy:approve', 'work:write', 'audit:export', 'rules:write', 'rules:approve'],
-  legal: ['read', 'compliance:write', 'rules:approve'],
+  legal: ['read', 'compliance:write', 'rules:approve', 'billing:read'],
   issuer: ['read', 'funds:write', 'policy:approve'],
   developer: ['read', 'developer'],
   auditor: ['read', 'audit:export'],
@@ -41,13 +41,14 @@ export const SCOPES: Record<string, { label: string; perms: string[] }> = {
   admin: { label: 'Manage API keys', perms: ['keys:admin'] },
 };
 /** Permissions that only a signed-in person can exercise, never an API key. */
-const HUMAN_ONLY = new Set(['policy:approve', 'members:admin', 'rules:approve']);
+const HUMAN_ONLY = new Set(['policy:approve', 'members:admin', 'rules:approve', 'billing:write']);
 
 const PERM_TEXT: Record<string, string> = {
   'read': 'read this organization', 'clients:write': 'manage clients and credentials', 'orders:write': 'place orders or settle',
   'funds:write': 'change funds', 'policy:approve': 'approve or reject policy changes', 'compliance:write': 'make compliance decisions',
   'work:write': 'resolve work items', 'developer': 'manage webhooks', 'keys:admin': 'manage API keys', 'members:admin': 'manage members and SSO', 'audit:export': 'export the audit log',
   'rules:write': 'author or edit custom rules', 'rules:approve': 'approve custom rules',
+  'billing:read': 'view billing, invoices and contracts', 'billing:write': 'accept contracts and manage billing',
 };
 
 export function can(actor: Actor, perm: string): boolean {

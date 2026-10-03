@@ -11,7 +11,7 @@
   },
   "x-laissez-generated-parts": {
    "zod_request_bodies": 24,
-   "router_operations": 7,
+   "router_operations": 50,
    "paginated_lists": 10
   }
  },
@@ -37,6 +37,10 @@
   {
    "name": "Clients",
    "description": "Investors your organization distributes to."
+  },
+  {
+   "name": "Imports",
+   "description": "Bulk import of clients, credentials and holdings from CSV or JSON: upload and preview, then apply in chunks."
   },
   {
    "name": "Credentials",
@@ -85,6 +89,18 @@
   {
    "name": "Rule packs",
    "description": "Reference data, rule packs, the regulatory feed and the rule-drafting agent."
+  },
+  {
+   "name": "Security",
+   "description": "Email confirmation, recovery by email, authenticator app, organization security policy, organization verification, and a person's own data export and deletion."
+  },
+  {
+   "name": "Billing",
+   "description": "Contracts accepted electronically, metered usage, invoices with PDF and Stripe payment links, billing profile and quote requests."
+  },
+  {
+   "name": "Rule workbench",
+   "description": "Rules your compliance team authors as data on top of the shipped packs: tested against the regression suite and your own decisions, signed off by a second person, scheduled with effective dates."
   },
   {
    "name": "Audit",
@@ -729,7 +745,7 @@
     ],
     "operationId": "registerOptions",
     "summary": "Start passkey registration",
-    "description": "Returns WebAuthn creation options. Name a new organization, or pass an invite token to join one. 8 attempts per hour per network.",
+    "description": "Returns WebAuthn creation options. Name a new organization, or pass an invite token to join one. Send accept_terms: true. 8 attempts per hour per network. Production deployments return 503 email_not_configured until outgoing email is set up.",
     "security": [],
     "parameters": [
      {
@@ -765,6 +781,15 @@
          "demo_data": {
           "default": true,
           "type": "boolean"
+         },
+         "accept_terms": {
+          "type": "boolean",
+          "description": "Must be true: accepts the Terms of Service and Privacy Policy, recorded with the version."
+         },
+         "turnstile_token": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "Cloudflare Turnstile token when the deployment requires a bot check (see GET /v1/auth/config)."
          }
         },
         "required": [
@@ -807,6 +832,7 @@
               "admin",
               "ops",
               "compliance",
+              "legal",
               "issuer",
               "developer",
               "auditor"
@@ -830,6 +856,9 @@
      },
      "422": {
       "$ref": "#/components/responses/Unprocessable"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
      }
     },
     "x-laissez-permission": "public",
@@ -1073,6 +1102,7 @@
             "admin",
             "ops",
             "compliance",
+            "legal",
             "issuer",
             "developer",
             "auditor"
@@ -1376,6 +1406,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -1454,6 +1485,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -1554,6 +1586,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -1636,6 +1669,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -1734,6 +1768,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -1809,6 +1844,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -1907,6 +1943,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -1994,6 +2031,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -2096,6 +2134,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -2183,6 +2222,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -2618,6 +2658,7 @@
               "admin",
               "ops",
               "compliance",
+              "legal",
               "issuer",
               "developer",
               "auditor"
@@ -2631,6 +2672,7 @@
             "admin",
             "ops",
             "compliance",
+            "legal",
             "issuer",
             "developer",
             "auditor"
@@ -2663,6 +2705,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -2692,6 +2735,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -2732,6 +2776,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -2865,6 +2910,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -2955,6 +3001,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -3183,6 +3230,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -3259,6 +3307,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -3285,6 +3334,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -3325,6 +3375,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -3374,6 +3425,7 @@
            "admin",
            "ops",
            "compliance",
+           "legal",
            "issuer",
            "developer",
            "auditor"
@@ -3416,6 +3468,7 @@
             "admin",
             "ops",
             "compliance",
+            "legal",
             "issuer",
             "developer",
             "auditor"
@@ -3582,6 +3635,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -3672,6 +3726,7 @@
            "admin",
            "ops",
            "compliance",
+           "legal",
            "issuer",
            "developer",
            "auditor"
@@ -3719,6 +3774,7 @@
             "admin",
             "ops",
             "compliance",
+            "legal",
             "issuer",
             "developer",
             "auditor"
@@ -4046,6 +4102,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -4156,6 +4213,7 @@
               "admin",
               "ops",
               "compliance",
+              "legal",
               "issuer",
               "developer",
               "auditor"
@@ -4195,6 +4253,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -4255,6 +4314,7 @@
            "admin",
            "ops",
            "compliance",
+           "legal",
            "issuer",
            "developer",
            "auditor"
@@ -4475,6 +4535,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -4754,6 +4815,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -4926,6 +4988,84 @@
      "admin",
      "ops",
      "compliance"
+    ]
+   }
+  },
+  "/v1/imports/templates/{type}": {
+   "get": {
+    "tags": [
+     "Imports"
+    ],
+    "operationId": "getImportTemplate",
+    "summary": "Download an import template",
+    "description": "A CSV with the exact columns and two example rows. type is clients.csv, credentials.csv or holdings.csv.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "type",
+      "in": "path",
+      "required": true,
+      "description": "Path parameter.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "text/csv": {
+        "schema": {
+         "type": "string",
+         "description": "RFC 4180 CSV with a header row."
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
     ]
    }
   },
@@ -5147,6 +5287,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -5488,6 +5629,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -5829,6 +5971,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -5944,6 +6087,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -6354,6 +6498,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -6829,6 +6974,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -6961,6 +7107,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -7129,6 +7276,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -7493,6 +7641,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -7567,6 +7716,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -7905,6 +8055,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -8628,6 +8779,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -8838,6 +8990,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -9022,6 +9175,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -9343,6 +9497,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -9641,6 +9796,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -10038,6 +10194,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -10116,6 +10273,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -10308,6 +10466,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -10464,6 +10623,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -10680,6 +10840,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -11084,6 +11245,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -11161,6 +11323,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -11290,6 +11453,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -11483,6 +11647,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -11569,6 +11734,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -11701,6 +11867,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -11830,7 +11997,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -11958,6 +12126,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -12176,7 +12345,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -12331,6 +12501,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -12758,6 +12929,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -12862,7 +13034,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -12961,7 +13134,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    },
    "get": {
@@ -13034,6 +13208,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -13142,7 +13317,8 @@
     "x-laissez-api-key-scopes": [],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ],
     "x-laissez-human-only": true
    }
@@ -13253,7 +13429,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -13358,6 +13535,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -13524,6 +13702,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -13712,6 +13891,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -13801,6 +13981,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -14024,6 +14205,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -14601,6 +14783,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -14684,6 +14867,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -14931,6 +15115,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -15007,6 +15192,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -15186,6 +15372,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -15255,7 +15442,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -15403,6 +15591,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -15508,7 +15697,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -15626,7 +15816,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -15771,6 +15962,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -16933,6 +17125,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -17021,6 +17214,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -17326,6 +17520,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -17529,6 +17724,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -17931,6 +18127,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -18020,6 +18217,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -18625,6 +18823,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -18699,6 +18898,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -18777,6 +18977,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -19011,6 +19212,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -19132,6 +19334,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -19191,6 +19394,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -19210,6 +19414,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -19247,6 +19452,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -19299,6 +19505,7 @@
               "admin",
               "ops",
               "compliance",
+              "legal",
               "issuer",
               "developer",
               "auditor"
@@ -19356,6 +19563,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -19475,6 +19683,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -19675,6 +19884,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -19820,6 +20030,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -20026,6 +20237,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -20288,7 +20500,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -20385,7 +20598,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -20547,6 +20761,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -20623,6 +20838,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -20740,7 +20956,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -20814,6 +21031,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -20953,6 +21171,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -21197,6 +21416,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -21305,6 +21525,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -21427,7 +21648,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -21546,7 +21768,8 @@
     ],
     "x-laissez-roles": [
      "admin",
-     "compliance"
+     "compliance",
+     "legal"
     ]
    }
   },
@@ -21703,6 +21926,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -21781,6 +22005,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -21874,6 +22099,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -22396,6 +22622,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -22472,6 +22699,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -22581,6 +22809,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -22679,6 +22908,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -22737,6 +22967,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -22774,6 +23005,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -22839,6 +23071,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -22907,6 +23140,7 @@
                "admin",
                "ops",
                "compliance",
+               "legal",
                "issuer",
                "developer",
                "auditor"
@@ -22993,6 +23227,7 @@
              "admin",
              "ops",
              "compliance",
+             "legal",
              "issuer",
              "developer",
              "auditor"
@@ -23276,6 +23511,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -23485,6 +23721,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -23699,6 +23936,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -23851,6 +24089,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -24202,6 +24441,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -24323,6 +24563,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -24552,6 +24793,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -24800,6 +25042,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -25084,6 +25327,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -25185,6 +25429,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -25546,6 +25791,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -25755,6 +26001,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -26352,6 +26599,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -26484,6 +26732,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -26558,6 +26807,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -26674,6 +26924,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -26750,6 +27001,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -26843,6 +27095,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -26931,6 +27184,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -27029,6 +27283,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -27112,6 +27367,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -27175,6 +27431,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -27590,6 +27847,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -27860,6 +28118,7 @@
      "admin",
      "ops",
      "compliance",
+     "legal",
      "issuer",
      "developer",
      "auditor"
@@ -28186,6 +28445,4658 @@
      "admin",
      "developer"
     ],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/imports": {
+   "post": {
+    "tags": [
+     "Imports"
+    ],
+    "operationId": "createImport",
+    "summary": "Upload and preview an import",
+    "description": "Parses a CSV or JSON file of clients, credentials or holdings (up to 5 MB), validates every row against jurisdictions, booking centers, classification thresholds (the same tests credential issuance runs), funds and dates, matches rows to existing clients by external_id (by exact name as a fallback, with a warning) and stores the preview. Nothing is written yet. Rows whose residence is under comprehensive sanctions are refused. A holdings import also needs funds:write. Rows an approval policy would route to a second person are skipped with the reason.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "type": "string",
+          "enum": [
+           "clients",
+           "credentials",
+           "holdings"
+          ]
+         },
+         "format": {
+          "type": "string",
+          "enum": [
+           "csv",
+           "json"
+          ]
+         },
+         "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5242880
+         },
+         "file_name": {
+          "type": "string",
+          "maxLength": 200
+         }
+        },
+        "required": [
+         "type",
+         "content"
+        ]
+       },
+       "example": {
+        "type": "clients",
+        "format": "csv",
+        "content": "external_id,name,kind,residence,city,booking_center,us_person,email,wallet\nCRM-10021,Harbour Lane Capital Pte. Ltd.,Corporate,SG,Singapore,SG,false,ops@harbourlane.example,\n",
+        "file_name": "clients.csv"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Created.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Import"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "clients:write",
+    "x-laissez-api-key-scopes": [
+     "clients"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance"
+    ],
+    "x-laissez-generated": true
+   },
+   "get": {
+    "tags": [
+     "Imports"
+    ],
+    "operationId": "listImports",
+    "summary": "List imports",
+    "description": "The last 100 imports without their rows, plus the template definitions.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data"
+         ],
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/ImportSummary"
+           }
+          },
+          "templates": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "type": {
+              "type": "string",
+              "enum": [
+               "clients",
+               "credentials",
+               "holdings"
+              ]
+             },
+             "columns": {
+              "type": "array",
+              "items": {
+               "type": "string"
+              }
+             },
+             "required": {
+              "type": "array",
+              "items": {
+               "type": "string"
+              }
+             },
+             "notes": {
+              "type": "array",
+              "items": {
+               "type": "string"
+              }
+             },
+             "url": {
+              "type": "string"
+             }
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/imports/{id}": {
+   "get": {
+    "tags": [
+     "Imports"
+    ],
+    "operationId": "getImport",
+    "summary": "Get an import",
+    "description": "The import with every row, its status and messages, and the result once applied.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Import id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Import"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/imports/{id}/apply": {
+   "post": {
+    "tags": [
+     "Imports"
+    ],
+    "operationId": "applyImport",
+    "summary": "Apply an import, one chunk per call",
+    "description": "Applies the next chunk of create and update rows (200 for clients and holdings, 50 for credentials) and returns progress. Call it again until done is true. Clients are created or updated and get their external_id; credentials are issued through the same path as POST /v1/credentials, carrying the evidence and the verification dates from the file; holdings set the register and the holder count. When the last chunk finishes the import is marked applied and a holdings import returns its reconciliation report: the file against the register as it was and, when on-chain settlement is on, a reconciliation run against token balances that opens a break per mismatch. A failed chunk writes nothing and can be retried.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Import id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "chunk": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string"
+          },
+          "type": {
+           "type": "string",
+           "enum": [
+            "clients",
+            "credentials",
+            "holdings"
+           ]
+          },
+          "status": {
+           "type": "string",
+           "enum": [
+            "applying",
+            "applied"
+           ]
+          },
+          "done": {
+           "type": "boolean"
+          },
+          "progress": {
+           "type": "object",
+           "properties": {
+            "processed": {
+             "type": "integer"
+            },
+            "total": {
+             "type": "integer"
+            },
+            "applied": {
+             "type": "integer"
+            },
+            "failed": {
+             "type": "integer"
+            },
+            "remaining": {
+             "type": "integer"
+            },
+            "chunk": {
+             "type": "integer"
+            },
+            "chunk_done": {
+             "type": "integer"
+            },
+            "chunk_failed": {
+             "type": "integer"
+            }
+           }
+          },
+          "rows": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/ImportRow"
+           }
+          },
+          "result": {
+           "description": "Totals, or the reconciliation report for holdings. Null until the last chunk."
+          },
+          "next": {
+           "type": [
+            "string",
+            "null"
+           ]
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "502": {
+      "$ref": "#/components/responses/BadGateway"
+     }
+    },
+    "x-laissez-permission": "clients:write",
+    "x-laissez-api-key-scopes": [
+     "clients"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance"
+    ],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/rules/vocabulary": {
+   "get": {
+    "tags": [
+     "Rule workbench"
+    ],
+    "operationId": "getRuleVocabulary",
+    "summary": "Fields, operators and templates for the rule builder",
+    "description": "The fixed vocabulary a custom rule can read (order, investor, counterparty, fund and holding facts), the operators each field type accepts, the engine layers an outcome can sit in, and the six starter templates.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "fields": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "key": {
+              "type": "string"
+             },
+             "label": {
+              "type": "string"
+             },
+             "type": {
+              "type": "string",
+              "enum": [
+               "number",
+               "string",
+               "boolean",
+               "set"
+              ]
+             },
+             "group": {
+              "type": "string"
+             },
+             "hint": {
+              "type": "string"
+             },
+             "values": {
+              "type": "array",
+              "items": {
+               "type": "string"
+              }
+             }
+            }
+           }
+          },
+          "operators": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "string"
+             },
+             "label": {
+              "type": "string"
+             },
+             "types": {
+              "type": "array",
+              "items": {
+               "type": "string"
+              }
+             },
+             "list": {
+              "type": "boolean"
+             }
+            }
+           }
+          },
+          "layers": {
+           "type": "array",
+           "items": {
+            "type": "string",
+            "enum": [
+             "Credential",
+             "Fund policy",
+             "Residence law",
+             "Booking-center licence",
+             "Documents",
+             "Fund terms",
+             "Transfer controls",
+             "Counterparty",
+             "Global screens"
+            ]
+           }
+          },
+          "actions": {
+           "type": "array",
+           "items": {
+            "type": "string",
+            "enum": [
+             "subscribe",
+             "transfer",
+             "redeem"
+            ]
+           }
+          },
+          "results": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "string",
+              "enum": [
+               "fail",
+               "info",
+               "freeze"
+              ]
+             },
+             "label": {
+              "type": "string"
+             }
+            }
+           }
+          },
+          "severities": {
+           "type": "array",
+           "items": {
+            "type": "string",
+            "enum": [
+             "low",
+             "medium",
+             "high"
+            ]
+           }
+          },
+          "statuses": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "string",
+              "enum": [
+               "draft",
+               "in_review",
+               "approved",
+               "scheduled",
+               "active",
+               "retired"
+              ]
+             },
+             "label": {
+              "type": "string"
+             }
+            }
+           }
+          },
+          "templates": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "string"
+             },
+             "name": {
+              "type": "string"
+             },
+             "summary": {
+              "type": "string"
+             },
+             "summary_sentence": {
+              "type": "string"
+             },
+             "definition": {
+              "$ref": "#/components/schemas/RuleDefinition"
+             }
+            }
+           }
+          },
+          "reviewer_roles": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "note": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/rules": {
+   "get": {
+    "tags": [
+     "Rule workbench"
+    ],
+    "operationId": "listRules",
+    "summary": "List custom rules",
+    "description": "The latest version of every rule, newest change first. Time moves rules along first: a scheduled version becomes active on its effective date and an active one retires when its end date arrives.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "description": "Filter by rule status.",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "draft",
+        "in_review",
+        "approved",
+        "scheduled",
+        "active",
+        "retired"
+       ]
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/CustomRule"
+           }
+          },
+          "counts": {
+           "type": "object",
+           "additionalProperties": {
+            "type": "integer"
+           },
+           "description": "Rules by status."
+          },
+          "active": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "data"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-generated": true
+   },
+   "post": {
+    "tags": [
+     "Rule workbench"
+    ],
+    "operationId": "createRule",
+    "summary": "Create a rule draft",
+    "description": "Version 1 of a new rule, as a draft. Pass template to start from a starter template and override any field. Shape problems are a 400 with every issue listed; a rule that does not make sense (an operator that does not fit the field, a placeholder that is not a field) is a 422 invalid_rule.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "template": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "A starter template id from GET /v1/rules/vocabulary."
+         },
+         "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+         },
+         "description": {
+          "type": "string",
+          "maxLength": 1000
+         },
+         "jurisdiction": {
+          "type": "string",
+          "maxLength": 10,
+          "description": "A jurisdiction code, or * for any. A coded rule applies only when the investor or the counterparty is resident there."
+         },
+         "applies_to": {
+          "$ref": "#/components/schemas/RuleAppliesTo"
+         },
+         "condition": {
+          "$ref": "#/components/schemas/RuleCondition"
+         },
+         "outcome": {
+          "$ref": "#/components/schemas/RuleOutcome"
+         },
+         "severity": {
+          "type": "string",
+          "enum": [
+           "low",
+           "medium",
+           "high"
+          ]
+         }
+        }
+       },
+       "example": {
+        "name": "Individuals: single orders capped at 2,000,000",
+        "description": "Retail-adjacent exposure per order is capped. Larger tickets are split or escalated.",
+        "jurisdiction": "*",
+        "applies_to": {
+         "actions": [
+          "subscribe",
+          "transfer",
+          "redeem"
+         ],
+         "funds": "*",
+         "investor_kinds": [
+          "Individual"
+         ],
+         "residence": "*"
+        },
+        "condition": {
+         "op": "and",
+         "items": [
+          {
+           "op": "gt",
+           "field": "order.amount",
+           "value": 2000000
+          }
+         ]
+        },
+        "outcome": {
+         "result": "fail",
+         "layer": "Fund policy",
+         "label": "Single order above the individual cap",
+         "detail": "The order is {order.amount} {order.currency}. Individuals are capped at 2,000,000 per order.",
+         "remedy": "Reduce the order to 2,000,000 or less, or escalate for an exception."
+        },
+        "severity": "medium"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Created.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CustomRule"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "rules:write",
+    "x-laissez-api-key-scopes": [
+     "compliance"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance"
+    ],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/rules/{id}": {
+   "get": {
+    "tags": [
+     "Rule workbench"
+    ],
+    "operationId": "getRule",
+    "summary": "Get a rule",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Rule id.",
+      "schema": {
+       "type": "string"
+      },
+      "example": "crl_7KQ2M4ZP7W"
+     },
+     {
+      "name": "version",
+      "in": "query",
+      "required": false,
+      "description": "A specific version. Defaults to the latest.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CustomRule"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-generated": true
+   },
+   "put": {
+    "tags": [
+     "Rule workbench"
+    ],
+    "operationId": "updateRule",
+    "summary": "Edit a rule",
+    "description": "A draft is edited in place and must be tested again before review. Editing an approved, scheduled or active rule creates the next version as a draft; the live version keeps running until the new one is approved. A version in review cannot be edited: the reviewer requests changes first.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Rule id.",
+      "schema": {
+       "type": "string"
+      },
+      "example": "crl_7KQ2M4ZP7W"
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+         },
+         "description": {
+          "type": "string",
+          "maxLength": 1000
+         },
+         "jurisdiction": {
+          "type": "string",
+          "maxLength": 10,
+          "description": "A jurisdiction code, or * for any. A coded rule applies only when the investor or the counterparty is resident there."
+         },
+         "applies_to": {
+          "$ref": "#/components/schemas/RuleAppliesTo"
+         },
+         "condition": {
+          "$ref": "#/components/schemas/RuleCondition"
+         },
+         "outcome": {
+          "$ref": "#/components/schemas/RuleOutcome"
+         },
+         "severity": {
+          "type": "string",
+          "enum": [
+           "low",
+           "medium",
+           "high"
+          ]
+         }
+        },
+        "required": [
+         "name",
+         "applies_to",
+         "condition",
+         "outcome"
+        ]
+       },
+       "example": {
+        "name": "Individuals: single orders capped at 2,000,000",
+        "description": "Retail-adjacent exposure per order is capped. Larger tickets are split or escalated.",
+        "jurisdiction": "*",
+        "applies_to": {
+         "actions": [
+          "subscribe",
+          "transfer",
+          "redeem"
+         ],
+         "funds": "*",
+         "investor_kinds": [
+          "Individual"
+         ],
+         "residence": "*"
+        },
+        "condition": {
+         "op": "and",
+         "items": [
+          {
+           "op": "gt",
+           "field": "order.amount",
+           "value": 2000000
+          }
+         ]
+        },
+        "outcome": {
+         "result": "fail",
+         "layer": "Fund policy",
+         "label": "Single order above the individual cap",
+         "detail": "The order is {order.amount} {order.currency}. Individuals are capped at 2,000,000 per order.",
+         "remedy": "Reduce the order to 2,000,000 or less, or escalate for an exception."
+        },
+        "severity": "medium"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CustomRule"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "rules:write",
+    "x-laissez-api-key-scopes": [
+     "compliance"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance"
+    ],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/rules/{id}/test": {
+   "post": {
+    "tags": [
+     "Rule workbench"
+    ],
+    "operationId": "testRule",
+    "summary": "Test a rule",
+    "description": "Three results. Regression: the shipped golden cases for the rule's jurisdiction run without and with the rule, listing every case whose outcome or failing checks change. Backtest: this organization's decisions from the last 90 days re-run from their stored snapshots with the rule added, listing flips (at most 120 decisions). Try: when given, one live order evaluated with the rule, nothing persisted. Effective dates are lifted for the test. The result is recorded on the version; a draft must be tested after its last edit before it can be sent for review.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Rule id.",
+      "schema": {
+       "type": "string"
+      },
+      "example": "crl_7KQ2M4ZP7W"
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Defaults to the latest version."
+         },
+         "try": {
+          "type": "object",
+          "properties": {
+           "action": {
+            "type": "string",
+            "enum": [
+             "subscribe",
+             "transfer",
+             "redeem"
+            ]
+           },
+           "investor_id": {
+            "type": "string"
+           },
+           "fund": {
+            "type": "string"
+           },
+           "amount": {
+            "type": "number",
+            "exclusiveMinimum": 0
+           },
+           "settle_with": {
+            "type": "string",
+            "default": "USDC"
+           },
+           "counterparty_id": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "action",
+           "investor_id",
+           "fund",
+           "amount"
+          ]
+         }
+        }
+       },
+       "example": {
+        "try": {
+         "action": "subscribe",
+         "investor_id": "meitan",
+         "fund": "TWLF",
+         "amount": 3000000,
+         "settle_with": "USDC"
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string"
+          },
+          "ran_at": {
+           "type": "string",
+           "format": "date-time"
+          },
+          "fingerprint": {
+           "type": "string"
+          },
+          "version": {
+           "type": "integer"
+          },
+          "regression": {
+           "type": "object",
+           "properties": {
+            "scope": {
+             "type": "string"
+            },
+            "cases": {
+             "type": "integer"
+            },
+            "applied": {
+             "type": "integer"
+            },
+            "fired": {
+             "type": "integer"
+            },
+            "changed": {
+             "type": "array",
+             "items": {
+              "type": "object",
+              "properties": {
+               "id": {
+                "type": "string"
+               },
+               "name": {
+                "type": "string"
+               },
+               "pack": {
+                "type": "string"
+               },
+               "from": {
+                "type": "string"
+               },
+               "to": {
+                "type": "string"
+               },
+               "failing_before": {
+                "type": "array",
+                "items": {
+                 "type": "string"
+                }
+               },
+               "failing_after": {
+                "type": "array",
+                "items": {
+                 "type": "string"
+                }
+               },
+               "rule_result": {
+                "type": [
+                 "string",
+                 "null"
+                ]
+               }
+              }
+             }
+            }
+           }
+          },
+          "backtest": {
+           "type": "object",
+           "properties": {
+            "window_days": {
+             "type": "integer"
+            },
+            "decisions_checked": {
+             "type": "integer"
+            },
+            "truncated": {
+             "type": "boolean"
+            },
+            "applied": {
+             "type": "integer"
+            },
+            "fired": {
+             "type": "integer"
+            },
+            "flips": {
+             "type": "array",
+             "items": {
+              "type": "object",
+              "properties": {
+               "decision_id": {
+                "type": "string"
+               },
+               "created_at": {
+                "type": "string",
+                "format": "date-time"
+               },
+               "investor": {
+                "type": "string"
+               },
+               "action": {
+                "type": "string",
+                "enum": [
+                 "subscribe",
+                 "transfer",
+                 "redeem"
+                ]
+               },
+               "fund": {
+                "type": "string"
+               },
+               "amount": {
+                "type": "number"
+               },
+               "from": {
+                "type": "string",
+                "enum": [
+                 "ALLOW",
+                 "DENY",
+                 "FREEZE"
+                ]
+               },
+               "to": {
+                "type": "string",
+                "enum": [
+                 "ALLOW",
+                 "DENY",
+                 "FREEZE"
+                ]
+               },
+               "reason": {
+                "type": "string"
+               }
+              }
+             }
+            }
+           }
+          },
+          "try": {
+           "type": "object",
+           "properties": {
+            "order": {
+             "type": "object"
+            },
+            "outcome": {
+             "type": "string",
+             "enum": [
+              "ALLOW",
+              "DENY",
+              "FREEZE"
+             ]
+            },
+            "headline": {
+             "type": "string"
+            },
+            "checks": {
+             "type": "array",
+             "items": {
+              "$ref": "#/components/schemas/Check"
+             }
+            },
+            "remedies": {
+             "type": "array",
+             "items": {
+              "type": "string"
+             }
+            },
+            "binding_rules": {
+             "type": "array",
+             "items": {
+              "type": "object"
+             }
+            },
+            "custom_check": {
+             "anyOf": [
+              {
+               "$ref": "#/components/schemas/Check"
+              },
+              {
+               "type": "null"
+              }
+             ]
+            }
+           }
+          },
+          "rule": {
+           "$ref": "#/components/schemas/CustomRule"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/rules/{id}/submit": {
+   "post": {
+    "tags": [
+     "Rule workbench"
+    ],
+    "operationId": "submitRule",
+    "summary": "Send a rule for review",
+    "description": "Moves the draft to in_review and notifies people with the legal, compliance or admin role. The version must have been tested since its last edit (409 not_tested otherwise).",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Rule id.",
+      "schema": {
+       "type": "string"
+      },
+      "example": "crl_7KQ2M4ZP7W"
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CustomRule"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "rules:write",
+    "x-laissez-api-key-scopes": [
+     "compliance"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance"
+    ],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/rules/{id}/approve": {
+   "post": {
+    "tags": [
+     "Rule workbench"
+    ],
+    "operationId": "approveRule",
+    "summary": "Approve a rule",
+    "description": "Legal sign-off by a second person: someone other than the author with the legal, compliance or admin role. effective_from defaults to today, which makes the version active at once; a future date schedules it. An older active version of the same rule retires when the new one takes effect.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Rule id.",
+      "schema": {
+       "type": "string"
+      },
+      "example": "crl_7KQ2M4ZP7W"
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "note": {
+          "type": "string",
+          "maxLength": 1000
+         },
+         "effective_from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "format": "date"
+         }
+        }
+       },
+       "example": {
+        "note": "Reviewed against the desk mandate. The threshold matches the approved limit.",
+        "effective_from": "2026-11-01"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CustomRule"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "rules:approve",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "compliance",
+     "legal"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/rules/{id}/request-changes": {
+   "post": {
+    "tags": [
+     "Rule workbench"
+    ],
+    "operationId": "requestRuleChanges",
+    "summary": "Send a rule back to the author",
+    "description": "The version returns to draft with the reviewer's note. The author is notified.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Rule id.",
+      "schema": {
+       "type": "string"
+      },
+      "example": "crl_7KQ2M4ZP7W"
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "note": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 1000
+         }
+        },
+        "required": [
+         "note"
+        ]
+       },
+       "example": {
+        "note": "Scope is too wide: limit it to the Singapore booking center."
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CustomRule"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "rules:approve",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "compliance",
+     "legal"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/rules/{id}/retire": {
+   "post": {
+    "tags": [
+     "Rule workbench"
+    ],
+    "operationId": "retireRule",
+    "summary": "Retire a rule",
+    "description": "Ends the rule today or on a date. Anyone who can author or approve rules may retire one. A draft or a version in review is withdrawn at once.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Rule id.",
+      "schema": {
+       "type": "string"
+      },
+      "example": "crl_7KQ2M4ZP7W"
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "effective_to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "format": "date"
+         },
+         "note": {
+          "type": "string",
+          "maxLength": 500
+         }
+        }
+       },
+       "example": {
+        "effective_to": "2026-12-31",
+        "note": "Replaced by the desk mandate review."
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CustomRule"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "rules:write",
+    "x-laissez-api-key-scopes": [
+     "compliance"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance"
+    ],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/rules/{id}/versions": {
+   "get": {
+    "tags": [
+     "Rule workbench"
+    ],
+    "operationId": "listRuleVersions",
+    "summary": "Version history of a rule",
+    "description": "Every version with the field-level differences from the one before it.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Rule id.",
+      "schema": {
+       "type": "string"
+      },
+      "example": "crl_7KQ2M4ZP7W"
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string"
+          },
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/CustomRule"
+           }
+          }
+         },
+         "required": [
+          "data"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/auth/config": {
+   "get": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "getAuthConfig",
+    "summary": "Sign-in configuration for clients",
+    "description": "What a sign-up or sign-in screen needs: the deployment mode, the Turnstile site key when a bot check is required, whether email confirmation is required, whether sign-up is open and the current terms version.",
+    "security": [],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "mode": {
+           "type": "string",
+           "enum": [
+            "sandbox",
+            "production"
+           ]
+          },
+          "turnstile_site_key": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "verification_required": {
+           "type": "boolean"
+          },
+          "signup_open": {
+           "type": "boolean"
+          },
+          "terms_version": {
+           "type": "string"
+          },
+          "recovery_wait_minutes": {
+           "type": "integer"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     }
+    },
+    "x-laissez-permission": "public",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/auth/verify-email": {
+   "post": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "verifyEmail",
+    "summary": "Confirm an email address",
+    "description": "Uses the single-use token from the confirmation email. Until an account confirms its address, a production deployment lets it only look at itself, ask for another link and sign out.",
+    "security": [],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "token": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 200
+         }
+        },
+        "required": [
+         "token"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "verified": {
+           "type": "boolean"
+          },
+          "email": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "public",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/auth/recover/start": {
+   "post": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "startRecovery",
+    "summary": "Ask for a recovery email",
+    "description": "Starts email recovery for someone who lost every passkey. The answer is the same whether or not an account uses the address. The emailed link opens after a waiting period (24 hours in production, none when the account has an authenticator app, which then asks for its code) and can be cancelled from the same email. Recovery signs in only far enough to add a passkey.",
+    "security": [],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "email": {
+          "type": "string",
+          "maxLength": 160,
+          "format": "email",
+          "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+         },
+         "turnstile_token": {
+          "type": "string",
+          "maxLength": 2048
+         }
+        },
+        "required": [
+         "email"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "202": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "requested": {
+           "type": "boolean"
+          },
+          "wait_minutes": {
+           "type": "integer"
+          },
+          "message": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "public",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/auth/recover/{token}": {
+   "get": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "getRecovery",
+    "summary": "Check a recovery link",
+    "description": "Reports whether the link is waiting, ready, used, cancelled or expired, and whether an authenticator code is needed.",
+    "security": [],
+    "parameters": [
+     {
+      "name": "token",
+      "in": "path",
+      "required": true,
+      "description": "Token from the recovery email.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "state": {
+           "type": "string",
+           "enum": [
+            "waiting",
+            "ready",
+            "used",
+            "cancelled",
+            "expired"
+           ]
+          },
+          "available_at": {
+           "type": "string"
+          },
+          "expires_at": {
+           "type": "string"
+          },
+          "needs_code": {
+           "type": "boolean"
+          },
+          "email": {
+           "type": "string"
+          },
+          "name": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "public",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/auth/recover/{token}/complete": {
+   "post": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "completeRecovery",
+    "summary": "Finish recovery",
+    "description": "After the waiting period, signs the person in with a two-hour recovery session that can only add a passkey. Every other session of the account is ended, the address is marked confirmed and the person is told by email. Accounts with an authenticator app must send its six-digit code.",
+    "security": [],
+    "parameters": [
+     {
+      "name": "token",
+      "in": "path",
+      "required": true,
+      "description": "Token from the recovery email.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "code": {
+          "type": "string",
+          "maxLength": 12
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "session_token": {
+           "type": "string"
+          },
+          "workspace_id": {
+           "type": "string"
+          },
+          "recovery_session": {
+           "type": "boolean"
+          },
+          "expires_in_hours": {
+           "type": "integer"
+          },
+          "note": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "410": {
+      "$ref": "#/components/responses/Gone"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "public",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/auth/recover/{token}/cancel": {
+   "post": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "cancelRecovery",
+    "summary": "Cancel a recovery request",
+    "description": "The cancel link in the recovery email. Use it when you did not ask for recovery.",
+    "security": [],
+    "parameters": [
+     {
+      "name": "token",
+      "in": "path",
+      "required": true,
+      "description": "Token from the recovery email.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "cancelled": {
+           "type": "boolean"
+          },
+          "state": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "public",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [],
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/auth/verify-email/resend": {
+   "post": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "resendVerification",
+    "summary": "Send another confirmation email",
+    "description": "Replaces the open confirmation link. Five a hour.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "verified": {
+           "type": "boolean"
+          },
+          "sent": {
+           "type": "boolean"
+          },
+          "dev_link": {
+           "type": [
+            "string",
+            "null"
+           ],
+           "description": "Only outside production and only when no mail provider could carry the message."
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/account/security": {
+   "get": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "getAccountSecurity",
+    "summary": "Your security status",
+    "description": "Email confirmation, authenticator app, passkeys and sessions, terms accepted, recovery path and the policy of the current organization.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "email": {
+           "type": "string"
+          },
+          "email_verified": {
+           "type": "boolean"
+          },
+          "totp": {
+           "type": "object",
+           "properties": {
+            "enabled": {
+             "type": "boolean"
+            },
+            "enabled_at": {
+             "type": [
+              "string",
+              "null"
+             ]
+            }
+           }
+          },
+          "passkeys": {
+           "type": "integer"
+          },
+          "sessions": {
+           "type": "integer"
+          },
+          "terms": {
+           "type": "object"
+          },
+          "recovery": {
+           "type": "object"
+          },
+          "organization_policy": {
+           "anyOf": [
+            {
+             "$ref": "#/components/schemas/SecurityPolicy"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/account/totp/setup": {
+   "post": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "setupTotp",
+    "summary": "Start authenticator app setup",
+    "description": "Creates a secret and returns it with an otpauth URI for a QR code. It is not active until confirmed with a code. The secret is stored encrypted.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "201": {
+      "description": "Created.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "secret": {
+           "type": "string"
+          },
+          "uri": {
+           "type": "string"
+          },
+          "digits": {
+           "type": "integer"
+          },
+          "period_seconds": {
+           "type": "integer"
+          },
+          "note": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/account/totp/enable": {
+   "post": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "enableTotp",
+    "summary": "Confirm the authenticator app",
+    "description": "Confirms setup with a current six-digit code. Afterwards recovery by email also needs a code and the waiting period is waived. A code works once.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "code": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 12
+         }
+        },
+        "required": [
+         "code"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "enabled": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/account/totp/disable": {
+   "post": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "disableTotp",
+    "summary": "Turn off the authenticator app",
+    "description": "Needs a current code. Recovery by email returns to the waiting period.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "code": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 12
+         }
+        },
+        "required": [
+         "code"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "enabled": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/security-policy": {
+   "get": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "getSecurityPolicy",
+    "summary": "Get the organization security policy",
+    "description": "The policy with defaults filled in, the defaults, whether SSO is available to require and the network address the request came from.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "policy": {
+           "$ref": "#/components/schemas/SecurityPolicy"
+          },
+          "defaults": {
+           "$ref": "#/components/schemas/SecurityPolicy"
+          },
+          "is_default": {
+           "type": "boolean"
+          },
+          "applies": {
+           "type": "boolean"
+          },
+          "sso_enabled": {
+           "type": "boolean"
+          },
+          "your_network": {
+           "type": [
+            "string",
+            "null"
+           ]
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-generated": true
+   },
+   "put": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "putSecurityPolicy",
+    "summary": "Set the organization security policy",
+    "description": "Replaces the policy. Refuses a policy that would lock out the person saving it (their own network or email domain) and refuses to require single sign-on before it is set up. A shorter session lifetime applies to sessions that already exist. Every change is audited and emailed to the administrators.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "require_sso": {
+          "default": false,
+          "type": "boolean"
+         },
+         "require_user_verification": {
+          "default": false,
+          "type": "boolean"
+         },
+         "session_hours": {
+          "default": 168,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 168
+         },
+         "idle_minutes": {
+          "default": 720,
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 720
+         },
+         "allowed_email_domains": {
+          "default": [],
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+           "type": "string",
+           "pattern": "^[a-z0-9.-]+\\.[a-z]{2,}$"
+          }
+         },
+         "session_ip_allowlist": {
+          "default": [],
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "policy": {
+           "$ref": "#/components/schemas/SecurityPolicy"
+          },
+          "sessions_shortened": {
+           "type": "integer"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "members:admin",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/organization/verification": {
+   "get": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "getOrganizationVerification",
+    "summary": "Organization verification status",
+    "description": "The business check that gates settlements, API keys and chain actions in production mode: unverified, pending, verified or rejected, with the submitted profile and the reviewer note.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "status": {
+           "type": "string",
+           "enum": [
+            "unverified",
+            "pending",
+            "verified",
+            "rejected",
+            "not_applicable"
+           ]
+          },
+          "required": {
+           "type": "boolean"
+          },
+          "profile": {
+           "type": [
+            "object",
+            "null"
+           ]
+          },
+          "note": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "submitted_at": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "verified_at": {
+           "type": [
+            "string",
+            "null"
+           ]
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-generated": true
+   },
+   "put": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "submitOrganizationVerification",
+    "summary": "Submit the organization for verification",
+    "description": "Sends the legal entity details for review. The legal name is screened against the loaded sanctions lists and a hit goes to the reviewer rather than refusing the form. Resubmitting after a rejection replaces the earlier submission.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "legal_name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+         },
+         "entity_type": {
+          "type": "string",
+          "enum": [
+           "bank",
+           "asset_manager",
+           "broker_dealer",
+           "transfer_agent",
+           "fund_administrator",
+           "fintech",
+           "other"
+          ]
+         },
+         "registration_number": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 60
+         },
+         "country": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$"
+         },
+         "regulator": {
+          "type": "string",
+          "maxLength": 120
+         },
+         "license_number": {
+          "type": "string",
+          "maxLength": 80
+         },
+         "website": {
+          "type": "string",
+          "maxLength": 200,
+          "format": "uri"
+         },
+         "address": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 300
+         },
+         "contact_name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+         },
+         "contact_email": {
+          "type": "string",
+          "maxLength": 160,
+          "format": "email",
+          "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+         },
+         "use_case": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 1500
+         },
+         "expected_annual_volume_usd": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10000000000000
+         },
+         "attest": {
+          "type": "boolean",
+          "const": true
+         }
+        },
+        "required": [
+         "legal_name",
+         "entity_type",
+         "registration_number",
+         "country",
+         "address",
+         "contact_name",
+         "contact_email",
+         "use_case",
+         "attest"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "status": {
+           "type": "string"
+          },
+          "submitted_at": {
+           "type": "string"
+          },
+          "note": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "members:admin",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/account/export": {
+   "get": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "exportAccount",
+    "summary": "Export your own data",
+    "description": "Your profile, memberships, passkey metadata, sessions, the audit events you authored and confirmation history. Secrets are never included.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "exported_at": {
+           "type": "string"
+          },
+          "user": {
+           "type": "object"
+          },
+          "memberships": {
+           "type": "array",
+           "items": {
+            "type": "object"
+           }
+          },
+          "passkeys": {
+           "type": "array",
+           "items": {
+            "type": "object"
+           }
+          },
+          "sessions": {
+           "type": "array",
+           "items": {
+            "type": "object"
+           }
+          },
+          "audit_events_by_you": {
+           "type": "array",
+           "items": {
+            "type": "object"
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/account": {
+   "delete": {
+    "tags": [
+     "Security"
+    ],
+    "operationId": "deleteAccount",
+    "summary": "Delete your account",
+    "description": "Removes your passkeys, sessions and memberships and strips your name and email from the user record. Refused while you are the only administrator of an organization. Audit entries an organization already recorded stay, because those logs are hash-linked.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "confirm_email": {
+          "type": "string",
+          "maxLength": 160,
+          "format": "email",
+          "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+         }
+        },
+        "required": [
+         "confirm_email"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "deleted": {
+           "type": "boolean"
+          },
+          "kept": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/billing": {
+   "get": {
+    "tags": [
+     "Billing"
+    ],
+    "operationId": "getBilling",
+    "summary": "Billing overview",
+    "description": "Plan, billing status (none, active, past_due, suspended), the active and any pending contract, this month's usage with the projected usage fee, open and overdue invoices, the next platform invoice date, the billing profile and, for a sandbox, the days left.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "sandbox": {
+           "type": "boolean"
+          },
+          "plan": {
+           "type": "string"
+          },
+          "status": {
+           "type": "string",
+           "enum": [
+            "none",
+            "active",
+            "past_due",
+            "suspended"
+           ]
+          },
+          "verification_status": {
+           "type": "string"
+          },
+          "stripe": {
+           "type": "boolean"
+          },
+          "contract": {
+           "anyOf": [
+            {
+             "$ref": "#/components/schemas/Contract"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "pending_contract": {
+           "anyOf": [
+            {
+             "$ref": "#/components/schemas/Contract"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "usage": {
+           "type": "object"
+          },
+          "invoices": {
+           "type": "object"
+          },
+          "profile": {
+           "type": "object"
+          },
+          "trial": {
+           "type": [
+            "object",
+            "null"
+           ]
+          },
+          "suspended": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "billing:read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "legal"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/billing/profile": {
+   "patch": {
+    "tags": [
+     "Billing"
+    ],
+    "operationId": "updateBillingProfile",
+    "summary": "Set the billing profile",
+    "description": "The legal name, billing email, address, tax id and purchase order number printed on invoices. Mark the organization tax exempt here when it is.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "legal_name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+         },
+         "billing_email": {
+          "type": "string",
+          "maxLength": 160,
+          "format": "email",
+          "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+         },
+         "address": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 300
+         },
+         "country": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$"
+         },
+         "tax_id": {
+          "type": "string",
+          "maxLength": 40
+         },
+         "tax_exempt": {
+          "default": false,
+          "type": "boolean"
+         },
+         "po_number": {
+          "type": "string",
+          "maxLength": 60
+         }
+        },
+        "required": [
+         "legal_name",
+         "billing_email",
+         "address",
+         "country"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "profile": {
+           "type": "object"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "billing:write",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/billing/contracts": {
+   "get": {
+    "tags": [
+     "Billing"
+    ],
+    "operationId": "listContracts",
+    "summary": "List contracts",
+    "description": "Order forms for this organization, newest first.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data"
+         ],
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/Contract"
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "billing:read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "legal"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/billing/contracts/{id}": {
+   "get": {
+    "tags": [
+     "Billing"
+    ],
+    "operationId": "getContract",
+    "summary": "Read an order form",
+    "description": "One order form with its full text.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Contract id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Contract"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "billing:read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "legal"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/billing/contracts/{id}/accept": {
+   "post": {
+    "tags": [
+     "Billing"
+    ],
+    "operationId": "acceptContract",
+    "summary": "Accept an order form",
+    "description": "Electronic acceptance by an administrator: records the name, title, time, a hash of the network address and the hash of the text, ends any earlier active contract and turns billing on. In production mode the organization must be verified first.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Contract id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+         },
+         "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+         },
+         "agree": {
+          "type": "boolean",
+          "const": true
+         }
+        },
+        "required": [
+         "name",
+         "title",
+         "agree"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "accepted": {
+           "type": "boolean"
+          },
+          "contract_id": {
+           "type": "string"
+          },
+          "accepted_at": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "billing:write",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/billing/usage": {
+   "get": {
+    "tags": [
+     "Billing"
+    ],
+    "operationId": "getBillingUsage",
+    "summary": "Metered usage by day",
+    "description": "Settled value in USD, settlements and decisions per UTC day, with totals. This is what usage invoices are computed from.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "from",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "date"
+      },
+      "description": "First day, default 89 days before the end."
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "date"
+      },
+      "description": "Last day, default today."
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "from": {
+           "type": "string"
+          },
+          "to": {
+           "type": "string"
+          },
+          "data": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "day": {
+              "type": "string"
+             },
+             "settled_value_usd": {
+              "type": "number"
+             },
+             "settlements": {
+              "type": "integer"
+             },
+             "decisions": {
+              "type": "integer"
+             }
+            }
+           }
+          },
+          "totals": {
+           "type": "object"
+          },
+          "note": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "billing:read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "legal"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/billing/invoices": {
+   "get": {
+    "tags": [
+     "Billing"
+    ],
+    "operationId": "listInvoices",
+    "summary": "List invoices",
+    "description": "The last 100 invoices with lines, tax, status and, when Stripe is on, the hosted payment page.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data"
+         ],
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/Invoice"
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "billing:read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "legal"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/billing/invoices/{id}": {
+   "get": {
+    "tags": [
+     "Billing"
+    ],
+    "operationId": "getInvoice",
+    "summary": "Get an invoice",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Invoice id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Invoice"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "billing:read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "legal"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/billing/invoices/{id}/pdf": {
+   "get": {
+    "tags": [
+     "Billing"
+    ],
+    "operationId": "getInvoicePdf",
+    "summary": "Download an invoice as PDF",
+    "description": "Responds with application/pdf, one page.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Invoice id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "string",
+         "format": "binary"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "billing:read",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "legal"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/billing/quote-request": {
+   "post": {
+    "tags": [
+     "Billing"
+    ],
+    "operationId": "requestQuote",
+    "summary": "Ask for a quote",
+    "description": "From a sandbox or an organization without a contract. Needs a real email address; Laissez replies there.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "plan": {
+          "type": "string",
+          "enum": [
+           "platform",
+           "enterprise",
+           "pilot"
+          ]
+         },
+         "expected_value_usd": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10000000000000
+         },
+         "message": {
+          "type": "string",
+          "maxLength": 1000
+         }
+        },
+        "required": [
+         "plan"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Created.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string"
+          },
+          "status": {
+           "type": "string"
+          },
+          "note": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "billing:write",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ],
+    "x-laissez-human-only": true,
+    "x-laissez-generated": true
+   }
+  },
+  "/v1/billing/stripe/webhook": {
+   "post": {
+    "tags": [
+     "Billing"
+    ],
+    "operationId": "stripeWebhook",
+    "summary": "Stripe webhook receiver",
+    "description": "Receives invoice.paid, invoice.payment_failed, invoice.voided and invoice.marked_uncollectible from Stripe. Authenticated by the Stripe-Signature header; each event id is processed once.",
+    "security": [],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "received": {
+           "type": "boolean"
+          },
+          "duplicate": {
+           "type": "boolean"
+          },
+          "result": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "501": {
+      "$ref": "#/components/responses/NotConfigured"
+     }
+    },
+    "x-laissez-permission": "public",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [],
     "x-laissez-generated": true
    }
   }
@@ -30248,6 +35159,7 @@
           "admin",
           "ops",
           "compliance",
+          "legal",
           "issuer",
           "developer",
           "auditor"
@@ -33272,6 +38184,7 @@
         "admin",
         "ops",
         "compliance",
+        "legal",
         "issuer",
         "developer",
         "auditor"
@@ -33329,6 +38242,7 @@
         "admin",
         "ops",
         "compliance",
+        "legal",
         "issuer",
         "developer",
         "auditor"
@@ -33718,6 +38632,260 @@
      "fatca_status"
     ]
    },
+   "ImportRow": {
+    "type": "object",
+    "properties": {
+     "n": {
+      "type": "integer",
+      "description": "1-based row number in the file, header excluded."
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "create",
+       "update",
+       "skip",
+       "error"
+      ]
+     },
+     "messages": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "data": {
+      "anyOf": [
+       {
+        "description": "The normalized row: client, credential or holding fields."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "match": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "properties": {
+       "investor_id": {
+        "type": "string"
+       },
+       "name": {
+        "type": "string"
+       },
+       "by": {
+        "type": "string",
+        "enum": [
+         "external_id",
+         "name"
+        ]
+       }
+      }
+     },
+     "changes": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "register_units": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "result": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "done",
+         "failed"
+        ]
+       },
+       "message": {
+        "type": "string"
+       },
+       "investor_id": {
+        "type": "string"
+       },
+       "credential_id": {
+        "type": "string"
+       },
+       "lzid": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "required": [
+     "n",
+     "status",
+     "messages"
+    ]
+   },
+   "ImportTotals": {
+    "type": "object",
+    "properties": {
+     "rows": {
+      "type": "integer"
+     },
+     "create": {
+      "type": "integer"
+     },
+     "update": {
+      "type": "integer"
+     },
+     "skip": {
+      "type": "integer"
+     },
+     "error": {
+      "type": "integer"
+     }
+    }
+   },
+   "ImportSummary": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "type": {
+      "type": "string",
+      "enum": [
+       "clients",
+       "credentials",
+       "holdings"
+      ]
+     },
+     "format": {
+      "type": "string",
+      "enum": [
+       "csv",
+       "json"
+      ]
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "previewed",
+       "applying",
+       "applied",
+       "failed"
+      ]
+     },
+     "file_name": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "source_sha256": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "totals": {
+      "$ref": "#/components/schemas/ImportTotals"
+     },
+     "warnings": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "applied_rows": {
+      "type": "integer",
+      "description": "Rows processed so far by apply."
+     },
+     "result": {
+      "anyOf": [
+       {
+        "description": "Totals once applied, or the reconciliation report for holdings."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "error": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "created_by": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "applied_by": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "applied_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "template": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "required": [
+     "id",
+     "type",
+     "status"
+    ]
+   },
+   "Import": {
+    "allOf": [
+     {
+      "$ref": "#/components/schemas/ImportSummary"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "rows": {
+        "type": "array",
+        "items": {
+         "$ref": "#/components/schemas/ImportRow"
+        }
+       },
+       "columns": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "note": {
+        "type": "string",
+        "description": "A plain-language note about the result."
+       }
+      },
+      "required": [
+       "rows"
+      ]
+     }
+    ]
+   },
    "FeatureFlag": {
     "type": "object",
     "properties": {
@@ -33806,6 +38974,618 @@
      "url",
      "events"
     ]
+   },
+   "RuleAppliesTo": {
+    "type": "object",
+    "properties": {
+     "actions": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "subscribe",
+        "transfer",
+        "redeem"
+       ]
+      },
+      "minItems": 1
+     },
+     "funds": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "*"
+        ]
+       },
+       {
+        "type": "array",
+        "items": {
+         "type": "string"
+        },
+        "minItems": 1
+       }
+      ],
+      "description": "Fund tickers, or * for any."
+     },
+     "investor_kinds": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "*"
+        ]
+       },
+       {
+        "type": "array",
+        "items": {
+         "type": "string"
+        },
+        "minItems": 1
+       }
+      ],
+      "description": "Client kinds: Individual, Corporate (any entity), or an exact recorded kind."
+     },
+     "residence": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "*"
+        ]
+       },
+       {
+        "type": "array",
+        "items": {
+         "type": "string"
+        },
+        "minItems": 1
+       }
+      ],
+      "description": "Investor residence codes, or * for any."
+     }
+    },
+    "required": [
+     "actions",
+     "funds",
+     "investor_kinds",
+     "residence"
+    ]
+   },
+   "RuleCondition": {
+    "type": "object",
+    "description": "An expression tree. A group: { op: and | or, items: [...] }. A negation: { op: not, item: {...} }. A comparison: { op: eq | ne | gt | gte | lt | lte | in | notIn | has | hasAny | hasAll, field: <vocabulary key>, value: scalar or list }. GET /v1/rules/vocabulary lists the fields and which operators fit each type.",
+    "properties": {
+     "op": {
+      "type": "string"
+     },
+     "items": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     },
+     "item": {
+      "type": "object"
+     },
+     "field": {
+      "type": "string"
+     },
+     "value": {}
+    },
+    "required": [
+     "op"
+    ]
+   },
+   "RuleOutcome": {
+    "type": "object",
+    "properties": {
+     "result": {
+      "type": "string",
+      "enum": [
+       "fail",
+       "info",
+       "freeze"
+      ],
+      "description": "fail denies the order, freeze freezes the units, info adds a flag without changing the outcome."
+     },
+     "layer": {
+      "type": "string",
+      "enum": [
+       "Credential",
+       "Fund policy",
+       "Residence law",
+       "Booking-center licence",
+       "Documents",
+       "Fund terms",
+       "Transfer controls",
+       "Counterparty",
+       "Global screens"
+      ]
+     },
+     "label": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 140
+     },
+     "detail": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 600,
+      "description": "Shown on the check. May use {group.field} placeholders such as {investor.short} or {order.amount}."
+     },
+     "rule_ref": {
+      "type": "string",
+      "maxLength": 120
+     },
+     "source_id": {
+      "type": "string",
+      "maxLength": 60
+     },
+     "remedy": {
+      "type": "string",
+      "maxLength": 400
+     }
+    },
+    "required": [
+     "result",
+     "layer",
+     "label",
+     "detail"
+    ]
+   },
+   "RuleDefinition": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 120
+     },
+     "description": {
+      "type": "string",
+      "maxLength": 1000
+     },
+     "jurisdiction": {
+      "type": "string",
+      "maxLength": 10,
+      "description": "A jurisdiction code, or * for any. A coded rule applies only when the investor or the counterparty is resident there."
+     },
+     "applies_to": {
+      "$ref": "#/components/schemas/RuleAppliesTo"
+     },
+     "condition": {
+      "$ref": "#/components/schemas/RuleCondition"
+     },
+     "outcome": {
+      "$ref": "#/components/schemas/RuleOutcome"
+     },
+     "severity": {
+      "type": "string",
+      "enum": [
+       "low",
+       "medium",
+       "high"
+      ]
+     }
+    },
+    "required": [
+     "name",
+     "applies_to",
+     "condition",
+     "outcome"
+    ]
+   },
+   "CustomRule": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "version": {
+      "type": "integer"
+     },
+     "name": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 120
+     },
+     "description": {
+      "type": "string",
+      "maxLength": 1000
+     },
+     "jurisdiction": {
+      "type": "string",
+      "maxLength": 10,
+      "description": "A jurisdiction code, or * for any. A coded rule applies only when the investor or the counterparty is resident there."
+     },
+     "applies_to": {
+      "$ref": "#/components/schemas/RuleAppliesTo"
+     },
+     "condition": {
+      "$ref": "#/components/schemas/RuleCondition"
+     },
+     "outcome": {
+      "$ref": "#/components/schemas/RuleOutcome"
+     },
+     "severity": {
+      "type": "string",
+      "enum": [
+       "low",
+       "medium",
+       "high"
+      ]
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "draft",
+       "in_review",
+       "approved",
+       "scheduled",
+       "active",
+       "retired"
+      ]
+     },
+     "effective_from": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "format": "date"
+     },
+     "effective_to": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "format": "date"
+     },
+     "authored_by": {
+      "type": "string"
+     },
+     "authored_by_user": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "reviewed_by": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "reviewed_by_user": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "review_note": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "approved_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "retired_by": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "retired_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "template": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "last_test": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "description": "The last test recorded on this version, with the definition fingerprint it ran against."
+     },
+     "tested": {
+      "type": "boolean",
+      "description": "True when the last test ran against the current definition."
+     },
+     "summary": {
+      "type": "string",
+      "description": "The rule in one plain-English sentence."
+     },
+     "problems": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "versions": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "version": {
+         "type": "integer"
+        },
+        "status": {
+         "type": "string",
+         "enum": [
+          "draft",
+          "in_review",
+          "approved",
+          "scheduled",
+          "active",
+          "retired"
+         ]
+        }
+       }
+      }
+     },
+     "changes_from_previous": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "path": {
+         "type": "string"
+        },
+        "before": {},
+        "after": {}
+       }
+      }
+     },
+     "condition_text": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "updated_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    },
+    "required": [
+     "id",
+     "version",
+     "name",
+     "applies_to",
+     "condition",
+     "outcome",
+     "status"
+    ]
+   },
+   "SecurityPolicy": {
+    "type": "object",
+    "description": "Per-organization sign-in policy. Every field has a default that reproduces the behaviour before policies existed.",
+    "properties": {
+     "require_sso": {
+      "type": "boolean",
+      "description": "Members sign in through the identity provider. Administrators keep passkeys as a break-glass path."
+     },
+     "require_user_verification": {
+      "type": "boolean",
+      "description": "Passkeys must prove the person (PIN, fingerprint or face)."
+     },
+     "session_hours": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 168
+     },
+     "idle_minutes": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 720
+     },
+     "allowed_email_domains": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "session_ip_allowlist": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "Contract": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "plan": {
+      "type": "string",
+      "enum": [
+       "platform",
+       "enterprise",
+       "pilot"
+      ]
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "draft",
+       "pending_acceptance",
+       "active",
+       "ended"
+      ]
+     },
+     "currency": {
+      "type": "string"
+     },
+     "platform_fee_cents": {
+      "type": "integer",
+      "description": "US cents."
+     },
+     "usage_bps": {
+      "type": "number"
+     },
+     "tax_bps": {
+      "type": "integer"
+     },
+     "net_days": {
+      "type": "integer"
+     },
+     "starts_on": {
+      "type": "string",
+      "format": "date"
+     },
+     "ends_on": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date"
+     },
+     "auto_renew": {
+      "type": "boolean"
+     },
+     "accepted_at": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "accepted_by": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "accepted_title": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "terms_sha256": {
+      "type": "string"
+     },
+     "terms_text": {
+      "type": "string",
+      "description": "Only on the single-contract read."
+     }
+    }
+   },
+   "Invoice": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "number": {
+      "type": "string",
+      "example": "LZ-2026-1001"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "platform",
+       "usage"
+      ]
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "draft",
+       "open",
+       "paid",
+       "void",
+       "uncollectible"
+      ]
+     },
+     "currency": {
+      "type": "string"
+     },
+     "period_start": {
+      "type": "string",
+      "format": "date"
+     },
+     "period_end": {
+      "type": "string",
+      "format": "date"
+     },
+     "issued_on": {
+      "type": "string",
+      "format": "date"
+     },
+     "due_on": {
+      "type": "string",
+      "format": "date"
+     },
+     "subtotal_cents": {
+      "type": "integer",
+      "description": "US cents."
+     },
+     "tax_cents": {
+      "type": "integer",
+      "description": "US cents."
+     },
+     "total_cents": {
+      "type": "integer",
+      "description": "US cents."
+     },
+     "lines": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "description": {
+         "type": "string"
+        },
+        "amount_cents": {
+         "type": "integer",
+         "description": "US cents."
+        }
+       }
+      }
+     },
+     "paid_at": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "paid_note": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "hosted_invoice_url": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "Stripe invoice page for ACH and card payment, when Stripe is on."
+     },
+     "overdue_days": {
+      "type": "integer"
+     }
+    }
    }
   }
  }

@@ -2,7 +2,7 @@
 
 How to run, deploy and recover Laissez. The site is an Astro build on GitHub Pages; the API is a Cloudflare Worker (Hono 4) on Neon Postgres; heavy scheduled work runs as Node jobs in GitHub Actions. Nothing here is automated beyond what the workflows in `.github/workflows/` do.
 
-Contents: Local setup, Secrets, Deploy (site, Worker, migrations), Jobs, Monitoring and logs, Rotating keys, Restoring from Neon branches, Releasing the SDKs.
+Contents: Local setup, Secrets, Deploy (site, Worker, migrations), Jobs, Monitoring and logs, Rotating keys, Restoring from Neon branches, Restore drills, Staff tasks (verification, contracts, invoices, revenue), Switching on email, Stripe and the bot check, Security scanning, Releasing the SDKs, Incident checklist.
 
 ## Local setup
 
@@ -101,8 +101,13 @@ The smoke test creates sandboxes, orders, settlements, policy changes and a pass
 | `CHAIN_CLAIM_KEY` | Private key that signs on-chain identity claims. | 0x-prefixed hex |
 | `CHAIN_CUSTODY_SEED` | Seed from which custodial investor wallets derive. | 0x-prefixed hex, 32 bytes |
 | `ANTHROPIC_API_KEY` | Optional. Enables the rule-drafting agent. | string |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Optional until production. Sends email (invites, confirmation and recovery links, security alerts, invoices). Without them mail is held in the outbox and shown in the app, and production email confirmation cannot complete. | Resend API key; `Laissez <notice@your-domain>` on a domain verified in Resend |
+| `STAFF_EMAIL` | Optional. Where verification submissions, quote requests and billing notices go. Falls back to `LEADS_EMAIL`, then the founder's address. | email address |
+| `TURNSTILE_SECRET`, `TURNSTILE_SITE_KEY` | Optional. Turns on the Cloudflare Turnstile bot check on sign-up. Both must be set; the site key is public and may live in `[vars]`. | Turnstile widget keys |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Optional. Turns on Stripe Invoicing: invoices are mirrored to Stripe, customers pay on a Stripe-hosted page, the webhook marks them paid. Use a restricted key with Customers, Invoices and Invoice Items write. | `rk_live_...` or `sk_live_...`; `whsec_...` |
+| `SELLER_NAME`, `SELLER_ADDRESS`, `SELLER_TAX_ID` | Optional. The "from" block on invoice PDFs and order forms. Set them to the legal entity once it exists. | plain text |
 
-Non-secret configuration lives in `api/wrangler.toml` under `[vars]`: `ALLOWED_ORIGINS`, `MAX_ACTIVE_SANDBOXES`, `APP_URL`, `API_URL`, `CHAIN_RPC_URL`.
+Non-secret configuration lives in `api/wrangler.toml` under `[vars]`: `ALLOWED_ORIGINS`, `MAX_ACTIVE_SANDBOXES`, `APP_URL`, `API_URL`, `CHAIN_RPC_URL`, and `LAISSEZ_MODE` (see Deployment mode).
 
 ### Database roles
 
@@ -223,7 +228,74 @@ Neon keeps point-in-time history for the project's retention window and lets you
 
 **Local copy of production shape.** `pg_dump --schema-only <branch url> | psql postgres://postgres:laissez@127.0.0.1:5432/laissez` gives Docker Postgres the live schema without any data.
 
-Neon's own backups are the retention window; there is no separate dump schedule. If the project needs longer retention, add a weekly `pg_dump` job writing to object storage before increasing the window.
+Neon's own backups are the retention window; there is no separate dump schedule. The window on the `laissez` project is 21600 seconds (six hours) as of 2 October 2026, which is too short to catch a problem noticed the next day. Raise it in the Neon console, Settings, Storage (it needs a paid plan) before the first paying customer, then update the trust page. Any dump of production data is personal data: never store one as a workflow artifact or in the repository; if longer retention is needed, write an encrypted `pg_dump` to a private object store with its own access log. Run the drill in Restore drills at least quarterly.
+
+## Restore drills
+
+A backup nobody has restored is a hope. Run a drill once a quarter and after any change to the schema that adds a table, and write the result in the commit that records it (for example `docs: restore drill 2026-Q4, 11 minutes, all checks passed`).
+
+1. In the Neon console, create a branch of `main` from a timestamp one hour ago. Note the time you started.
+2. Copy the branch's owner connection string.
+3. Run the checker from `api/`: `DATABASE_URL=<branch url> node db/restore-check.mjs`. It confirms every table the migrations create exists, row-level security is on wherever the tenant role can read, the tenant role cannot bypass it, every organization's audit chain still verifies hash by hash, and how far back the restore landed.
+4. Point a Worker version preview at the branch (`DATABASE_URL` and `DATABASE_URL_TENANT` for that preview only) and run `node api/test/smoke.mjs <preview url>`.
+5. Note the elapsed time from step 1 to a passing smoke run. That number is the measured recovery time. Until two drills agree, the trust page says no recovery time objective has been measured.
+6. Delete the branch.
+
+A real restore follows Restoring from Neon branches, then runs step 3 against production before reopening writes.
+
+## Staff tasks
+
+Everything that is not self-service goes through `scripts/staff.mjs`, which calls the guarded `/v1/internal` routes with `INTERNAL_TOKEN`. Export the token once (`export INTERNAL_TOKEN=...`; it is the Worker secret of the same name), or add `--local` to use a local API and `api/.dev.local.vars`.
+
+| Task | Command |
+| --- | --- |
+| See organizations waiting for verification | `node scripts/staff.mjs verification list` |
+| Approve or reject one (the note is shown to the organization) | `node scripts/staff.mjs verification decide <workspace-id> approve "Registry entry checked"` |
+| Draft an order form for a customer; it emails their administrators to accept it | `node scripts/staff.mjs contract create <workspace-id> --plan platform --fee 60000 --bps 1.5` |
+| End a contract | `node scripts/staff.mjs contract end <contract-id>` |
+| Run metering, invoicing, dunning and the Stripe sync now (the daily cron runs it too, and it is safe to repeat) | `node scripts/staff.mjs billing run` |
+| List invoices | `node scripts/staff.mjs invoices --status open` |
+| Record a payment that arrived outside Stripe (wire, cheque) | `node scripts/staff.mjs invoice paid <invoice-id> "Wire received 2026-11-03"` |
+| Void an invoice | `node scripts/staff.mjs invoice void <invoice-id> "Issued to the wrong entity"` |
+| MRR, ARR, settled value, churn, receivables, per customer | `node scripts/staff.mjs revenue` |
+| Quote requests from sandboxes | `node scripts/staff.mjs quotes list`, then `quotes set <id> contacted\|won\|lost` |
+
+How the money side behaves, so there are no surprises:
+
+- A contract is `pending_acceptance` until an administrator accepts the order form in Settings, Billing. Acceptance records the person, the time, a hash of their network address and a SHA-256 of the exact text. Nothing is invoiced before that. In production, acceptance also needs a verified organization.
+- Usage is recomputed daily from settlements into `usage_daily`; a reversed settlement drops out the next run. Usage invoices are monthly in arrears for every full month since the contract started, at most 14 months back. The platform fee is invoiced once per contract year in advance.
+- Dunning counts days past the due date. At 1 and 14 days an email goes to the organization's administrators. At 30 days the organization is suspended: every write except billing, data export, sign-out and session management returns `402 billing_suspended`; reads keep working. Paying the last overdue invoice (in Stripe, or with `invoice paid`) clears the suspension on the next run.
+- Suspension also stops redemptions, because they are writes. If a fund's investors must still be able to exit while the issuer disputes an invoice, end the suspension by recording the payment or voiding the invoice; there is no separate override.
+- Tax is a single rate per contract (`--tax-bps`), added as its own line. It is not a tax engine. Charging VAT or sales tax across jurisdictions needs an adviser and either Stripe Tax or a manual rate per customer.
+
+## Switching on email, Stripe and the bot check
+
+Each feature is off until its secrets exist, and the product says so on screen instead of failing.
+
+**Email (Resend).** Verify a sending domain in Resend (add its DNS records, wait for "Verified"). Then `wrangler secret put RESEND_API_KEY` and `wrangler secret put EMAIL_FROM` from `api/`, and deploy. Check: sign up with a real address and confirm the link arrives; look at `select kind, status, created_at from email_outbox order by created_at desc limit 10`. In production mode, accounts cannot be used before their email is confirmed, so do this before opening production sign-ups.
+
+**Stripe Invoicing.** In the Stripe dashboard, create a restricted key with write access to Customers, Invoices and Invoice Items and nothing else. Add a webhook endpoint at `https://laissez-api.laissez.workers.dev/v1/billing/stripe/webhook` for `invoice.paid`, `invoice.voided`, `invoice.marked_uncollectible` and `invoice.payment_failed`. `wrangler secret put STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, deploy, then `node scripts/staff.mjs billing run`: open invoices without a Stripe copy are pushed and get a hosted payment link. Webhook deliveries are de-duplicated in `stripe_events` and the signature is checked with a five minute tolerance. Laissez never receives card or bank details; the hosted page is Stripe's.
+
+**Turnstile.** In the Cloudflare dashboard, Turnstile, add a widget for `parikshit7319.github.io`. `wrangler secret put TURNSTILE_SECRET`, set `TURNSTILE_SITE_KEY` in `[vars]`, deploy. `GET /v1/auth/config` now returns the site key and the sign-up form shows the check; a request without a valid token gets `400 bot_check_failed`. Set neither to turn it off.
+
+**Sign-ups close themselves.** In production mode with no mail provider, `GET /v1/auth/config` reports `signup_open: false` and the form shows a closed notice, because an account that cannot confirm its email could never be used. Setting the Resend secrets opens sign-ups. Sign-in for existing members is never affected.
+
+## Security scanning
+
+`.github/workflows/security.yml` runs on every push to `main`, every pull request and weekly (Monday 05:17 UTC). It does not gate the deploy, so a new advisory never blocks a fix.
+
+- **Secret scan.** gitleaks over the full git history with `.gitleaks.toml`. A failure means a credential-shaped string is in a commit. Rotate the secret first (Rotating keys), then remove it from the tree; allowlist only values that are provably fake, by their exact text.
+- **Dependency audit.** `npm audit --omit=dev --audit-level=high` for the site, the Worker and the jobs. Dependabot (`.github/dependabot.yml`) opens weekly update pull requests grouped by ecosystem.
+- **CodeQL.** `security-extended` queries over the TypeScript and the Python SDK. Results appear under the repository's Security tab.
+
+Spreadsheet-formula escaping for CSV exports lives in one place, `src/proto/csv.ts`, and `npm run test:csv` covers it. Any new export must build its cells through it.
+
+## Account security operations
+
+- **A member is locked out.** Their route back is the recovery link from the sign-in page, which needs a confirmed email address and waits 24 hours in production unless they have an authenticator app. If they cannot receive email, an administrator removes the member and invites them again with a new address.
+- **A policy locks everyone out.** The API refuses a policy the saving administrator would be locked out of. If an identity provider outage blocks everyone under `require_sso`, clear the policy in the database: `update workspaces set security_policy = '{}'::jsonb where id = '<workspace-id>'`, and record why in the commit message or the incident note.
+- **Reading alerts.** Security emails are rows in `email_outbox` with `kind = 'security_alert'`; the audit log carries the matching event (`passkey.added`, `passkey.removed`, `totp.enabled`, `totp.disabled`, `account.recovery_requested`, `account.recovery_used`, `member.account_deleted`, `security.policy_updated`).
+- **A deletion request.** Members delete their own account under Settings, Security. For anything else (an organization, an access request) delete in SQL and keep the dated record the audit trail needs. Details are in the privacy page.
 
 ## Releasing the SDKs
 
@@ -243,3 +315,10 @@ The script updates `sdk/typescript/package.json`, `SDK_VERSION` in `laissez.ts`,
 4. Chain RPC degraded only affects on-chain settlement; simulated settlement and everything else continue. Pending settlements retry from the 10-minute cron.
 5. Roll back the Worker (`npx wrangler rollback`) if the incident started with a deploy.
 6. Afterwards, the incident appears on the status page automatically from the failed checks; write the cause and fix into the commit that resolves it.
+
+If the incident might involve customer data (an exposed credential, a tenant isolation bug, a suspicious session):
+
+1. Contain: rotate the exposed secret (Rotating keys), revoke affected sessions (`update sessions set revoked_at = now() where workspace_id = '...'`) and API keys.
+2. Establish what was reachable: `select * from audit_events where workspace_id = '...' and created_at > '<start>' order by seq`, and run `node api/db/restore-check.mjs` to confirm the audit chains still verify.
+3. Notify. The draft data processing addendum commits Laissez to tell affected customers within 72 hours of becoming aware of a personal data breach. Start the clock in the incident note when awareness begins, and email each affected organization's administrators with what happened, what data, what was done and what they should do.
+4. Write the cause, the timeline and the fix into the commit that resolves it and update the trust page if a stated control was wrong.

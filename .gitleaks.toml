@@ -1,0 +1,20 @@
+# Secret scanning rules for CI (.github/workflows/security.yml). The defaults stay on; this file only lists values that
+# look like secrets and are not.
+title = "Laissez"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Published or fictional values"
+regexes = [
+  # The European Commission publishes this token on its own site for the public consolidated sanctions list.
+  '''dG9rZW4tMjAxNw''',
+]
+paths = [
+  # SDK tests sign webhook payloads with made-up secrets.
+  '''sdk/python/tests/''',
+  '''sdk/typescript/test\.ts''',
+  # Local development only, never committed (see .gitignore).
+  '''api/\.dev\.local\.vars''',
+]

@@ -4,7 +4,7 @@
 import type { Sql } from './db';
 import type { Env } from './util';
 
-export type EmailKind = 'invite' | 'consent_request' | 'portal_access' | 'work_digest' | 'api_key_new_network' | 'new_device';
+export type EmailKind = 'invite' | 'consent_request' | 'portal_access' | 'work_digest' | 'api_key_new_network' | 'new_device' | 'verify_email' | 'recovery' | 'security_alert' | 'billing' | 'contract';
 export type Message = { subject: string; html: string; text: string; link?: string | null };
 export type SendOpts = { ws: string | null; to: string; kind: EmailKind } & Message;
 
@@ -86,6 +86,70 @@ export const templates = {
       footer: 'Sent to every administrator of the organization. The event is also in the audit log as api_key.new_network.',
     }),
   }),
+  verifyEmail: (p: { name: string; link: string; expiresHours: number }): Message => ({
+    ...layout({
+      title: 'Confirm your email address',
+      lines: [
+        `${p.name.split(' ')[0]}, confirm that this address is yours to finish setting up your Laissez account.`,
+        `The link works once and expires in ${p.expiresHours} hours. Until you confirm, the account can only send this request again or sign out.`,
+      ],
+      button: { label: 'Confirm email', url: p.link },
+      footer: 'You are receiving this because someone used this address to create a Laissez account. If that was not you, ignore the message; nothing happens unless the link is used.',
+    }),
+  }),
+  recovery: (p: { name: string; link: string; cancelLink: string; waitMinutes: number; needsCode: boolean; browser: string | null; os: string | null; country: string | null; availableAt: string }): Message => ({
+    ...layout({
+      title: 'Recover access to your Laissez account',
+      lines: [
+        `Someone asked to recover access to the account for ${p.name}${p.browser ? ` from ${p.browser}${p.os ? ` on ${p.os}` : ''}` : ''}${p.country ? ` in ${p.country}` : ''}.`,
+        p.waitMinutes > 0
+          ? `For your protection the link only works after a ${p.waitMinutes >= 120 ? `${Math.round(p.waitMinutes / 60)} hour` : p.waitMinutes >= 60 ? '1 hour' : `${p.waitMinutes} minute`} waiting period, from ${p.availableAt}. If you did not ask for this, cancel it now.`
+          : `Because your account has an authenticator app, you will be asked for its six-digit code and the link works straight away.`,
+        p.needsCode ? 'Have your authenticator app ready.' : 'Recovery signs you in only far enough to add a new passkey.',
+        `If this was not you, cancel the request: ${p.cancelLink}`,
+      ],
+      button: { label: 'Continue recovery', url: p.link },
+      footer: 'Recovery links work once. Every recovery request is recorded in the audit log of each organization you belong to.',
+    }),
+  }),
+  securityAlert: (p: { title: string; lines: string[]; link: string; org?: string | null; button?: string }): Message => ({
+    ...layout({
+      org: p.org ?? null, title: p.title, lines: p.lines,
+      button: { label: p.button ?? 'Review security settings', url: p.link },
+      footer: 'Laissez sends this when something that protects your account changes. If you did not make the change, sign in and review your sessions and passkeys at once.',
+    }),
+  }),
+  contractReady: (p: { org: string; plan: string; fee: string; bps: string; startsOn: string; link: string }): Message => ({
+    ...layout({
+      org: p.org, title: `Your Laissez order form is ready to accept`,
+      lines: [
+        `An order form for ${p.org} is ready: ${p.plan} plan, platform fee ${p.fee} a year, ${p.bps} basis points of value settled, starting ${p.startsOn}.`,
+        'An administrator reviews the terms in Billing and accepts them there. Nothing is charged before you accept.',
+      ],
+      button: { label: 'Review the order form', url: p.link },
+    }),
+  }),
+  invoiceIssued: (p: { org: string; number: string; total: string; dueOn: string; link: string; payLink?: string | null }): Message => ({
+    ...layout({
+      org: p.org, title: `Invoice ${p.number} for ${p.total}`,
+      lines: [
+        `Invoice ${p.number} for ${p.total} is issued to ${p.org}. It is due on ${p.dueOn}.`,
+        p.payLink ? 'Pay by ACH or card from the secure invoice page, or by wire using the details on the invoice.' : 'Pay by wire or ACH using the details on the invoice and quote the invoice number.',
+      ],
+      button: { label: p.payLink ? 'Open the invoice' : 'View in Billing', url: p.payLink ?? p.link },
+    }),
+  }),
+  paymentOverdue: (p: { org: string; number: string; total: string; daysLate: number; suspendOn: string | null; link: string }): Message => ({
+    ...layout({
+      org: p.org, title: `Invoice ${p.number} is ${p.daysLate} day${p.daysLate === 1 ? '' : 's'} overdue`,
+      lines: [
+        `Invoice ${p.number} for ${p.total} was not paid by its due date.`,
+        p.suspendOn ? `If it stays unpaid, ${p.org} moves to read-only on ${p.suspendOn}: you can still view and export everything, but new decisions, settlements and changes stop until payment arrives.` : `${p.org} is read-only until payment arrives: you can view and export everything, but new decisions, settlements and changes are paused.`,
+        'If you already paid, reply to this message with the payment reference.',
+      ],
+      button: { label: 'View the invoice', url: p.link },
+    }),
+  }),
   newDevice: (p: { name: string; org: string; browser: string | null; os: string | null; country: string | null; city: string | null; link: string }): Message => ({
     ...layout({
       org: p.org, title: 'New sign-in to your Laissez account',
@@ -114,7 +178,13 @@ export async function sendEmail(env: Env, admin: Sql, m: SendOpts): Promise<{ id
     });
     const j: any = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(j?.message ?? `Resend returned ${res.status}`);
-    await admin`update email_outbox set status = 'sent', provider_id = ${String(j.id ?? '')} where id = ${id}`;
+    // Confirmation and recovery links are bearer credentials. Once the provider has the message the stored copy does not need them.
+    const scrub = m.kind === 'verify_email' || m.kind === 'recovery';
+    await admin`update email_outbox set status = 'sent', provider_id = ${String(j.id ?? '')},
+      html = case when ${scrub} then '<p>The link in this message was removed after it was sent.</p>' else html end,
+      text = case when ${scrub} then 'The link in this message was removed after it was sent.' else text end,
+      link = case when ${scrub} then null else link end
+      where id = ${id}`;
     return { id, status: 'sent' };
   } catch (e: any) {
     await admin`update email_outbox set status = 'failed', error = ${String(e?.message ?? e).slice(0, 300)} where id = ${id}`;

@@ -24,6 +24,8 @@ for (const f of ['.dev.vars', '.dev.local.vars']) {
     if (m) env[m[1]] = m[2].replace(/^"(.*)"$/, '$1');
   }
 }
+// LZ_OVERRIDE_<NAME> in the process environment wins over both files, so tests can start a second server in another mode.
+for (const [k, v] of Object.entries(process.env)) if (k.startsWith('LZ_OVERRIDE_')) env[k.slice('LZ_OVERRIDE_'.length)] = v;
 const PORT = Number(env.PORT || 8787);
 env.API_URL ||= `http://127.0.0.1:${PORT}`;
 env.APP_URL ||= 'http://localhost:4321/laissez/app/';

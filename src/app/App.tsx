@@ -1,8 +1,9 @@
 /** @jsxImportSource preact */
 import { useEffect, useState } from 'preact/hooks';
-import { AUTH_EVENT, day, hasCredential } from './api';
+import { AUTH_EVENT, authConfig, day, hasCredential, type AuthConfig } from './api';
 import { ErrorBox, Popover } from './ui';
 import { RecoverySignIn } from './views/settings2';
+import { EmailRecoveryStart, RecoveryCancel, RecoveryLink, VerifyEmailScreen, VerifyPending } from './screens';
 import { AuthProvider, Gate, InviteScreen, NoAccess, ROLE_LABEL, ROLE_SHORT, SsoError, SsoExchange, useMe, type Role } from './auth';
 import { isActive, matchRoute, navGroups } from './registry';
 import { NotificationBell } from './views/notifications';
@@ -48,18 +49,51 @@ export default function App() {
     return () => removeEventListener(AUTH_EVENT, on);
   }, []);
   const onReady = () => { setNotice(null); setReady(true); setSessionN((n) => n + 1); };
-  const [a, b] = route.parts;
+  const [a, b, c] = route.parts;
   // Routes that work before, or instead of, the signed-in shell.
   if (a === 'invite' && b) return <InviteScreen token={b} signedIn={ready} onJoined={onReady} />;
+  if (a === 'verify-email' && b) return <VerifyEmailScreen token={b} signedIn={ready} onDone={onReady} />;
+  if (a === 'recover' && b === 'email') return <EmailRecoveryStart />;
+  if (a === 'recover' && b && c === 'cancel') return <RecoveryCancel token={b} />;
+  if (a === 'recover' && b) return <RecoveryLink token={b} onReady={onReady} />;
   if (a === 'recover' && !ready) return <RecoverySignIn onReady={onReady} />;
   if (a === 'sso' && b) return <SsoExchange code={b} onReady={onReady} />;
   if (a === 'sso-error') return <SsoError message={(location.hash.split('/sso-error/')[1] ?? '').split('?')[0]} />;
   if (!ready) return <Gate onReady={onReady} notice={notice} />;
   return (
     <AuthProvider key={session} onSignedOut={() => { setNotice(null); setReady(false); location.hash = '#/'; }}>
-      <Shell route={route} />
+      <Gated route={route} />
     </AuthProvider>
   );
+}
+
+/** A confirmed address comes before everything else when the deployment requires it. */
+function Gated({ route }: { route: Route }) {
+  const { me } = useMe();
+  if (me!.verification_required) return <VerifyPending />;
+  return <Shell route={route} />;
+}
+
+/** One-line notices above the page: a recovery session, billing trouble, an unverified organization, a sandbox about to be deleted. */
+function StatusBanners() {
+  const { me, isSandbox, can } = useMe();
+  const [cfg, setCfg] = useState<AuthConfig | null>(null);
+  useEffect(() => { authConfig().then(setCfg); }, []);
+  const ws = me!.workspace;
+  const rows: { tone: 'warn' | 'danger'; text: string; to?: string; cta?: string }[] = [];
+  if (me!.recovery_session) rows.push({ tone: 'warn', text: 'You signed in through account recovery. This session lasts two hours and can only add a passkey.', to: '#/settings/security', cta: 'Add a passkey' });
+  if (ws.billing_status === 'suspended') rows.push({ tone: 'danger', text: 'Billing is suspended because an invoice is more than 30 days overdue. This organization is read-only until it is paid.', to: can('billing:read') ? '#/settings/billing' : undefined, cta: 'Open billing' });
+  else if (ws.billing_status === 'past_due') rows.push({ tone: 'warn', text: 'An invoice is overdue. Pay it to avoid the organization becoming read-only.', to: can('billing:read') ? '#/settings/billing' : undefined, cta: 'Open billing' });
+  if (!isSandbox && cfg?.mode === 'production' && ws.verification_status && ws.verification_status !== 'verified') {
+    const t = ws.verification_status === 'pending' ? 'Your organization verification is under review. Settlements, API keys and chain actions open when it is approved.' : ws.verification_status === 'rejected' ? 'Your organization verification was not approved. Read the reviewer note and resubmit.' : 'Verify your organization to open settlements, API keys and chain actions.';
+    rows.push({ tone: 'warn', text: t, to: '#/settings/verification', cta: ws.verification_status === 'pending' ? 'View status' : 'Open verification' });
+  }
+  if (isSandbox && ws.expires_at) {
+    const days = Math.max(0, Math.ceil((new Date(ws.expires_at).getTime() - Date.now()) / 86_400_000));
+    if (days <= 2) rows.push({ tone: 'warn', text: `This sandbox is deleted in ${days === 0 ? 'less than a day' : days === 1 ? '1 day' : `${days} days`}. Keep it as an organization, or ask for a quote.`, to: '#/settings/billing', cta: 'See options' });
+  }
+  if (!rows.length) return null;
+  return <>{rows.map((r) => <div class={`acting sb-${r.tone}`} role="status"><span>{r.text}</span>{r.to ? <a class="acting-btn" href={r.to}>{r.cta}</a> : null}</div>)}</>;
 }
 
 function Shell({ route }: { route: Route }) {
@@ -156,6 +190,7 @@ function Shell({ route }: { route: Route }) {
           <AccountMenu />
         </div>
         <ActingBanner />
+        <StatusBanners />
         <main class="content" id="app-main" tabIndex={-1} key={version}>
           {page}
         </main>

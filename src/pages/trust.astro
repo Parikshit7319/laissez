@@ -3,38 +3,44 @@ import Layout from '../layouts/Layout.astro';
 import { url } from '../lib/url';
 
 // Mirrors ROLE_PERMS and HUMAN_ONLY in api/src/http.ts.
-const roles = ['Administrator', 'Operations analyst', 'Compliance officer', 'Issuer admin', 'Developer', 'Auditor'];
+const roles = ['Administrator', 'Operations analyst', 'Compliance officer', 'Legal reviewer', 'Issuer admin', 'Developer', 'Auditor'];
 const matrix: [string, string, boolean[]][] = [
-  ['Read the organization', 'read', [true, true, true, true, true, true]],
-  ['Manage clients and credentials', 'clients:write', [true, true, true, false, false, false]],
-  ['Place orders and settle', 'orders:write', [true, true, false, false, false, false]],
-  ['Change funds, NAV and documents', 'funds:write', [true, false, false, true, false, false]],
-  ['Screening dispositions and monitoring', 'compliance:write', [true, false, true, false, false, false]],
-  ['Resolve work items', 'work:write', [true, true, true, false, false, false]],
-  ['Approve policy changes (people only)', 'policy:approve', [true, false, true, true, false, false]],
-  ['Export the audit log', 'audit:export', [true, false, true, false, false, true]],
-  ['Manage webhooks', 'developer', [true, false, false, false, true, false]],
-  ['Manage API keys', 'keys:admin', [true, false, false, false, true, false]],
-  ['Manage members and SSO (people only)', 'members:admin', [true, false, false, false, false, false]],
+  ['Read the organization', 'read', [true, true, true, true, true, true, true]],
+  ['Manage clients and credentials', 'clients:write', [true, true, true, false, false, false, false]],
+  ['Place orders and settle', 'orders:write', [true, true, false, false, false, false, false]],
+  ['Change funds, NAV and documents', 'funds:write', [true, false, false, false, true, false, false]],
+  ['Screening dispositions and monitoring', 'compliance:write', [true, false, true, true, false, false, false]],
+  ['Resolve work items', 'work:write', [true, true, true, false, false, false, false]],
+  ['Approve policy changes (people only)', 'policy:approve', [true, false, true, false, true, false, false]],
+  ['Draft custom rules', 'rules:write', [true, false, true, false, false, false, false]],
+  ['Approve custom rules (people only)', 'rules:approve', [true, false, true, true, false, false, false]],
+  ['Export the audit log', 'audit:export', [true, false, true, false, false, false, true]],
+  ['Manage webhooks', 'developer', [true, false, false, false, false, true, false]],
+  ['Manage API keys', 'keys:admin', [true, false, false, false, false, true, false]],
+  ['Manage members and SSO (people only)', 'members:admin', [true, false, false, false, false, false, false]],
+  ['View billing, invoices and contracts', 'billing:read', [true, false, false, true, false, false, false]],
+  ['Accept contracts and manage billing (people only)', 'billing:write', [true, false, false, false, false, false, false]],
 ];
 
 type State = 'Implemented' | 'Partial' | 'Planned';
 const controls: { id: string; name: string; state: State; evidence: string; gap: string }[] = [
-  { id: 'CC6.1', name: 'Logical access to systems and data', state: 'Implemented', evidence: 'Passkeys only, no passwords. Row-level security in Postgres on every tenant table. API keys are scoped, hashed at rest and can carry IP allowlists and expiry.', gap: 'No scheduled access review yet.' },
-  { id: 'CC6.2', name: 'Registering, authorizing and removing users', state: 'Partial', evidence: 'Members join by invitation with a role and an expiring token. Removal revokes membership and sessions. Every change is in the audit log.', gap: 'No automatic deprovisioning from the identity provider (no SCIM).' },
-  { id: 'CC6.3', name: 'Role-based access and least privilege', state: 'Implemented', evidence: 'Six roles with the permission matrix above. Seven API key scopes. Approvals and membership changes are refused to keys and require a signed-in person.', gap: 'Role changes are audited but not periodically re-certified.' },
-  { id: 'CC6.6', name: 'Protection against external threats', state: 'Partial', evidence: 'TLS with a one-year HSTS header, security headers on every response, per-network rate limits on sign-up, events, consent and portal access, IP allowlists on keys.', gap: 'No independent penetration test. Cloudflare defaults only, no tuned WAF rules.' },
-  { id: 'CC6.7', name: 'Restricting transmission and removal of data', state: 'Partial', evidence: 'Webhooks are HMAC-signed. Audit exports are themselves audited. Credential sharing between organizations needs the investor’s consent and is visible to both sides.', gap: 'No data residency options. No data loss prevention on exports.' },
-  { id: 'CC7.2', name: 'Monitoring for anomalies and failures', state: 'Partial', evidence: 'Five components are checked every ten minutes and published on the status page. Holder monitoring re-checks every holder nightly and opens work items.', gap: 'No paging or on-call. No anomaly detection on authentication events.' },
-  { id: 'CC7.3', name: 'Evaluating and responding to security incidents', state: 'Planned', evidence: 'Incidents on the status page are derived from failed checks. Security reports go to a named person.', gap: 'No formal incident response program, severity scale or customer notification procedure.' },
-  { id: 'CC8.1', name: 'Change management', state: 'Partial', evidence: 'Rule packs are versioned with effective dates, approved by name and covered by a regression suite. Issuer policy changes need a second approver and show their effect on holders first.', gap: 'Code changes to the API are not yet gated by a second reviewer or a separate staging environment.' },
-  { id: 'A1.2', name: 'Backup, recovery and environmental protection', state: 'Partial', evidence: 'The database is managed Postgres on Neon with provider-level history retention. Cloudflare Workers run in every Cloudflare location.', gap: 'Single-region database. No tested restore procedure or recovery time objective.' },
-  { id: 'PI1.4', name: 'Complete, accurate and timely processing', state: 'Implemented', evidence: 'Decisions are deterministic and re-checked at settlement. Writes can carry idempotency keys and replay safely. Receipts are signed. Token balances are reconciled against the register. The guardrail on the metrics page publishes the count of settlements without a passing re-check.', gap: 'None known. The guardrail is the live evidence.' },
-  { id: 'C1.1', name: 'Identifying and protecting confidential information', state: 'Partial', evidence: 'Tenant isolation by row-level security. Product events are stripped of anything that looks personal before storage. SSO client secrets are sealed with AES-GCM.', gap: 'No written data classification or retention schedule beyond the seven-day sandbox limit.' },
+  { id: 'CC6.1', name: 'Logical access to systems and data', state: 'Implemented', evidence: 'Passkeys only, no passwords. Email confirmation before an account can be used in production. Optional authenticator app (TOTP, replay-protected). Administrators can require single sign-on or user-verified passkeys, shorten session and idle limits, restrict sign-in to email domains and networks. Row-level security in Postgres on every tenant table. API keys are scoped, hashed at rest and can carry IP allowlists and expiry.', gap: 'No scheduled access review yet.' },
+  { id: 'CC6.2', name: 'Registering, authorizing and removing users', state: 'Partial', evidence: 'Members join by invitation with a role and an expiring token. Removal revokes membership and sessions. Real organizations are verified by a person at Laissez before settlements, API keys and chain actions open. People can export and delete their own account. Every change is in the audit log.', gap: 'No automatic deprovisioning from the identity provider (no SCIM).' },
+  { id: 'CC6.3', name: 'Role-based access and least privilege', state: 'Implemented', evidence: 'Seven roles with the permission matrix above. Seven API key scopes. Approvals, membership changes and billing acceptance are refused to keys and require a signed-in person.', gap: 'Role changes are audited but not periodically re-certified.' },
+  { id: 'CC6.6', name: 'Protection against external threats', state: 'Partial', evidence: 'TLS with a one-year HSTS header, security headers on every response, per-network rate limits on sign-up, recovery, events, consent and portal access, IP allowlists on keys, a Cloudflare Turnstile bot check on sign-up when configured, and spreadsheet-formula escaping on every CSV export.', gap: 'No independent penetration test. Cloudflare defaults only, no tuned WAF rules.' },
+  { id: 'CC6.7', name: 'Restricting transmission and removal of data', state: 'Partial', evidence: 'Webhooks are HMAC-signed. Audit exports are themselves audited. Credential sharing between organizations needs the investor’s consent and is visible to both sides. Card and bank details never reach Laissez: invoices are paid through Stripe-hosted pages.', gap: 'No data residency options. No data loss prevention on exports.' },
+  { id: 'CC7.2', name: 'Monitoring for anomalies and failures', state: 'Partial', evidence: 'Five components are checked every ten minutes and published on the status page. Holder monitoring re-checks every holder nightly and opens work items. Account recovery, passkey and authenticator changes, role changes, API key creation and rotation, and security policy changes each send an email alert.', gap: 'No paging or on-call. No anomaly detection on authentication events.' },
+  { id: 'CC7.3', name: 'Evaluating and responding to security incidents', state: 'Planned', evidence: 'Incidents on the status page are derived from failed checks. Security reports go to a named person. The draft DPA commits to a 72 hour breach notice.', gap: 'No formal incident response program, severity scale or tested customer notification procedure.' },
+  { id: 'CC8.1', name: 'Change management', state: 'Partial', evidence: 'Rule packs are versioned with effective dates, approved by name and covered by a regression suite. Issuer policy changes need a second approver and show their effect on holders first. The site deploys only after the full test suite passes. Secret scanning over the whole git history, a dependency audit and CodeQL run on every push and weekly.', gap: 'Code changes to the API are not yet gated by a second reviewer or a separate staging environment.' },
+  { id: 'CC9.2', name: 'Vendor and business partner risk', state: 'Partial', evidence: 'Every sub-processor, what it receives and where is listed on the sub-processors page. Customers get 30 days notice before a new one under the draft DPA. Payment processing is delegated to Stripe so no card data is in scope.', gap: 'No vendor security reviews on file and no vendor SOC 2 reports collected yet.' },
+  { id: 'A1.2', name: 'Backup, recovery and environmental protection', state: 'Partial', evidence: 'The database is managed Postgres on Neon with point-in-time history, currently six hours on the plan in use. A restore procedure and a drill schedule are written in the runbook. Cloudflare Workers run in every Cloudflare location.', gap: 'Single-region database. A six hour history window is short: a problem noticed the next morning cannot be rewound. The restore drill has not been run against production and no recovery time objective has been measured.' },
+  { id: 'PI1.4', name: 'Complete, accurate and timely processing', state: 'Implemented', evidence: 'Decisions are deterministic and re-checked at settlement. Writes can carry idempotency keys and replay safely. Receipts are signed. Token balances are reconciled against the register. Invoices are generated from daily usage counts that are recomputed from settlement records, so a reversed settlement falls out of the bill. The guardrail on the metrics page publishes the count of settlements without a passing re-check.', gap: 'None known. The guardrail is the live evidence.' },
+  { id: 'C1.1', name: 'Identifying and protecting confidential information', state: 'Partial', evidence: 'Tenant isolation by row-level security. Product events are stripped of anything that looks personal before storage. SSO client secrets and authenticator secrets are sealed with AES-GCM.', gap: 'No written data classification or retention schedule beyond the seven-day sandbox limit.' },
+  { id: 'P5.1', name: 'Access to personal information by the data subject', state: 'Implemented', evidence: 'Every signed-in person can download their profile, memberships, sessions and authored audit entries as JSON and delete their account from the Security page, without contacting anyone. Deletion keeps the hash-linked audit log intact.', gap: 'Investor records held by a distributor are the distributor’s to export; there is no investor-facing self-service export yet.' },
 ];
 const counts = { Implemented: controls.filter((c) => c.state === 'Implemented').length, Partial: controls.filter((c) => c.state === 'Partial').length, Planned: controls.filter((c) => c.state === 'Planned').length };
 ---
-<Layout title="Trust" description="How Laissez is secured today: passkeys and SSO, six roles, row-level tenant isolation, a hash-chained audit log, signed receipts, sanctions data handling and an honest SOC 2 controls map." path="trust/">
+<Layout title="Trust" description="How Laissez is secured today: passkeys, SSO and an authenticator app, seven roles, row-level tenant isolation, a hash-chained audit log, signed receipts, sanctions data handling and an honest SOC 2 controls map." path="trust/">
   <section class="page-hero">
     <div class="wrap">
       <h1>A compliance product has to be the most careful system in the room.</h1>
@@ -50,9 +56,12 @@ const counts = { Implemented: controls.filter((c) => c.state === 'Implemented').
         <p class="lede">Nobody has a password to lose. People sign in with a passkey or through their employer's identity provider, and sessions end on their own.</p>
       </div>
       <div class="cols-3">
-        <div class="item"><h4>Passkeys, not passwords</h4><p>Accounts are created and used with WebAuthn passkeys only. The API checks the challenge, the origin and the relying party, and tracks the signature counter so a cloned authenticator is refused. Challenges expire and can be used once.</p></div>
+        <div class="item"><h4>Passkeys, not passwords</h4><p>Accounts are created and used with WebAuthn passkeys only. The API checks the challenge, the origin and the relying party, and tracks the signature counter so a cloned authenticator is refused. Challenges expire and can be used once. Administrators can require passkeys that confirm the person with a PIN, fingerprint or face.</p></div>
         <div class="item"><h4>SSO through OpenID Connect</h4><p>Organizations can require sign-in through their own identity provider. The flow is authorization code with PKCE (S256), state and nonce are bound to the request, and the ID token signature is verified against the provider's published keys before anyone is signed in. Provider client secrets are sealed with AES-GCM before they are stored.</p></div>
-        <div class="item"><h4>Sessions that expire</h4><p>A session lasts at most seven days and, in a real organization, ends after twelve hours without activity. Only a hash of the session token is stored. People can see every active session and revoke any of them. Switching organizations issues a new session and revokes the old one.</p></div>
+        <div class="item"><h4>Sessions that expire</h4><p>By default a session lasts at most seven days and ends after twelve hours without activity. Administrators can shorten both, limit sign-in to approved email domains and networks, and see the rule they set summarized on every member's Security page. Only a hash of the session token is stored. People can see every active session and revoke any of them. Switching organizations issues a new session and revokes the old one.</p></div>
+        <div class="item"><h4>Confirmed email</h4><p>In production, an account cannot be used until its email address is confirmed through a single-use link that expires. The confirmed address is what account recovery and security alerts go to. Changing it sends a notice to the old address and needs a new confirmation.</p></div>
+        <div class="item"><h4>Recovery that a stranger cannot use</h4><p>A person who loses every passkey can recover by email. The link works once, a waiting period of 24 hours applies in production and the owner is emailed with a cancel link. With an authenticator app turned on, recovery needs its six-digit code instead of waiting, and a code cannot be reused. Recovery signs in for two hours, only to add a passkey, and signs out every other session.</p></div>
+        <div class="item"><h4>Bot check and organization verification</h4><p>Sign-up sits behind a Cloudflare Turnstile check when it is configured and behind per-network rate limits always. A real organization submits its legal name, registration and country, and a person at Laissez approves it, with a sanctions screening of the name, before it can settle or hold API keys.</p></div>
       </div>
     </div>
   </section>
@@ -61,11 +70,11 @@ const counts = { Implemented: controls.filter((c) => c.state === 'Implemented').
     <div class="wrap">
       <div class="sec-head">
         <h2>Authorization</h2>
-        <p class="lede">Six roles for people, seven scopes for API keys, and a short list of actions that no key can perform no matter what it is granted.</p>
+        <p class="lede">Seven roles for people, seven scopes for API keys, and a short list of actions that no key can perform no matter what it is granted.</p>
       </div>
       <p class="scroll-hint fine">The table scrolls sideways. The first column stays in place.</p>
       <div class="table-wrap">
-        <table class="grid matrix" aria-label="Permission matrix: which of the six roles holds each permission">
+        <table class="grid matrix" aria-label="Permission matrix: which of the seven roles holds each permission">
           <thead><tr><th scope="col">Permission</th>{roles.map((r) => <th scope="col">{r}</th>)}</tr></thead>
           <tbody>
             {matrix.map(([label, perm, cells]) => (
@@ -141,8 +150,11 @@ const counts = { Implemented: controls.filter((c) => c.state === 'Implemented').
         <ul class="ticks">
           <li>TLS everywhere, with a one-year Strict-Transport-Security header, no-referrer and nosniff on every response, and a restrictive content security policy on JSON responses.</li>
           <li>Signing keys, the encryption key and database credentials live in Cloudflare Workers secret storage. They are never in the repository or in a response.</li>
-          <li>SSO client secrets are encrypted with AES-GCM under a dedicated key before they reach the database.</li>
-          <li>Sessions, API keys, invitations and sign-in challenges are stored as SHA-256 hashes. A database copy does not contain a usable credential.</li>
+          <li>SSO client secrets and authenticator-app secrets are encrypted with AES-GCM under a dedicated key before they reach the database.</li>
+          <li>Sessions, API keys, invitations, confirmation and recovery links and sign-in challenges are stored as SHA-256 hashes. A database copy does not contain a usable credential.</li>
+          <li>Card and bank details never reach Laissez. Invoices are sent and paid through Stripe, and Laissez keeps only the invoice, its status and the Stripe reference.</li>
+          <li>Every CSV export is escaped against spreadsheet formula injection, so a hostile client name cannot run a formula when a reviewer opens the file.</li>
+          <li>Anyone signed in can download their data as JSON and delete their account without contacting Laissez. The <a class="text-link" href={url('subprocessors/')}>sub-processors</a> are listed, and a draft <a class="text-link" href={url('dpa/')}>data processing addendum</a> is published for counsel to review.</li>
           <li>Sandbox investors, teammates, funds and institutions are fictional and are deleted with the sandbox after seven days. A real account stores a name and an email address, and nothing else about a person.</li>
           <li>Product events never carry personal data: the API drops any property whose key or value looks like a name, address, email, wallet or identifier before storing the event, and keeps only a hash of the network address for rate limiting.</li>
         </ul>
@@ -191,7 +203,7 @@ const counts = { Implemented: controls.filter((c) => c.state === 'Implemented').
             <li>No external audit of any kind. SOC 2 Type I is planned after the first design partner is in production, Type II twelve months after that.</li>
             <li>No independent penetration test. One is a condition of opening production access.</li>
             <li>No formal incident response program: no severity scale, no on-call rotation, no written customer notification procedure.</li>
-            <li>A single-region database with provider-level history retention and no tested restore drill.</li>
+            <li>A single-region database with a six hour point-in-time history window. The restore procedure is written; the drill has not yet been run against production.</li>
             <li>No data residency options. Everything is stored in one region, and that region is not selectable.</li>
           </ul>
         </div>

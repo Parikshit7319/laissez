@@ -1,6 +1,6 @@
 # Data model
 
-Generated from `api/db/schema.sql` and the migrations by `npm run docs:erd`. 79 tables in 6 domains. Every tenant table carries `workspace_id` and a row-level security policy (`migrate-003-rls.sql`); admin-only tables have no grant to `laissez_rt`.
+Generated from `api/db/schema.sql` and the migrations by `npm run docs:erd`. 88 tables in 7 domains. Every tenant table carries `workspace_id` and a row-level security policy (`migrate-003-rls.sql`); admin-only tables have no grant to `laissez_rt`.
 
 Column types are Postgres types with lengths and checks removed. PK marks primary key columns, FK columns that reference another table. Cross-domain references are drawn with the referenced table repeated in the diagram.
 
@@ -12,6 +12,7 @@ Column types are Postgres types with lengths and checks removed. PK marks primar
 - Decisions and settlement: `approval_policies`, `approval_requests`, `decisions`, `order_batches`, `settlements`, `travel_rule_messages`
 - Compliance operations: `booking_centers`, `hit_notes`, `holder_status`, `jurisdictions`, `monitor_run_items`, `monitor_runs`, `notification_channels`, `notifications`, `reg_publications`, `rule_drafts`, `rule_packs`, `sanctions_entries`, `sanctions_sources`, `screening_hits`, `screening_list`, `work_items`
 - Audit and platform: `audit_anchor_leaves`, `audit_anchors`, `audit_events`, `chain_config`, `chain_jobs`, `chain_nonces`, `product_events`, `recon_breaks`, `recon_runs`, `report_definitions`, `request_log_samples`, `uptime_checks`, `webhook_deliveries`, `webhooks`
+- Other: `billing_events`, `contracts`, `custom_rules`, `email_tokens`, `imports`, `invoices`, `quote_requests`, `stripe_events`, `usage_daily`
 
 ## Tenancy and access
 
@@ -176,6 +177,12 @@ erDiagram
     uuid sandbox_workspace FK
     timestamptz created_at
     timestamptz last_login_at
+    timestamptz email_verified_at
+    timestamptz terms_accepted_at
+    text terms_version
+    text totp_secret
+    timestamptz totp_enabled_at
+    bigint totp_last_step
   }
   waitlist {
     uuid workspace_id PK,FK
@@ -216,6 +223,16 @@ erDiagram
     text email_footer
     text support_email
     text support_phone
+    text verification_status
+    jsonb verification_profile
+    text verification_note
+    timestamptz verification_submitted_at
+    timestamptz verified_at
+    text verified_by
+    jsonb security_policy
+    text billing_status
+    jsonb billing_profile
+    text stripe_customer_id
   }
   investors {
     uuid workspace_id PK
@@ -263,10 +280,10 @@ erDiagram
 | `rate_limits` | `api/db/migrate-001-base.sql` | 3 |
 | `recovery_codes` | `api/db/migrate-008-accounts.sql` | 5 |
 | `sessions` | `api/db/migrate-002.sql` | 16 |
-| `users` | `api/db/migrate-002.sql` | 8 |
+| `users` | `api/db/migrate-002.sql` | 14 |
 | `waitlist` | `api/db/migrate-013-workflow.sql` | 12 |
 | `workspace_flags` | `api/db/migrate-014-platform2.sql` | 4 |
-| `workspaces` | `api/db/schema.sql` | 18 |
+| `workspaces` | `api/db/schema.sql` | 28 |
 
 ## Clients and credentials
 
@@ -369,6 +386,7 @@ erDiagram
     text chain_identity
     timestamptz chain_onboarded_at
     text email
+    text external_id
   }
   portal_access {
     text token_hash PK
@@ -461,7 +479,7 @@ erDiagram
 | `evidence_submissions` | `api/db/migrate-002.sql` | 11 |
 | `investor_classes` | `api/db/schema.sql` | 9 |
 | `investor_revisions` | `api/db/migrate-013-workflow.sql` | 8 |
-| `investors` | `api/db/schema.sql` | 16 |
+| `investors` | `api/db/schema.sql` | 17 |
 | `portal_access` | `api/db/migrate-002.sql` | 8 |
 | `portal_requests` | `api/db/migrate-002.sql` | 15 |
 | `suitability` | `api/db/migrate-013-workflow.sql` | 10 |
@@ -974,6 +992,8 @@ erDiagram
     text approved_by
     timestamptz created_at
     date effective_to
+    date reviewed_on
+    text review_ref
   }
   sanctions_entries {
     bigserial id PK
@@ -1076,7 +1096,7 @@ erDiagram
 | `notifications` | `api/db/migrate-009-compliance.sql` | 9 |
 | `reg_publications` | `api/db/migrate-002.sql` | 11 |
 | `rule_drafts` | `api/db/migrate-001-base.sql` | 11 |
-| `rule_packs` | `api/db/schema.sql` | 9 |
+| `rule_packs` | `api/db/schema.sql` | 11 |
 | `sanctions_entries` | `api/db/migrate-002.sql` | 11 |
 | `sanctions_sources` | `api/db/migrate-002.sql` | 8 |
 | `screening_hits` | `api/db/migrate-002.sql` | 16 |
@@ -1264,3 +1284,174 @@ erDiagram
 | `uptime_checks` | `api/db/migrate-002.sql` | 6 |
 | `webhook_deliveries` | `api/db/migrate-001-base.sql` | 10 |
 | `webhooks` | `api/db/migrate-001-base.sql` | 6 |
+
+## Other
+
+Tables that do not fit another domain.
+
+```mermaid
+erDiagram
+  billing_events {
+    uuid id PK
+    uuid workspace_id FK
+    text invoice_id
+    text kind
+    jsonb detail
+    timestamptz created_at
+  }
+  contracts {
+    text id PK
+    uuid workspace_id FK
+    text plan
+    text status
+    text currency
+    bigint platform_fee_cents
+    numeric usage_bps
+    int net_days
+    int tax_bps
+    date starts_on
+    date ends_on
+    boolean auto_renew
+    text terms_text
+    text terms_sha256
+    text created_by
+    timestamptz created_at
+    text accepted_by
+    uuid accepted_by_user
+    text accepted_title
+    timestamptz accepted_at
+    text accepted_ip_hash
+    date last_platform_invoice_for
+  }
+  custom_rules {
+    uuid workspace_id PK,FK
+    text id PK
+    int version PK
+    text name
+    text description
+    text jurisdiction
+    jsonb definition
+    text status
+    date effective_from
+    date effective_to
+    text template
+    text authored_by
+    uuid authored_by_user
+    text reviewed_by
+    uuid reviewed_by_user
+    text review_note
+    timestamptz approved_at
+    text retired_by
+    timestamptz retired_at
+    jsonb last_test
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  email_tokens {
+    uuid id PK
+    text token_hash
+    uuid user_id FK
+    text email
+    text purpose
+    timestamptz created_at
+    timestamptz available_at
+    timestamptz expires_at
+    timestamptz used_at
+    timestamptz cancelled_at
+    text ip_hash
+  }
+  imports {
+    uuid workspace_id PK,FK
+    text id PK
+    text type
+    text format
+    text status
+    text file_name
+    text source_sha256
+    jsonb totals
+    jsonb rows
+    jsonb warnings
+    int cursor
+    jsonb result
+    text error
+    timestamptz locked_at
+    text created_by
+    timestamptz created_at
+    text applied_by
+    timestamptz applied_at
+  }
+  invoices {
+    text id PK
+    uuid workspace_id FK
+    text contract_id FK
+    text number
+    text kind
+    date period_start
+    date period_end
+    text status
+    text currency
+    jsonb lines
+    bigint subtotal_cents
+    bigint tax_cents
+    bigint total_cents
+    date issued_on
+    date due_on
+    timestamptz paid_at
+    text paid_note
+    text stripe_invoice_id
+    text hosted_invoice_url
+    int reminder_stage
+    timestamptz created_at
+  }
+  quote_requests {
+    text id PK
+    uuid workspace_id FK
+    text requested_by
+    text email
+    text plan
+    numeric expected_value_usd
+    text message
+    text status
+    timestamptz created_at
+  }
+  stripe_events {
+    text id PK
+    text type
+    timestamptz received_at
+  }
+  usage_daily {
+    uuid workspace_id PK,FK
+    date day PK
+    numeric settled_value_usd
+    int settlements
+    int decisions
+    timestamptz computed_at
+  }
+  workspaces {
+    uuid id PK
+  }
+  users {
+    uuid id PK
+  }
+  workspaces ||--o{ billing_events : workspace_id
+  workspaces ||--o{ contracts : workspace_id
+  workspaces ||--o{ custom_rules : workspace_id
+  users ||--o{ email_tokens : user_id
+  workspaces ||--o{ imports : workspace_id
+  workspaces ||--o{ invoices : workspace_id
+  contracts ||--o{ invoices : contract_id
+  workspaces ||--o{ quote_requests : workspace_id
+  workspaces ||--o{ usage_daily : workspace_id
+```
+
+| Table | Defined in | Columns |
+| --- | --- | --- |
+| `billing_events` | `api/db/migrate-019-security-billing.sql` | 6 |
+| `contracts` | `api/db/migrate-019-security-billing.sql` | 22 |
+| `custom_rules` | `api/db/migrate-017-rules.sql` | 22 |
+| `email_tokens` | `api/db/migrate-019-security-billing.sql` | 11 |
+| `imports` | `api/db/migrate-018-import.sql` | 18 |
+| `invoices` | `api/db/migrate-019-security-billing.sql` | 21 |
+| `quote_requests` | `api/db/migrate-019-security-billing.sql` | 9 |
+| `stripe_events` | `api/db/migrate-019-security-billing.sql` | 3 |
+| `usage_daily` | `api/db/migrate-019-security-billing.sql` | 6 |
