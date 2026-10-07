@@ -26,6 +26,8 @@ import * as travel from './routes/travel';
 import * as reports from './routes/reports';
 import { runScheduledReports } from './routes/reports2';
 import * as chainRoutes from './routes/chain';
+import * as rulefeed from './routes/rulefeed';
+import * as siem from './routes/siem';
 import * as leads from './routes/leads';
 import * as account2 from './routes/account2';
 import * as workflow from './routes/workflow';
@@ -129,7 +131,7 @@ v1.route('/', core.routes);
 v1.route('/', platform.routes);
 v1.route('/', flags.routes);
 v1.route('/', integrations.routes);
-for (const m of [compliance, compliance2, fundops, network, reports, chainRoutes, travel, portal, account2, workflow, imports, rules, security, billing]) {
+for (const m of [compliance, compliance2, fundops, network, reports, chainRoutes, travel, portal, account2, workflow, imports, rules, security, billing, rulefeed, siem]) {
   const r = opt(m, 'routes');
   if (r) v1.route('/', r);
 }
@@ -177,6 +179,9 @@ async function uptimeChecks(env: Env, ctx: ExecutionContext) {
   );
   const processJobs = (chainLib as Record<string, unknown>)['processPendingChainJobs'];
   if (typeof processJobs === 'function') await processJobs(env, 5);
+  // Audit log export to customer SIEMs and archives: incremental, so a quiet organization costs nothing here.
+  try { const r = await siem.runExports(env, adminSql(env.DATABASE_URL)); if (r.destinations) console.log(JSON.stringify({ job: 'audit_export', ...r })); }
+  catch (e) { console.error('audit export failed', e); }
 }
 
 async function dailyCleanup(env: Env) {

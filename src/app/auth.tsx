@@ -41,7 +41,7 @@ export type Me = {
   actor?: { kind: string; name: string; scopes?: string[] };
   acting_as?: { id: string; name: string; role: Role } | null;
   role?: Role; role_label?: string;
-  workspace: { id: string; name: string; kind: 'sandbox' | 'org'; slug: string; brand_name?: string; brand_color?: string; expires_at?: string | null; sso_enabled?: boolean; billing_status?: 'none' | 'active' | 'past_due' | 'suspended'; verification_status?: 'unverified' | 'pending' | 'verified' | 'rejected' };
+  workspace: { id: string; name: string; kind: 'sandbox' | 'org'; slug: string; brand_name?: string; brand_color?: string; expires_at?: string | null; sso_enabled?: boolean; billing_status?: 'none' | 'active' | 'past_due' | 'suspended'; verification_status?: 'unverified' | 'pending' | 'verified' | 'rejected'; settlement_mode?: 'full' | 'decide_only' };
   /** False until the address is confirmed. Only meaningful when verification_required. */
   email_verified?: boolean;
   verification_required?: boolean;

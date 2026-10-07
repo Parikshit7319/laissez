@@ -144,7 +144,7 @@ export const templates = {
       org: p.org, title: `Invoice ${p.number} is ${p.daysLate} day${p.daysLate === 1 ? '' : 's'} overdue`,
       lines: [
         `Invoice ${p.number} for ${p.total} was not paid by its due date.`,
-        p.suspendOn ? `If it stays unpaid, ${p.org} moves to read-only on ${p.suspendOn}: you can still view and export everything, but new decisions, settlements and changes stop until payment arrives.` : `${p.org} is read-only until payment arrives: you can view and export everything, but new decisions, settlements and changes are paused.`,
+        p.suspendOn ? `If it stays unpaid, ${p.org} moves to read-only on ${p.suspendOn}: you can still view and export everything and redemptions still run, but new subscriptions, transfers and changes stop until payment arrives.` : `${p.org} is read-only until payment arrives: you can view and export everything, but new decisions, settlements and changes are paused.`,
         'If you already paid, reply to this message with the payment reference.',
       ],
       button: { label: 'View the invoice', url: p.link },

@@ -7,7 +7,7 @@ import type { Check } from '../../../src/proto/engine';
 import type { Investor, Fund } from '../../../src/proto/data';
 import type { Sql } from '../db';
 import { ApiError, id, rand, sha256, today, addDays, validCidr } from '../util';
-import { type C, type Actor, router, body, bg, need, audit, auditQ, SCOPES, ROLE_LABEL, type Role } from '../http';
+import { type C, type Actor, router, body, bg, need, audit, auditQ, SCOPES, ROLE_LABEL, type Role, needStepUp } from '../http';
 import { notifyRoles, notify } from '../notifications';
 import { loadGlobals, loadInvestors, emit } from '../ctx';
 import { runMonitor } from '../monitor';
@@ -59,6 +59,7 @@ routes.get('/approvals/:id', async (c) => {
 const noteIn = z.object({ note: z.string().trim().max(500).optional() });
 routes.post('/approvals/:id/approve', async (c) => {
   need(c, 'read');
+  needStepUp(c, 'approve this request');
   const { note } = await body(c, noteIn);
   const r = await approveRequest(c, c.req.param('id'), note ?? null);
   return c.json({ ...presentRequest(r, c.get('actor')), executed: r.executed, label: DEFAULT_POLICIES[r.kind]?.label ?? r.kind });
@@ -89,6 +90,7 @@ const policyIn = z.object({
 /** Updates one or more policies. Administrators only, and the change itself is audited. */
 routes.put('/approval-policies', async (c) => {
   const a = need(c, 'members:admin');
+  needStepUp(c, 'change approval policies');
   const sql = c.get('sql'); const ws = c.get('ws');
   const b = await body(c, z.object({ policies: z.array(policyIn).min(1).max(APPROVAL_KINDS.length) }));
   const current = await loadPolicies(sql, ws);

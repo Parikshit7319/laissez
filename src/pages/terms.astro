@@ -7,7 +7,7 @@ import { url } from '../lib/url';
     <div class="wrap">
       <h1>Sandbox terms</h1>
       <p class="lede">These terms cover the public sandbox, the guided demo, the API, this site, and the order forms organizations accept inside Laissez. They are short because the sandbox is simple: a demonstration environment with fictional data and no real assets. Real organizations also accept a written order form, described below.</p>
-      <p class="updated">Last updated 2 October 2026. Version 2026-10-02. Draft for counsel review before production use.</p>
+      <p class="updated">Last updated 7 October 2026. Version 2026-10-07. Draft for counsel review before production use.</p>
     </div>
   </section>
   <section class="band">
@@ -45,7 +45,7 @@ import { url } from '../lib/url';
         <li>Production use needs a verified organization and an order form. An administrator reviews and accepts it inside Laissez: the plan, the price, the billing period and these terms, with the person's name, the time and a hash of their network address recorded. That acceptance is the signature. Nothing is charged before it.</li>
         <li>Fees are the platform fee and the usage fee on the order form, in US dollars. Usage is counted per UTC day from settlements the product records, and reversed settlements are removed from the count. Taxes, where they apply, are added as a separate line on the invoice.</li>
         <li>Invoices are issued after each billing period and are due by the date printed on them. Payment is made on a page hosted by Stripe. Laissez never receives card or bank details.</li>
-        <li>If an invoice is still unpaid after its due date, Laissez emails the organization's administrators 1 day and 14 days past due. At 30 days past due the organization is suspended: reads, data exports and the billing page keep working, and anything that writes (new decisions, settlements, changes) stops until the balance is paid. Paying restores access immediately.</li>
+        <li>If an invoice is still unpaid after its due date, Laissez emails the organization's administrators 1 day and 14 days past due. At 30 days past due the organization is suspended: reads, data exports, the billing page and redemptions keep working, and every other write (new subscriptions, transfers, changes) stops until the balance is paid. Redemptions stay open because an investor's exit must never depend on the customer's invoice. Paying restores access immediately.</li>
         <li>An organization can export its data at any time and may end the agreement as the order form says. Laissez keeps invoices and the audit log as the law and the audit trail require.</li>
         <li>The data processing terms are in the <a href={url('dpa/')}>draft data processing addendum</a>, and the processors Laissez uses are on the <a href={url('subprocessors/')}>sub-processors page</a>.</li>
       </ul>

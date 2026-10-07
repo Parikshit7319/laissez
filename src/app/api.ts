@@ -67,7 +67,7 @@ function expire(reason: string) {
 }
 
 const MUTATING = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
-export type ApiOpts = { method?: string; body?: unknown; auth?: boolean; raw?: boolean; headers?: Record<string, string>; idempotencyKey?: string };
+export type ApiOpts = { method?: string; body?: unknown; auth?: boolean; raw?: boolean; headers?: Record<string, string>; idempotencyKey?: string; /** Internal: do not run the step-up flow on 403 step_up_required. */ noStepUp?: boolean };
 
 export async function api<T = any>(path: string, opts: ApiOpts = {}): Promise<T> {
   const method = (opts.method ?? (opts.body !== undefined ? 'POST' : 'GET')).toUpperCase();
@@ -87,9 +87,22 @@ export async function api<T = any>(path: string, opts: ApiOpts = {}): Promise<T>
   if (!res.ok) {
     const code = data?.error?.code ?? 'error';
     if (res.status === 401 && token && (code === 'session_expired' || code === 'unauthorized')) expire(code);
+    // A sensitive action wants a fresh passkey assertion: ask for it once, then send the same request again.
+    if (res.status === 403 && code === 'step_up_required' && token && !opts.noStepUp) {
+      await stepUp();
+      return api<T>(path, { ...opts, noStepUp: true, idempotencyKey: headers['Idempotency-Key'] });
+    }
     throw new ApiError(res.status, code, data?.error?.message ?? `Request failed (${res.status}).`, data?.error?.detail);
   }
   return data as T;
+}
+
+/** Runs the step-up flow: WebAuthn options from the API, the browser's passkey prompt, then verification. Throws a PasskeyError or ApiError. */
+export async function stepUp() {
+  const { getPasskey } = await import('./webauthn');
+  const o = await api<{ challenge_id: string; options: any }>('/v1/auth/step-up/options', { body: {}, noStepUp: true });
+  const credential = await getPasskey(o.options);
+  await api('/v1/auth/step-up/verify', { body: { challenge_id: o.challenge_id, credential }, noStepUp: true });
 }
 
 // ---------- Deployment configuration (public) ----------

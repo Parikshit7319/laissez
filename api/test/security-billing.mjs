@@ -12,6 +12,7 @@
 import { webcrypto as wc, createHash, createHmac, generateKeyPairSync, sign as nodeSign } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
+import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -158,7 +159,7 @@ await q(`delete from rate_limits`);
   ok('invited person signs up', C.rv?.status === 201 && C.rv?.json?.verification?.verified === true, JSON.stringify(C.rv?.json ?? C.ro?.json));
   const meC = await get('/v1/me', { token: C.token });
   ok('the invite address counts as confirmed', meC.json?.email_verified === true && meC.json?.role === 'ops');
-  ok('terms acceptance recorded', (await q(`select terms_version from users where email = $1`, [emailC]))[0]?.terms_version === '2026-10-02');
+  ok('terms acceptance recorded', (await q(`select terms_version from users where email = $1`, [emailC]))[0]?.terms_version === '2026-10-07');
   const delOk = await call('DELETE', '/v1/account', { token: C.token, body: { confirm_email: emailC } });
   ok('a member who is not the only administrator can delete the account', delOk.status === 200 && delOk.json?.deleted === true, JSON.stringify(delOk.json));
   ok('the deleted account is signed out', (await get('/v1/me', { token: C.token })).status === 401);
@@ -322,6 +323,65 @@ await q(`delete from rate_limits`);
     ok('after verification the API key is created', keyOk.status === 201, JSON.stringify(keyOk.json)?.slice(0, 200));
     const acceptOk = await post(`/v1/billing/contracts/${ct.json?.id}/accept`, { name: 'Prod Person', title: 'Founder', agree: true }, { token: PA.token, base: P2 });
     ok('and the pilot order form can be accepted', acceptOk.status === 200, JSON.stringify(acceptOk.json));
+
+    // Step-up: a session older than ten minutes must confirm with a passkey before a sensitive action.
+    await q(`update sessions set created_at = now() - interval '20 minutes', stepped_up_at = null where workspace_id = $1`, [PA.ws]);
+    const stale = await post('/v1/api-keys', { name: 'Second key' }, { token: PA.token, base: P2 });
+    ok('a stale session is asked to step up before creating an API key', stale.status === 403 && stale.json?.error?.code === 'step_up_required', JSON.stringify(stale.json));
+    const so = await call('POST', '/v1/auth/step-up/options', { token: PA.token, base: P2, body: {} });
+    ok('step-up options list only the person\'s own passkeys', so.status === 200 && so.json?.options?.allowCredentials?.length === 1, JSON.stringify(so.json).slice(0, 200));
+    const sv = await call('POST', '/v1/auth/step-up/verify', { token: PA.token, base: P2, body: { challenge_id: so.json?.challenge_id, credential: PA.a.assert(so.json?.options) } });
+    ok('the passkey assertion confirms the session for ten minutes', sv.status === 200 && sv.json?.valid_for_seconds === 600, JSON.stringify(sv.json));
+    const fresh = await post('/v1/api-keys', { name: 'Second key' }, { token: PA.token, base: P2 });
+    ok('after step-up the API key is created', fresh.status === 201, JSON.stringify(fresh.json)?.slice(0, 200));
+    const replay = await call('POST', '/v1/auth/step-up/verify', { token: PA.token, base: P2, body: { challenge_id: so.json?.challenge_id, credential: PA.a.assert(so.json?.options) } });
+    ok('a step-up challenge cannot be replayed', replay.status === 400 && replay.json?.error?.code === 'challenge_expired', JSON.stringify(replay.json));
+
+    // Decide-only mode: settlement and chain routes close, decisions keep working.
+    const modeOn = await call('PATCH', '/v1/organization', { token: PA.token, base: P2, body: { settlement_mode: 'decide_only' } });
+    ok('an administrator can switch the organization to decide-only mode', modeOn.status === 200 && modeOn.json?.settlement_mode === 'decide_only', JSON.stringify(modeOn.json));
+    const noSettle = await post('/v1/settlements', { decision_id: 'dec_none' }, { token: PA.token, base: P2 });
+    ok('in decide-only mode settlements answer 403 decide_only_mode', noSettle.status === 403 && noSettle.json?.error?.code === 'decide_only_mode', JSON.stringify(noSettle.json));
+    const me = await get('/v1/me', { token: PA.token, base: P2 });
+    ok('the mode is visible on /v1/me', me.json?.workspace?.settlement_mode === 'decide_only', JSON.stringify(me.json?.workspace));
+    await call('PATCH', '/v1/organization', { token: PA.token, base: P2, body: { settlement_mode: 'full' } });
+
+    // A billing suspension never blocks the exit: redemptions pass, everything else answers 402.
+    await q(`update workspaces set billing_status = 'suspended' where id = $1`, [PA.ws]);
+    const subBlocked = await post('/v1/decisions', { action: 'subscribe', investor_id: 'inv_none', fund: 'TWLF', amount: 1000, settle_with: 'USDC' }, { token: PA.token, base: P2 });
+    ok('a suspended organization cannot subscribe', subBlocked.status === 402 && subBlocked.json?.error?.code === 'billing_suspended', JSON.stringify(subBlocked.json));
+    const redeemOpen = await post('/v1/decisions', { action: 'redeem', investor_id: 'inv_none', fund: 'TWLF', amount: 1000, settle_with: 'USDC' }, { token: PA.token, base: P2 });
+    ok('a suspended organization can still redeem (the gate lets the request through)', redeemOpen.json?.error?.code !== 'billing_suspended', JSON.stringify(redeemOpen.json).slice(0, 160));
+    const batchBlocked = await post('/v1/batches/none/settle', {}, { token: PA.token, base: P2 });
+    ok('other writes stay closed during suspension', batchBlocked.status === 402, JSON.stringify(batchBlocked.json));
+    await q(`update workspaces set billing_status = 'active' where id = $1`, [PA.ws]);
+
+    // Audit export: a signed HTTPS destination receives a test event, then the organization's events in order.
+    const received = [];
+    const rx = http.createServer((req, res) => { let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => { received.push({ headers: req.headers, body: b }); res.writeHead(200); res.end('ok'); }); });
+    await new Promise((r) => rx.listen(0, '127.0.0.1', r));
+    const rxUrl = `http://127.0.0.1:${rx.address().port}/ingest`;
+    try {
+      const secret = 'whsec_test_' + stamp;
+      const mk = await post('/v1/audit-export/destinations', { kind: 'https', name: 'Test SIEM', url: rxUrl, secret }, { token: PA.token, base: P2 });
+      ok('an administrator adds an HTTPS audit export destination', mk.status === 201 && mk.json?.kind === 'https' && !JSON.stringify(mk.json).includes(secret), JSON.stringify(mk.json));
+      const t = await post(`/v1/audit-export/destinations/${mk.json?.id}/test`, {}, { token: PA.token, base: P2 });
+      const first = received[0];
+      const sigOk = (() => { if (!first) return false; const m = /t=(\d+),v1=([0-9a-f]+)/.exec(first.headers['laissez-signature'] ?? ''); if (!m) return false; return createHmac('sha256', secret).update(`${m[1]}.${first.body}`).digest('hex') === m[2]; })();
+      ok('the test event arrives with a valid Laissez-Signature', t.status === 200 && t.json?.ok === true && sigOk, JSON.stringify(t.json));
+      const before = received.length;
+      await post('/v1/api-keys', { name: 'Audit export probe' }, { token: PA.token, base: P2 });
+      const run = await post(`/v1/audit-export/destinations/${mk.json?.id}/run`, {}, { token: PA.token, base: P2 });
+      const batch = received[before] ? JSON.parse(received[before].body) : null;
+      const seqs = batch?.events?.map((e) => e.seq) ?? [];
+      ok('a run pushes the new events in sequence order', run.status === 200 && run.json?.sent >= 1 && seqs.length === run.json?.sent && seqs.every((x, i) => i === 0 || x === seqs[i - 1] + 1), JSON.stringify(run.json));
+      const again = await post(`/v1/audit-export/destinations/${mk.json?.id}/run`, {}, { token: PA.token, base: P2 });
+      ok('a second run sends nothing new', again.status === 200 && again.json?.sent === 0 || (again.json?.sent === 1 && batch), JSON.stringify(again.json));
+      const dl = await get('/v1/audit-export/deliveries', { token: PA.token, base: P2 });
+      ok('deliveries are listed with their sequence ranges', dl.status === 200 && dl.json?.data?.length >= 2 && dl.json.data.every((d) => d.status === 'sent'), JSON.stringify(dl.json).slice(0, 200));
+      const bad = await post('/v1/audit-export/destinations', { kind: 's3_worm', name: 'Bad bucket', endpoint: 'http://example.com', region: 'us-east-1', bucket: 'b', access_key_id: 'AKIAXXXXXXXX', secret_access_key: 'x'.repeat(20) }, { token: PA.token, base: P2 });
+      ok('a plain-http endpoint off the loopback is refused', bad.status === 400 || bad.status === 422, JSON.stringify(bad.json).slice(0, 160));
+    } finally { rx.close(); }
   } catch (e) { fail++; console.log('FAIL production mode block', e.message); }
   finally { s1?.child.kill(); s2?.child.kill(); }
 

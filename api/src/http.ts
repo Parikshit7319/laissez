@@ -15,7 +15,15 @@ export type Actor = {
   sessionId?: string;
   keyId?: string;
 };
-export type Vars = { sql: Sql; admin: Sql; ws: string; wsKind: string; actor: Actor; version: string };
+export type Vars = {
+  sql: Sql; admin: Sql; ws: string; wsKind: string; actor: Actor; version: string;
+  /** 'full' or 'decide_only' (the customer settles on its own rails). */
+  settlementMode?: string;
+  /** Set when a suspended organization reaches a route that stays open for redemptions only. */
+  suspended?: boolean;
+  /** Session id and the time of the last fresh passkey assertion, for step-up checks. Absent for API keys. */
+  sessionId?: string; steppedUpAt?: number;
+};
 export type C = Context<{ Bindings: Env; Variables: Vars }>;
 export const router = () => new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -71,6 +79,20 @@ export function need(c: C, perm: string) {
   throw new ApiError(403, 'forbidden', `Your role (${a.role ? ROLE_LABEL[a.role] : 'none'}) cannot ${PERM_TEXT[perm] ?? perm}. Ask an administrator to change your role.`);
 }
 export const actorRef = (a: Actor) => `${a.kind}:${a.id}`;
+
+/** How long a fresh passkey assertion covers sensitive actions. */
+export const STEP_UP_WINDOW_MS = 10 * 60 * 1000;
+/**
+ * Sensitive actions need a passkey assertion made in the last ten minutes, not only a live session. API keys cannot
+ * reach the actions that call this (they are human-only), so a key here is a programming error, not a policy gap.
+ */
+export function needStepUp(c: C, what: string) {
+  const a = c.get('actor');
+  if (a.kind !== 'user') throw new ApiError(403, 'human_required', `Only a signed-in person can ${what}.`);
+  if (c.get('wsKind') !== 'org') return; // sandboxes have no passkeys to assert with, and nothing real to protect
+  const at = c.get('steppedUpAt') ?? 0;
+  if (Date.now() - at > STEP_UP_WINDOW_MS) throw new ApiError(403, 'step_up_required', `Confirm it is you with your passkey to ${what}. The confirmation lasts ten minutes.`, { step_up: '/v1/auth/step-up', window_seconds: STEP_UP_WINDOW_MS / 1000 });
+}
 
 export async function body<T extends z.ZodTypeAny>(c: Context, schema: T): Promise<z.infer<T>> {
   return schema.parse(await c.req.json().catch(() => ({})));

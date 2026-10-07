@@ -1413,6 +1413,180 @@
     ]
    }
   },
+  "/v1/auth/step-up/options": {
+   "post": {
+    "tags": [
+     "Auth"
+    ],
+    "operationId": "stepUpOptions",
+    "summary": "Start a step-up confirmation",
+    "description": "Sensitive actions (approving policy changes, rules and approval requests, creating API keys, changing members, SSO, the security policy, the settlement mode, accepting an order form) answer 403 step_up_required unless the session made a passkey assertion, or was created, in the last ten minutes. This returns the WebAuthn request options for that assertion, limited to your own passkeys. Sandboxes are exempt.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "challenge_id": {
+           "type": "string",
+           "format": "uuid"
+          },
+          "options": {
+           "description": "PublicKeyCredentialRequestOptions with your passkeys as allowCredentials."
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "session",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-human-only": true
+   }
+  },
+  "/v1/auth/step-up/verify": {
+   "post": {
+    "tags": [
+     "Auth"
+    ],
+    "operationId": "stepUpVerify",
+    "summary": "Finish a step-up confirmation",
+    "description": "Verifies the assertion against one of your own passkeys and marks the current session as confirmed for ten minutes. Audited as auth.step_up.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+         },
+         "credential": {
+          "description": "The PublicKeyCredential from navigator.credentials.get, JSON-encoded."
+         }
+        },
+        "required": [
+         "challenge_id",
+         "credential"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "ok": {
+           "type": "boolean"
+          },
+          "valid_for_seconds": {
+           "type": "integer"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "session",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ],
+    "x-laissez-human-only": true
+   }
+  },
   "/v1/auth/invites/{token}/accept": {
    "post": {
     "tags": [
@@ -3903,6 +4077,7 @@
     ],
     "operationId": "updateOrganization",
     "summary": "Update organization settings",
+    "description": "Name, brand and settlement mode. In decide_only mode Laissez returns decisions and evidence and never settles: POST /v1/settlements, batch settlement and chain actions answer 403 decide_only_mode, and the customer settles on its own rails. Changing the mode needs a fresh passkey confirmation (step-up).",
     "security": [
      {
       "sessionToken": []
@@ -3936,6 +4111,13 @@
          "brand_color": {
           "type": "string",
           "pattern": "^#[0-9a-fA-F]{6}$"
+         },
+         "settlement_mode": {
+          "type": "string",
+          "enum": [
+           "full",
+           "decide_only"
+          ]
          }
         }
        }
@@ -3970,6 +4152,13 @@
           },
           "brand_color": {
            "type": "string"
+          },
+          "settlement_mode": {
+           "type": "string",
+           "enum": [
+            "full",
+            "decide_only"
+           ]
           }
          }
         }
@@ -12614,6 +12803,178 @@
     "x-laissez-roles": []
    }
   },
+  "/v1/rule-packs/feed": {
+   "get": {
+    "tags": [
+     "Rule packs"
+    ],
+    "operationId": "ruleFeed",
+    "summary": "The signed rule-pack feed",
+    "description": "Every jurisdiction with its active pack, version history and changelog, the investor classes the law accepts, and the threshold test behind each class with its citation and primary source. The document is signed with the receipt key (GET /v1/signing-key) so a compliance team can store it and prove which rules it relied on. Sold on its own as the rule-pack subscription; included with every paid plan.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "format": {
+           "type": "string",
+           "enum": [
+            "laissez.rule-feed.v1"
+           ]
+          },
+          "generated_at": {
+           "type": "string",
+           "format": "date-time"
+          },
+          "jurisdictions": {
+           "type": "integer"
+          },
+          "data": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "jurisdiction": {
+              "type": "string"
+             },
+             "name": {
+              "type": "string"
+             },
+             "active_pack": {
+              "description": "The pack version in force today, or null."
+             },
+             "versions": {
+              "type": "array",
+              "items": {
+               "description": "Pack versions in order."
+              }
+             },
+             "classes": {
+              "type": "array",
+              "items": {
+               "type": "object",
+               "properties": {
+                "code": {
+                 "type": "string"
+                },
+                "label": {
+                 "type": "string"
+                },
+                "stamp": {
+                 "type": "string"
+                },
+                "rule_ref": {
+                 "type": "string"
+                },
+                "threshold": {
+                 "type": "string"
+                },
+                "requires_opt_in": {
+                 "type": "boolean"
+                },
+                "source": {
+                 "description": "Primary source with title, publisher, date and url."
+                },
+                "tests": {
+                 "type": "array",
+                 "items": {
+                  "description": "Threshold test fields by subject (individual or entity)."
+                 }
+                }
+               }
+              }
+             },
+             "changelog": {
+              "type": "array",
+              "items": {
+               "type": "object",
+               "properties": {
+                "version": {
+                 "type": "string"
+                },
+                "effective_from": {
+                 "type": "string",
+                 "nullable": true
+                },
+                "change": {
+                 "type": "string"
+                },
+                "summary": {
+                 "type": "string"
+                },
+                "status": {
+                 "type": "string"
+                }
+               }
+              }
+             }
+            }
+           }
+          },
+          "sha256": {
+           "type": "string"
+          },
+          "signature": {
+           "type": "string",
+           "nullable": true
+          },
+          "verify": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ]
+   }
+  },
   "/v1/jurisdictions": {
    "get": {
     "tags": [
@@ -15965,6 +16326,643 @@
      "legal",
      "issuer",
      "developer",
+     "auditor"
+    ]
+   }
+  },
+  "/v1/audit-export/destinations": {
+   "get": {
+    "tags": [
+     "Audit"
+    ],
+    "operationId": "listAuditExportDestinations",
+    "summary": "List audit export destinations",
+    "description": "Where this organization's audit log is pushed: Splunk HEC, a signed HTTPS endpoint, or an S3 bucket with Object Lock (write-once). Each destination remembers the last sequence number it received; every ten minutes new events go out in order, in batches of up to 500.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/AuditExportDestination"
+           }
+          },
+          "kinds": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "latest_seq": {
+           "type": "integer"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "audit:export",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance",
+     "auditor"
+    ]
+   },
+   "post": {
+    "tags": [
+     "Audit"
+    ],
+    "operationId": "createAuditExportDestination",
+    "summary": "Add an audit export destination",
+    "description": "Needs step-up. Secrets (HEC token, signing secret, cloud credentials) are sealed at rest and never returned. kind splunk_hec: url, token, index, sourcetype. kind https: url, secret (the body is signed like a webhook with Laissez-Signature). kind s3_worm: endpoint, region, bucket, prefix, access_key_id, secret_access_key, retention_days (objects are written with x-amz-object-lock-mode COMPLIANCE until that date; the bucket needs Object Lock enabled). A new destination starts from the current sequence; use run with from_seq to backfill. Five destinations at most. Audited.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "description": "One of the three shapes above, discriminated by kind."
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AuditExportDestination"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "members:admin",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ],
+    "x-laissez-human-only": true
+   }
+  },
+  "/v1/audit-export/destinations/{id}": {
+   "patch": {
+    "tags": [
+     "Audit"
+    ],
+    "operationId": "setAuditExportDestinationEnabled",
+    "summary": "Enable or disable a destination",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Destination id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "enabled": {
+          "type": "boolean"
+         }
+        },
+        "required": [
+         "enabled"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string"
+          },
+          "enabled": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "members:admin",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ],
+    "x-laissez-human-only": true
+   },
+   "delete": {
+    "tags": [
+     "Audit"
+    ],
+    "operationId": "deleteAuditExportDestination",
+    "summary": "Remove a destination",
+    "description": "Needs step-up. Audited.",
+    "security": [
+     {
+      "sessionToken": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Destination id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "removed": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "members:admin",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ],
+    "x-laissez-human-only": true
+   }
+  },
+  "/v1/audit-export/destinations/{id}/test": {
+   "post": {
+    "tags": [
+     "Audit"
+    ],
+    "operationId": "testAuditExportDestination",
+    "summary": "Send a test event",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Destination id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "ok": {
+           "type": "boolean"
+          },
+          "detail": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "audit:export",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance",
+     "auditor"
+    ]
+   }
+  },
+  "/v1/audit-export/destinations/{id}/run": {
+   "post": {
+    "tags": [
+     "Audit"
+    ],
+    "operationId": "runAuditExportDestination",
+    "summary": "Push now, or backfill",
+    "description": "Without from_seq, sends everything since the last delivery. With from_seq, re-sends from that sequence number (a backfill); audited as audit_export.backfill.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Destination id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "from_seq": {
+          "type": "integer",
+          "minimum": 0
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "sent": {
+           "type": "integer"
+          },
+          "batches": {
+           "type": "integer"
+          },
+          "error": {
+           "type": "string",
+           "nullable": true
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "audit:export",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance",
+     "auditor"
+    ]
+   }
+  },
+  "/v1/audit-export/deliveries": {
+   "get": {
+    "tags": [
+     "Audit"
+    ],
+    "operationId": "listAuditExportDeliveries",
+    "summary": "List deliveries",
+    "description": "The last 100 batches with their sequence range, status and, for S3, the object key. Filter with destination_id.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "destination_id",
+      "in": "query",
+      "required": false,
+      "description": "Limit to one destination.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "integer"
+             },
+             "destination_id": {
+              "type": "string"
+             },
+             "destination": {
+              "type": "string"
+             },
+             "from_seq": {
+              "type": "integer"
+             },
+             "to_seq": {
+              "type": "integer"
+             },
+             "events": {
+              "type": "integer"
+             },
+             "status": {
+              "type": "string",
+              "enum": [
+               "sent",
+               "failed"
+              ]
+             },
+             "detail": {
+              "type": "string",
+              "nullable": true
+             },
+             "object_key": {
+              "type": "string",
+              "nullable": true
+             },
+             "sent_at": {
+              "type": "string",
+              "format": "date-time"
+             }
+            }
+           }
+          }
+         },
+         "required": [
+          "data"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "audit:export",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance",
      "auditor"
     ]
    }
@@ -32971,7 +33969,8 @@
           "enum": [
            "platform",
            "enterprise",
-           "pilot"
+           "pilot",
+           "decisions"
           ]
          },
          "expected_value_usd": {
@@ -35054,6 +36053,61 @@
      "error"
     ]
    },
+   "AuditExportDestination": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "splunk_hec",
+       "https",
+       "s3_worm"
+      ]
+     },
+     "name": {
+      "type": "string"
+     },
+     "config": {
+      "description": "Non-secret settings: url, index and sourcetype; or url; or endpoint, region, bucket, prefix, retention_days and a hint of the access key id."
+     },
+     "enabled": {
+      "type": "boolean"
+     },
+     "last_seq": {
+      "type": "integer"
+     },
+     "last_run_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "last_ok_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "last_error": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "created_by": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
    "Workspace": {
     "type": "object",
     "properties": {
@@ -35085,6 +36139,13 @@
       "type": [
        "string",
        "null"
+      ]
+     },
+     "settlement_mode": {
+      "type": "string",
+      "enum": [
+       "full",
+       "decide_only"
       ]
      },
      "created_at": {
@@ -39421,7 +40482,8 @@
       "enum": [
        "platform",
        "enterprise",
-       "pilot"
+       "pilot",
+       "decisions"
       ]
      },
      "status": {
@@ -39442,6 +40504,10 @@
      },
      "usage_bps": {
       "type": "number"
+     },
+     "decision_fee_cents": {
+      "type": "integer",
+      "description": "US cents."
      },
      "tax_bps": {
       "type": "integer"

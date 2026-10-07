@@ -9,7 +9,7 @@ import { useMe, PermBtn, PermNote } from '../auth';
 
 const cur = (cents: number, ccy = 'USD') => new Intl.NumberFormat('en-US', { style: 'currency', currency: ccy, maximumFractionDigits: 2 }).format(cents / 100);
 const usd0 = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
-const PLAN: Record<string, string> = { platform: 'Platform', enterprise: 'Enterprise', pilot: 'Design partner pilot', sandbox: 'Sandbox', none: 'No plan yet' };
+const PLAN: Record<string, string> = { platform: 'Platform', enterprise: 'Enterprise', pilot: 'Design partner pilot', decisions: 'Decisions (decide-only)', sandbox: 'Sandbox', none: 'No plan yet' };
 const BILLING: Record<string, { tone: 'ok' | 'warn' | 'no' | 'muted'; label: string }> = { active: { tone: 'ok', label: 'In good standing' }, none: { tone: 'muted', label: 'No contract' }, past_due: { tone: 'warn', label: 'Past due' }, suspended: { tone: 'no', label: 'Suspended' } };
 const INV: Record<string, { tone: 'ok' | 'warn' | 'no' | 'muted'; label: string }> = { open: { tone: 'warn', label: 'Open' }, paid: { tone: 'ok', label: 'Paid' }, void: { tone: 'muted', label: 'Void' }, uncollectible: { tone: 'no', label: 'Written off' }, draft: { tone: 'muted', label: 'Draft' } };
 
@@ -26,7 +26,7 @@ export function Billing() {
     <>
       <Head title="Billing" sub={isSandbox ? 'A sandbox is free and deleted after 7 days. This page is where you turn it into a paid organization.' : `Contract, usage and invoices for ${me!.workspace.name}.`} actions={<><Chip tone="brass">{PLAN[d.plan] ?? d.plan}</Chip>{!d.sandbox ? <Chip tone={st.tone}>{st.label}</Chip> : null}</>} />
       <PermNote perm="billing:write" />
-      {d.suspended ? <div class="err" role="alert"><strong>Billing is suspended.</strong> An invoice is more than 30 days overdue, so the organization is read-only. Pay the open invoice below and access returns the same day. Exports stay available.</div> : null}
+      {d.suspended ? <div class="err" role="alert"><strong>Billing is suspended.</strong> An invoice is more than 30 days overdue, so the organization is read-only, except redemptions, which always run. Pay the open invoice below and access returns the same day. Exports stay available.</div> : null}
       {d.sandbox ? <SandboxPlan d={d} /> : (
         <>
           {d.pending_contract ? <AcceptOrderForm contract={d.pending_contract} verification={d.verification_status} onAccepted={refresh} /> : null}
@@ -54,7 +54,8 @@ function SandboxPlan({ d }: { d: any }) {
         <dl class="kv wide">
           <div><dt>Issuers</dt><dd>No charge</dd></div>
           <div><dt>Distributors</dt><dd>From $60K a year, plus 1.5 bps of value settled</dd></div>
-          <div><dt>Design partners</dt><dd>Free pilot with a named integration owner</dd></div>
+          <div><dt>Decide-only</dt><dd>A flat annual fee plus a price per allowed decision; you settle on your own rails</dd></div>
+          <div><dt>Design partners</dt><dd>Free 90-day pilot with a named integration owner</dd></div>
         </dl>
         <p class="small muted">The order form sets the real figures for your corridors. See <a href="../pricing/">pricing</a> for how they are built.</p>
       </Card>
@@ -68,6 +69,7 @@ function Overview({ d }: { d: any }) {
     <div class="kpis">
       <div class="kpi"><span>Settled this month</span><b>{usd0(u.settled_value_usd)}</b><em>{u.settlements} settlement{u.settlements === 1 ? '' : 's'}, {u.month}</em></div>
       <div class="kpi"><span>Projected usage fee</span><b>{cur(u.projected_usage_fee_cents)}</b><em>{u.usage_bps ? `${u.usage_bps} bps, invoiced monthly in arrears` : 'No usage fee on this contract'}</em></div>
+      {u.decision_fee_cents ? <div class="kpi"><span>Allowed decisions this month</span><b>{u.decisions_allowed}</b><em>{cur(u.projected_decision_fee_cents)} at {cur(u.decision_fee_cents)} each</em></div> : null}
       <div class="kpi"><span>Open invoices</span><b>{d.invoices.open_count ? cur(d.invoices.open_cents) : 'None'}</b><em>{d.invoices.overdue_count ? `${d.invoices.overdue_count} overdue, ${cur(d.invoices.overdue_cents)}` : d.invoices.next_due_on ? `next due ${day(d.invoices.next_due_on)}` : 'nothing owed'}</em></div>
       <div class="kpi"><span>Next platform invoice</span><b>{d.next_platform_invoice_on ? day(d.next_platform_invoice_on) : 'None'}</b><em>{d.contract?.auto_renew ? 'annual, in advance' : d.contract ? 'does not renew' : 'no active contract'}</em></div>
     </div>
@@ -81,6 +83,7 @@ function ContractCard({ c }: { c: any }) {
         <div><dt>Plan</dt><dd>{PLAN[c.plan] ?? c.plan}</dd></div>
         <div><dt>Platform fee</dt><dd>{c.platform_fee_cents ? `${cur(c.platform_fee_cents, c.currency)} a year, invoiced in advance` : 'None'}</dd></div>
         <div><dt>Usage fee</dt><dd>{c.usage_bps ? `${c.usage_bps} bps of value settled, invoiced monthly in arrears` : 'None'}</dd></div>
+        <div><dt>Decision fee</dt><dd>{c.decision_fee_cents ? `${cur(c.decision_fee_cents, c.currency)} per allowed decision, invoiced monthly in arrears` : 'None, decisions are unlimited'}</dd></div>
         <div><dt>Payment terms</dt><dd>Net {c.net_days} days{c.tax_bps ? `, plus ${c.tax_bps / 100}% tax` : ''}</dd></div>
         <div><dt>Term</dt><dd>From {day(c.starts_on)}{c.ends_on ? ` to ${day(c.ends_on)}` : ''}{c.auto_renew ? ', renews each year' : ''}</dd></div>
         <div><dt>Accepted</dt><dd>{c.accepted_by ? `${c.accepted_by}${c.accepted_title ? `, ${c.accepted_title}` : ''}, ${when(c.accepted_at)}` : 'Not yet'}</dd></div>
@@ -174,7 +177,7 @@ function Invoices({ stripe }: { stripe: boolean }) {
           })}</tbody>
         </table></div>
       ) : <div class="pad"><p class="muted">No invoices yet. The first platform invoice goes out on the day after you accept an order form; usage is invoiced monthly after that.</p></div>}
-      <div class="pad"><ErrorBox error={err} /><p class="small muted">{stripe ? 'Pay online opens a Stripe page for card or ACH. We never see or store card numbers.' : 'Pay by bank transfer using the details on the PDF and quote the invoice number. We mark it paid when it arrives, usually within a business day.'} Overdue by 14 days, we warn the administrators. Overdue by 30, the organization becomes read-only until it is paid.</p></div>
+      <div class="pad"><ErrorBox error={err} /><p class="small muted">{stripe ? 'Pay online opens a Stripe page for card or ACH. We never see or store card numbers.' : 'Pay by bank transfer using the details on the PDF and quote the invoice number. We mark it paid when it arrives, usually within a business day.'} Overdue by 14 days, we warn the administrators. Overdue by 30, the organization becomes read-only until it is paid. Redemptions still run.</p></div>
     </Card>
   );
 }
@@ -237,7 +240,7 @@ function QuoteForm({ sandbox, hasContract }: { sandbox: boolean; hasContract: bo
       <p class="muted">{sandbox ? 'Tell us what you would settle and we send an order form you can accept here.' : 'Ask for a different plan or more corridors. We reply by email, usually within one business day.'}</p>
       {res ? <p class="ok-text" role="status">{res.note}</p> : (
         <form class="form-grid" onSubmit={send}>
-          <Field label="Plan"><select value={f.plan} onChange={(e) => setF({ ...f, plan: (e.target as HTMLSelectElement).value })}><option value="pilot">Design partner pilot</option><option value="platform">Platform</option><option value="enterprise">Enterprise</option></select></Field>
+          <Field label="Plan"><select value={f.plan} onChange={(e) => setF({ ...f, plan: (e.target as HTMLSelectElement).value })}><option value="pilot">Design partner pilot</option><option value="platform">Platform</option><option value="decisions">Decisions (decide-only)</option><option value="enterprise">Enterprise</option></select></Field>
           <Field label="Value you expect to settle in a year, USD" hint="A rough number is fine."><input type="number" min={0} value={f.value} onInput={(e) => setF({ ...f, value: (e.target as HTMLInputElement).value })} placeholder="500000000" /></Field>
           <div style={{ gridColumn: '1 / -1' }}><Field label="Anything we should know"><textarea rows={3} maxLength={1000} value={f.message} onInput={(e) => setF({ ...f, message: (e.target as HTMLTextAreaElement).value })} placeholder="Corridors, funds, the date you want to go live" /></Field></div>
           <div class="form-actions"><PermBtn perm="billing:write" type="submit" kind="primary" busy={busy}>Send request</PermBtn></div>

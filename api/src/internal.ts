@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { adminSql } from './db';
 import { type C, router, audit } from './http';
-import { ApiError, rateLimit, sha256, today, id as mkId } from './util';
+import { ApiError, rateLimit, sha256, today, id as mkId, addDays } from './util';
 import { emailAdmins, templates } from './email';
 import { orderFormText, runBilling, markPaid, restoreIfClear, stripeVoid, STAFF, usd } from './billing';
 
@@ -56,8 +56,9 @@ staff.post('/verifications/:ws/decision', async (c) => {
 
 // ---------- Contracts ----------
 const contractIn = z.object({
-  workspace_id: z.string().uuid(), plan: z.enum(['platform', 'enterprise', 'pilot']),
-  platform_fee_cents: z.number().int().min(0).max(100_000_000_00), usage_bps: z.number().min(0).max(1000), tax_bps: z.number().int().min(0).max(3000).default(0),
+  workspace_id: z.string().uuid(), plan: z.enum(['platform', 'enterprise', 'pilot', 'decisions']),
+  platform_fee_cents: z.number().int().min(0).max(100_000_000_00), usage_bps: z.number().min(0).max(1000), decision_fee_cents: z.number().int().min(0).max(100_000_00).default(0), tax_bps: z.number().int().min(0).max(3000).default(0),
+  pilot_metrics: z.string().trim().max(1000).optional(),
   net_days: z.number().int().min(0).max(120).default(30), starts_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), ends_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), auto_renew: z.boolean().default(true),
 });
 staff.post('/contracts', async (c) => {
@@ -66,13 +67,16 @@ staff.post('/contracts', async (c) => {
   const [w] = await admin`select name, brand_name, kind from workspaces where id = ${b.workspace_id}`;
   if (!w || w.kind !== 'org') throw new ApiError(404, 'not_found', 'No organization with that id.');
   const startsOn = b.starts_on ?? today();
-  if (b.ends_on && b.ends_on <= startsOn) throw new ApiError(422, 'invalid_range', 'The end date must be after the start date.');
-  const text = orderFormText({ org: w.brand_name || w.name, plan: b.plan, feeCents: b.platform_fee_cents, bps: b.usage_bps, netDays: b.net_days, taxBps: b.tax_bps, startsOn, endsOn: b.ends_on ?? null, autoRenew: b.auto_renew });
+  // A pilot is fixed-term: 90 days unless an end date is given, and it does not renew.
+  const endsOn = b.ends_on ?? (b.plan === 'pilot' ? addDays(startsOn, 90) : null);
+  const autoRenew = b.plan === 'pilot' ? false : b.auto_renew;
+  if (endsOn && endsOn <= startsOn) throw new ApiError(422, 'invalid_range', 'The end date must be after the start date.');
+  const text = orderFormText({ org: w.brand_name || w.name, plan: b.plan, feeCents: b.platform_fee_cents, bps: b.usage_bps, decisionFeeCents: b.decision_fee_cents, netDays: b.net_days, taxBps: b.tax_bps, startsOn, endsOn, autoRenew, pilotMetrics: b.pilot_metrics ?? null });
   const cid = mkId('ctr');
   await admin`update contracts set status = 'ended', ends_on = coalesce(ends_on, current_date) where workspace_id = ${b.workspace_id} and status in ('pending_acceptance', 'draft')`;
-  await admin`insert into contracts (id, workspace_id, plan, status, platform_fee_cents, usage_bps, net_days, tax_bps, starts_on, ends_on, auto_renew, terms_text, terms_sha256, created_by)
-    values (${cid}, ${b.workspace_id}, ${b.plan}, 'pending_acceptance', ${b.platform_fee_cents}, ${b.usage_bps}, ${b.net_days}, ${b.tax_bps}, ${startsOn}, ${b.ends_on ?? null}, ${b.auto_renew}, ${text}, ${await sha256(text)}, 'staff')`;
-  await audit(admin, b.workspace_id, STAFF, 'billing.contract_created', cid, { plan: b.plan, platform_fee_cents: b.platform_fee_cents, usage_bps: b.usage_bps, starts_on: startsOn });
+  await admin`insert into contracts (id, workspace_id, plan, status, platform_fee_cents, usage_bps, decision_fee_cents, net_days, tax_bps, starts_on, ends_on, auto_renew, terms_text, terms_sha256, created_by)
+    values (${cid}, ${b.workspace_id}, ${b.plan}, 'pending_acceptance', ${b.platform_fee_cents}, ${b.usage_bps}, ${b.decision_fee_cents}, ${b.net_days}, ${b.tax_bps}, ${startsOn}, ${endsOn}, ${autoRenew}, ${text}, ${await sha256(text)}, 'staff')`;
+  await audit(admin, b.workspace_id, STAFF, 'billing.contract_created', cid, { plan: b.plan, platform_fee_cents: b.platform_fee_cents, usage_bps: b.usage_bps, decision_fee_cents: b.decision_fee_cents, starts_on: startsOn, ends_on: endsOn });
   await emailAdmins(c.env, admin, b.workspace_id, 'contract', templates.contractReady({ org: w.brand_name || w.name, plan: b.plan, fee: usd(b.platform_fee_cents), bps: String(b.usage_bps), startsOn, link: `${c.env.APP_URL}#/settings/billing` }));
   return c.json({ id: cid, status: 'pending_acceptance', terms_text: text }, 201);
 });

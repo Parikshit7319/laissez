@@ -9,7 +9,7 @@ import type { Investor, Fund } from '../../../src/proto/data';
 import { findTest } from '../../../src/proto/thresholds';
 import { adminSql, type Sql } from '../db';
 import { ApiError, id, rand, digits, today, addDays, lzid, sha256, signReceipt, publicKey, verifyReceipt } from '../util';
-import { type C, type Actor, router, body, bg, need, audit, auditQ, actorRef } from '../http';
+import { type C, type Actor, router, body, bg, need, audit, auditQ, actorRef, needStepUp } from '../http';
 import { buildCtx, loadGlobals, loadInvestors, loadFunds, packsAsOf, emit } from '../ctx';
 import { screenNames, recordHits, type Match } from '../sanctions';
 import { lawDefaults } from '../seed';
@@ -469,6 +469,7 @@ async function loadDraft(c: C, pcId: string) {
 }
 routes.post('/policy-changes/:id/approve', async (c) => {
   const a = need(c, 'policy:approve');
+  needStepUp(c, 'approve a policy change');
   const sql = c.get('sql'); const ws = c.get('ws');
   const pc = await loadDraft(c, c.req.param('id'));
   const ch = pc.changes as PolicyIn;
@@ -691,7 +692,9 @@ export async function createDecision(c: C, input: DecisionInput, opts: DecisionO
 
 routes.post('/decisions', async (c) => {
   need(c, 'orders:write');
-  const res = await createDecision(c, await body(c, decisionIn));
+  const b = await body(c, decisionIn);
+  if (c.get('suspended') && b.action !== 'redeem') throw new ApiError(402, 'billing_suspended', 'This organization is suspended for an unpaid invoice. Redemptions still run; subscriptions and transfers resume when the invoice is paid.');
+  const res = await createDecision(c, b);
   return c.json(res, res.pending ? 202 : res.persisted ? 201 : 200);
 });
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -1057,6 +1060,7 @@ routes.post('/settlements', async (c) => {
   const [dec] = await c.get('sql')`select d.id, d.action, d.investor_id, d.counterparty_id, d.ticker, d.amount::float8 as amount, d.asset, d.outcome, d.what_ifs, d.units::float8 as units, d.inputs_sha256, d.created_at, d.capital_call_id, d.batch_id, ob.status as batch_status, ob.dealing_date::text as batch_dealing_date
     from decisions d left join order_batches ob on ob.workspace_id = d.workspace_id and ob.id = d.batch_id where d.workspace_id = ${c.get('ws')} and d.id = ${decision_id}`;
   if (!dec) throw new ApiError(404, 'not_found', `No decision ${decision_id} in this organization.`);
+  if (c.get('suspended') && dec.action !== 'redeem') throw new ApiError(402, 'billing_suspended', 'This organization is suspended for an unpaid invoice. Redemptions still settle; other settlements resume when the invoice is paid.');
   // A decision in an open batch settles with the batch after the cut-off, unless an operator forces it alone.
   if (dec.batch_id && dec.batch_status === 'open' && !force) throw new ApiError(409, 'in_batch', `This decision deals on ${dec.batch_dealing_date} in batch ${dec.batch_id}, which is still open. Close and settle the batch, or send force: true to settle this order alone.`, { batch_id: dec.batch_id, dealing_date: dec.batch_dealing_date });
   const r = await executeSettlement(c, dec, dec.batch_id ? { ignoreWindow: true } : {});

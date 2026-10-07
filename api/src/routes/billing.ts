@@ -3,7 +3,7 @@
 // money here; staff routes (api/src/internal.ts) create contracts and mark invoices paid.
 import { z } from 'zod';
 import { adminSql } from '../db';
-import { type C, router, body, need, bg, audit } from '../http';
+import { type C, router, body, need, bg, audit, needStepUp } from '../http';
 import { ApiError, today, addDays, sha256, rateLimit, id as mkId } from '../util';
 import { isProduction } from '../mode';
 import { templates } from '../email';
@@ -29,17 +29,17 @@ export const acceptContractIn = z.object({
   agree: z.literal(true, { message: 'Tick the box to accept the order form' }),
 });
 export const quoteIn = z.object({
-  plan: z.enum(['platform', 'enterprise', 'pilot']),
+  plan: z.enum(['platform', 'enterprise', 'pilot', 'decisions']),
   expected_value_usd: z.number().min(0).max(1e13).optional(),
   message: z.string().trim().max(1000).optional(),
 });
 
 const month = () => today().slice(0, 7);
 const contractView = (c: any) => c && ({
-  id: c.id, plan: c.plan, status: c.status, currency: c.currency, platform_fee_cents: Number(c.platform_fee_cents), usage_bps: Number(c.usage_bps), tax_bps: c.tax_bps, net_days: c.net_days,
+  id: c.id, plan: c.plan, status: c.status, currency: c.currency, platform_fee_cents: Number(c.platform_fee_cents), usage_bps: Number(c.usage_bps), decision_fee_cents: Number(c.decision_fee_cents ?? 0), tax_bps: c.tax_bps, net_days: c.net_days,
   starts_on: c.starts_on, ends_on: c.ends_on, auto_renew: c.auto_renew, created_at: c.created_at, accepted_at: c.accepted_at, accepted_by: c.accepted_by, accepted_title: c.accepted_title, terms_sha256: c.terms_sha256,
 });
-const CONTRACT_COLS = `id, plan, status, currency, platform_fee_cents, usage_bps, tax_bps, net_days, starts_on::text as starts_on, ends_on::text as ends_on, auto_renew, created_at, accepted_at, accepted_by, accepted_title, terms_sha256`;
+const CONTRACT_COLS = `id, plan, status, currency, platform_fee_cents, usage_bps, decision_fee_cents, tax_bps, net_days, starts_on::text as starts_on, ends_on::text as ends_on, auto_renew, created_at, accepted_at, accepted_by, accepted_title, terms_sha256`;
 const invoiceView = (i: any) => ({
   id: i.id, number: i.number, kind: i.kind, status: i.status, currency: i.currency, period_start: i.period_start, period_end: i.period_end, issued_on: i.issued_on, due_on: i.due_on,
   subtotal_cents: Number(i.subtotal_cents), tax_cents: Number(i.tax_cents), total_cents: Number(i.total_cents), lines: i.lines, paid_at: i.paid_at, paid_note: i.paid_note, hosted_invoice_url: i.hosted_invoice_url,
@@ -59,6 +59,8 @@ routes.get('/billing', async (c) => {
   const value = rows.reduce((s: number, r: any) => s + Number(r.value), 0);
   const settlements = rows.reduce((s: number, r: any) => s + Number(r.settlements), 0);
   const bps = active ? Number(active.usage_bps) : 0;
+  const decisionFee = active ? Number(active.decision_fee_cents ?? 0) : 0;
+  const [dec] = await sql.query(`select count(*)::int as allowed from decisions where workspace_id = $1 and outcome = 'ALLOW' and cardinality(what_ifs) = 0 and created_at >= ($2::date)::timestamp at time zone 'UTC'`, [ws, start]);
   const [inv] = await sql.query(`select count(*) filter (where status = 'open')::int as open_count, coalesce(sum(total_cents) filter (where status = 'open'), 0)::float8 as open_cents,
       count(*) filter (where status = 'open' and due_on < current_date)::int as overdue_count, coalesce(sum(total_cents) filter (where status = 'open' and due_on < current_date), 0)::float8 as overdue_cents,
       min(due_on) filter (where status = 'open')::text as next_due_on from invoices where workspace_id = $1`, [ws]);
@@ -72,7 +74,7 @@ routes.get('/billing', async (c) => {
   return c.json({
     sandbox, plan: sandbox ? 'sandbox' : active?.plan ?? 'none', status: w.billing_status, verification_status: w.verification_status, stripe: stripeOn(c.env),
     contract: contractView(active) ?? null, pending_contract: contractView(pending) ?? null,
-    usage: { month: month(), settled_value_usd: Math.round(value * 100) / 100, settlements, usage_bps: bps, projected_usage_fee_cents: Math.round((value * bps) / 10_000 * 100), eur_usd_rate: EUR_USD },
+    usage: { month: month(), settled_value_usd: Math.round(value * 100) / 100, settlements, usage_bps: bps, projected_usage_fee_cents: Math.round((value * bps) / 10_000 * 100), decisions_allowed: dec.allowed, decision_fee_cents: decisionFee, projected_decision_fee_cents: decisionFee * dec.allowed, eur_usd_rate: EUR_USD },
     invoices: { open_count: inv.open_count, open_cents: Number(inv.open_cents), overdue_count: inv.overdue_count, overdue_cents: Number(inv.overdue_cents), next_due_on: inv.next_due_on },
     next_platform_invoice_on: nextPlatform,
     profile: w.billing_profile ?? {},
@@ -105,6 +107,7 @@ routes.get('/billing/contracts/:id', async (c) => {
 });
 routes.post('/billing/contracts/:id/accept', async (c) => {
   need(c, 'billing:write');
+  needStepUp(c, 'accept an order form');
   const admin = c.get('admin'); const ws = c.get('ws'); const a = c.get('actor');
   if (a.kind !== 'user') throw new ApiError(403, 'human_required', 'Only a signed-in administrator can accept an order form.');
   const b = await body(c, acceptContractIn);
@@ -198,7 +201,7 @@ publicRoutes.post('/billing/stripe/webhook', async (c) => {
 const ref = (n: string) => ({ $ref: `#/components/schemas/${n}` });
 const cents = { type: 'integer', description: 'US cents.' };
 export const OPENAPI_SCHEMAS = {
-  Contract: { type: 'object', properties: { id: { type: 'string' }, plan: { type: 'string', enum: ['platform', 'enterprise', 'pilot'] }, status: { type: 'string', enum: ['draft', 'pending_acceptance', 'active', 'ended'] }, currency: { type: 'string' }, platform_fee_cents: cents, usage_bps: { type: 'number' }, tax_bps: { type: 'integer' }, net_days: { type: 'integer' }, starts_on: { type: 'string', format: 'date' }, ends_on: { type: ['string', 'null'], format: 'date' }, auto_renew: { type: 'boolean' }, accepted_at: { type: ['string', 'null'] }, accepted_by: { type: ['string', 'null'] }, accepted_title: { type: ['string', 'null'] }, terms_sha256: { type: 'string' }, terms_text: { type: 'string', description: 'Only on the single-contract read.' } } },
+  Contract: { type: 'object', properties: { id: { type: 'string' }, plan: { type: 'string', enum: ['platform', 'enterprise', 'pilot', 'decisions'] }, status: { type: 'string', enum: ['draft', 'pending_acceptance', 'active', 'ended'] }, currency: { type: 'string' }, platform_fee_cents: cents, usage_bps: { type: 'number' }, decision_fee_cents: cents, tax_bps: { type: 'integer' }, net_days: { type: 'integer' }, starts_on: { type: 'string', format: 'date' }, ends_on: { type: ['string', 'null'], format: 'date' }, auto_renew: { type: 'boolean' }, accepted_at: { type: ['string', 'null'] }, accepted_by: { type: ['string', 'null'] }, accepted_title: { type: ['string', 'null'] }, terms_sha256: { type: 'string' }, terms_text: { type: 'string', description: 'Only on the single-contract read.' } } },
   Invoice: { type: 'object', properties: { id: { type: 'string' }, number: { type: 'string', example: 'LZ-2026-1001' }, kind: { type: 'string', enum: ['platform', 'usage'] }, status: { type: 'string', enum: ['draft', 'open', 'paid', 'void', 'uncollectible'] }, currency: { type: 'string' }, period_start: { type: 'string', format: 'date' }, period_end: { type: 'string', format: 'date' }, issued_on: { type: 'string', format: 'date' }, due_on: { type: 'string', format: 'date' }, subtotal_cents: cents, tax_cents: cents, total_cents: cents, lines: { type: 'array', items: { type: 'object', properties: { description: { type: 'string' }, amount_cents: cents } } }, paid_at: { type: ['string', 'null'] }, paid_note: { type: ['string', 'null'] }, hosted_invoice_url: { type: ['string', 'null'], description: 'Stripe invoice page for ACH and card payment, when Stripe is on.' }, overdue_days: { type: 'integer' } } },
 };
 export const OPENAPI_OPS = [

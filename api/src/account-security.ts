@@ -6,7 +6,7 @@ import { isProduction } from './mode';
 import { sendEmail, templates, deliverable } from './email';
 import { audit, type Actor } from './http';
 
-export const TERMS_VERSION = '2026-10-02';
+export const TERMS_VERSION = '2026-10-07';
 export const VERIFY_HOURS = 48;
 
 export const mailConfigured = (env: Env) => !!(env.RESEND_API_KEY && env.EMAIL_FROM);

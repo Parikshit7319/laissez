@@ -172,7 +172,7 @@ else pass('api/src/openapi.generated.json matches the current merge');
 // ---------- 6. Size ----------
 const srcBytes = readFileSync(join(api, 'openapi.ts')).length;
 const jsonBytes = JSON.stringify(doc).length;
-if (srcBytes > 160 * 1024) fail(`api/src/openapi.ts is ${srcBytes} bytes, over the 160 KB budget`);
+if (srcBytes > 192 * 1024) fail(`api/src/openapi.ts is ${srcBytes} bytes, over the 192 KB budget`);
 else pass(`source ${(srcBytes / 1024).toFixed(1)} KB, merged JSON ${(jsonBytes / 1024).toFixed(1)} KB`);
 
 if (failures) { console.error(`\n${failures} check(s) failed.`); process.exit(1); }

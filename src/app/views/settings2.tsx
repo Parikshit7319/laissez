@@ -281,8 +281,36 @@ export function Organization() {
   return (
     <>
       <Head title={isSandbox ? 'Keep or export this sandbox' : 'Organization'} sub={isSandbox ? 'A sandbox is deleted after 7 days. Keep it as a real organization, with your account as its first administrator, or take the data with you.' : `Export everything in ${me!.workspace.name}, or delete the organization for good.`} />
-      {isSandbox ? <div class="grid2"><KeepSandbox /><ExportCard /></div> : <div class="grid2"><ExportCard /><DeleteOrg /></div>}
+      {isSandbox ? <div class="grid2"><KeepSandbox /><ExportCard /></div> : <><SettlementMode /><div class="grid2"><ExportCard /><DeleteOrg /></div></>}
     </>
+  );
+}
+
+/** Full: Laissez decides and settles. Decide-only: Laissez decides and keeps the evidence; the customer settles on its own rails. */
+function SettlementMode() {
+  const { me, can, reload } = useMe();
+  const mode = me!.workspace.settlement_mode ?? 'full';
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<any>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const set = async (next: 'full' | 'decide_only') => {
+    setBusy(true); setErr(null); setSaved(null);
+    try { await api('/v1/organization', { method: 'PATCH', body: { settlement_mode: next } }); await reload(); setSaved(next); } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+  return (
+    <Card title="Settlement mode" actions={<Chip tone={mode === 'decide_only' ? 'warn' : 'ok'}>{mode === 'decide_only' ? 'Decide-only' : 'Full'}</Chip>}>
+      <p class="muted">{mode === 'decide_only'
+        ? 'Laissez returns decisions and signed evidence. Settlement, batch settlement and chain actions are closed, and your operations team settles on your own rails. Pre-trade checks, credentials, monitoring and the audit log work as before.'
+        : 'Laissez decides and settles both legs. Switch to decide-only when your bank settles on its own rails and wants Laissez for eligibility, evidence and monitoring only. Changing the mode asks for your passkey.'}</p>
+      {!can('members:admin') ? <PermNote perm="members:admin" /> : null}
+      <div class="form-actions">
+        {mode === 'decide_only'
+          ? <PermBtn perm="members:admin" kind="primary" busy={busy} onClick={() => set('full')}>Switch to full settlement</PermBtn>
+          : <PermBtn perm="members:admin" kind="primary" busy={busy} onClick={() => set('decide_only')}>Switch to decide-only</PermBtn>}
+      </div>
+      {saved ? <p class="ok-text" role="status">Settlement mode is now {saved === 'decide_only' ? 'decide-only' : 'full'}. Recorded in the audit log.</p> : null}
+      <ErrorBox error={err} />
+    </Card>
   );
 }
 

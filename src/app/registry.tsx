@@ -25,6 +25,7 @@ import { ChainOverview, ChainJobsPage, Reconciliation } from './views/chain';
 import { ImportPage } from './views/import';
 import { RuleWorkbench } from './views/rules';
 import { Billing } from './views/billing';
+import { AuditExport } from './views/auditexport';
 import { SecurityPolicy, Verification } from './views/policy';
 
 export type RouteProps = { params: Record<string, string>; query: URLSearchParams };
@@ -127,6 +128,7 @@ export const ROUTES: RouteEntry[] = [
   { pattern: '/settings/organization', group: 'Organization', label: 'Organization', component: Organization },
   { pattern: '/settings/verification', group: 'Organization', label: 'Verification', component: Verification },
   { pattern: '/settings/billing', group: 'Organization', label: 'Billing', component: Billing, perm: 'billing:read' },
+  { pattern: '/settings/audit-export', group: 'Organization', label: 'Audit export', component: AuditExport, perm: 'audit:export' },
   { pattern: '/approval-policies', group: 'Organization', label: 'Approval policies', component: ApprovalPolicies },
   { pattern: '/keys', group: 'Organization', component: ApiKeys, perm: 'keys:admin', hidden: true },
 ];

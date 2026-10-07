@@ -4,7 +4,7 @@
 //   routes        authenticated
 import { z } from 'zod';
 import { adminSql } from '../db';
-import { type C, router, body, need, bg, audit } from '../http';
+import { type C, router, body, need, bg, audit, needStepUp } from '../http';
 import { ApiError, rand, sha256, rateLimit, unseal, seal, requestGeo, parseUa, today } from '../util';
 import { isProduction, mode } from '../mode';
 import { sendEmail, emailAdmins, templates, deliverable } from '../email';
@@ -236,6 +236,7 @@ routes.get('/security-policy', async (c) => {
 });
 routes.put('/security-policy', async (c) => {
   need(c, 'members:admin');
+  needStepUp(c, 'change the security policy');
   const admin = c.get('admin'); const ws = c.get('ws'); const a = c.get('actor');
   const [w] = await admin`select kind, security_policy, (sso->>'enabled')::boolean as sso_enabled from workspaces where id = ${ws}`;
   if (w.kind !== 'org') throw new ApiError(403, 'sandbox_only', 'Security policies apply to organizations. Sandboxes keep the defaults.');

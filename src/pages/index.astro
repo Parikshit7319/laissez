@@ -300,7 +300,7 @@ const globalPacks = RULE_PACKS.filter((p) => p.jurisdiction === 'GLOBAL' && p.st
       const r = d.credential_reuse;
       set('reuse', r?.multi_fund_rate == null ? (r?.investors_with_allowed_orders ? '0%' : 'None yet') : `${Math.round(r.multi_fund_rate * 100)}%`);
       const when = d.generated_at ? new Date(d.generated_at) : new Date();
-      note.textContent = `Read at ${when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}, aggregated across every live sandbox. Sandboxes are deleted after 7 days.`;
+      note.textContent = `Read at ${when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}, aggregated across every live sandbox, including Laissez's own test runs. Fictional money, not customer volume. Sandboxes are deleted after 7 days.`;
     }).catch(() => { clearTimeout(t); fallback(); });
   }
 </script>

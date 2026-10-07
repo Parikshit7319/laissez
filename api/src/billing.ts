@@ -28,8 +28,9 @@ const addYears = (d: string, n: number) => { const x = new Date(d + 'T00:00:00Z'
 export type InvoiceLine = { description: string; amount_cents: number };
 
 // ---------- Order form ----------
-export function orderFormText(o: { org: string; plan: string; feeCents: number; bps: number; netDays: number; taxBps: number; startsOn: string; endsOn: string | null; autoRenew: boolean }): string {
-  const plan = o.plan === 'pilot' ? 'Design partner pilot' : o.plan === 'enterprise' ? 'Enterprise' : 'Platform';
+export function orderFormText(o: { org: string; plan: string; feeCents: number; bps: number; decisionFeeCents?: number; netDays: number; taxBps: number; startsOn: string; endsOn: string | null; autoRenew: boolean; pilotMetrics?: string | null }): string {
+  const plan = o.plan === 'pilot' ? 'Design partner pilot' : o.plan === 'enterprise' ? 'Enterprise' : o.plan === 'decisions' ? 'Decisions (decide-only)' : 'Platform';
+  const decisionFee = o.decisionFeeCents ?? 0;
   return [
     `LAISSEZ ORDER FORM`,
     `Customer: ${o.org}`,
@@ -38,8 +39,11 @@ export function orderFormText(o: { org: string; plan: string; feeCents: number; 
     '',
     `Platform fee: ${o.feeCents > 0 ? `${usd(o.feeCents)} a year, invoiced annually in advance on the start date and each anniversary` : 'none'}.`,
     `Usage fee: ${o.bps > 0 ? `${o.bps} basis points of the value of orders Laissez records as settled, counted per UTC day. Funds in EUR convert at ${EUR_USD} USD to the euro. Settlements later reverted are not counted. Invoiced monthly in arrears` : 'none'}.`,
+    `Decision fee: ${decisionFee > 0 ? `${usd(decisionFee)} for each decision with outcome ALLOW on a real order (what-if scenarios and refusals are free), counted per UTC day and invoiced monthly in arrears` : 'none; pre-trade decisions are unlimited'}.`,
+    ...(o.plan === 'decisions' ? [`Settlement: the customer settles on its own rails. Laissez returns decisions and signed evidence and does not instruct settlement (decide-only mode).`] : []),
+    ...(o.plan === 'pilot' ? [`Pilot term and scope: ${o.endsOn ? `ends ${o.endsOn}` : '90 days from the start date'}; test networks and fictional money only; one fund and one corridor unless both parties agree in writing to more. Success is measured as: ${o.pilotMetrics ?? 'credential reuse rate across two or more funds, cross-border settlements completed, settlements without a passing re-check (target zero) and median time to first settlement, as published on the Laissez metrics page'}. Either party may end the pilot with 14 days written notice; the customer's data stays exportable afterwards.`] : []),
     `Tax: ${o.taxBps > 0 ? `${(o.taxBps / 100).toFixed(2)}% is added to each invoice unless the customer is tax exempt and has said so in Billing` : 'fees exclude taxes; any tax that applies is added to the invoice'}.`,
-    `Payment: net ${o.netDays} days from the invoice date, by ACH, card or wire. An invoice unpaid one day after its due date marks the organization past due. Unpaid fourteen days after, the administrators receive a final warning. Unpaid thirty days after, the organization becomes read-only until the invoice is paid; reads, exports and payment keep working.`,
+    `Payment: net ${o.netDays} days from the invoice date, by ACH, card or wire. An invoice unpaid one day after its due date marks the organization past due. Unpaid fourteen days after, the administrators receive a final warning. Unpaid thirty days after, the organization becomes read-only until the invoice is paid; reads, exports, payment and redemptions keep working, so no investor's exit depends on the customer's invoice.`,
     '',
     `Services and data: the service is described on the Laissez website and the API reference. Terms of Service (version ${TERMS_VERSION}) and the Privacy Policy apply to this order form. The customer's data stays the customer's; it can be exported at any time from Settings.`,
     `Acceptance: by accepting this order form electronically, the signatory confirms that they may bind the customer, and Laissez records their name, title, time and a hash of this text.`,
@@ -62,19 +66,19 @@ export const usageQuery = (sql: Sql, from: string, to: string, ws: string | null
 /** Recomputes usage_daily for a range. Safe to run repeatedly: rows in the range are zeroed first so reverted settlements fall out. */
 export async function meterUsage(admin: Sql, from: string, to: string): Promise<{ days: number }> {
   const rows = await usageQuery(admin, from, to, null);
-  const decs = await admin`select d.workspace_id, (d.created_at at time zone 'UTC')::date::text as day, count(*)::int as n from decisions d join workspaces w on w.id = d.workspace_id
+  const decs = await admin`select d.workspace_id, (d.created_at at time zone 'UTC')::date::text as day, count(*)::int as n, count(*) filter (where d.outcome = 'ALLOW' and cardinality(d.what_ifs) = 0)::int as allowed from decisions d join workspaces w on w.id = d.workspace_id
     where w.kind = 'org' and d.created_at >= (${from}::date)::timestamp at time zone 'UTC' and d.created_at < ((${to}::date + 1)::timestamp at time zone 'UTC') group by 1, 2`;
-  const byKey = new Map<string, { ws: string; day: string; value: number; settlements: number; decisions: number }>();
-  for (const r of rows) byKey.set(`${r.workspace_id}|${r.day}`, { ws: r.workspace_id, day: r.day, value: Number(r.value), settlements: r.settlements, decisions: 0 });
+  const byKey = new Map<string, { ws: string; day: string; value: number; settlements: number; decisions: number; allowed: number }>();
+  for (const r of rows) byKey.set(`${r.workspace_id}|${r.day}`, { ws: r.workspace_id, day: r.day, value: Number(r.value), settlements: r.settlements, decisions: 0, allowed: 0 });
   for (const d of decs) {
     const k = `${d.workspace_id}|${d.day}`;
-    const cur = byKey.get(k) ?? { ws: d.workspace_id, day: d.day, value: 0, settlements: 0, decisions: 0 };
-    cur.decisions = d.n; byKey.set(k, cur);
+    const cur = byKey.get(k) ?? { ws: d.workspace_id, day: d.day, value: 0, settlements: 0, decisions: 0, allowed: 0 };
+    cur.decisions = d.n; cur.allowed = d.allowed; byKey.set(k, cur);
   }
-  await admin`update usage_daily set settled_value_usd = 0, settlements = 0, decisions = 0, computed_at = now() where day >= ${from}::date and day <= ${to}::date`;
+  await admin`update usage_daily set settled_value_usd = 0, settlements = 0, decisions = 0, decisions_allowed = 0, computed_at = now() where day >= ${from}::date and day <= ${to}::date`;
   for (const v of byKey.values()) {
-    await admin`insert into usage_daily (workspace_id, day, settled_value_usd, settlements, decisions) values (${v.ws}, ${v.day}::date, ${v.value}, ${v.settlements}, ${v.decisions})
-      on conflict (workspace_id, day) do update set settled_value_usd = excluded.settled_value_usd, settlements = excluded.settlements, decisions = excluded.decisions, computed_at = now()`;
+    await admin`insert into usage_daily (workspace_id, day, settled_value_usd, settlements, decisions, decisions_allowed) values (${v.ws}, ${v.day}::date, ${v.value}, ${v.settlements}, ${v.decisions}, ${v.allowed})
+      on conflict (workspace_id, day) do update set settled_value_usd = excluded.settled_value_usd, settlements = excluded.settlements, decisions = excluded.decisions, decisions_allowed = excluded.decisions_allowed, computed_at = now()`;
   }
   return { days: byKey.size };
 }
@@ -134,7 +138,7 @@ export async function syncInvoiceToStripe(env: Env, admin: Sql, invoiceId: strin
 }
 
 // ---------- Invoices ----------
-type Contract = { id: string; workspace_id: string; plan: string; platform_fee_cents: string | number; usage_bps: string | number; net_days: number; tax_bps: number; starts_on: string; ends_on: string | null; auto_renew: boolean; last_platform_invoice_for: string | null };
+type Contract = { id: string; workspace_id: string; plan: string; platform_fee_cents: string | number; usage_bps: string | number; decision_fee_cents?: string | number; net_days: number; tax_bps: number; starts_on: string; ends_on: string | null; auto_renew: boolean; last_platform_invoice_for: string | null };
 
 async function nextNumber(admin: Sql): Promise<string> {
   const [{ n }] = await admin`select nextval('invoice_number_seq')::int as n`;
@@ -192,7 +196,7 @@ export async function runBilling(env: Env, admin: Sql): Promise<BillingRun> {
   const now = today();
   out.metered_days = (await meterUsage(admin, addDays(now, -75), now)).days;
 
-  const contracts: Contract[] = await admin`select c.id, c.workspace_id, c.plan, c.platform_fee_cents, c.usage_bps, c.net_days, c.tax_bps, c.starts_on::text as starts_on, c.ends_on::text as ends_on, c.auto_renew, c.last_platform_invoice_for::text as last_platform_invoice_for from contracts c join workspaces w on w.id = c.workspace_id where c.status = 'active' and w.kind = 'org' and c.starts_on <= current_date`;
+  const contracts: Contract[] = await admin`select c.id, c.workspace_id, c.plan, c.platform_fee_cents, c.usage_bps, c.decision_fee_cents, c.net_days, c.tax_bps, c.starts_on::text as starts_on, c.ends_on::text as ends_on, c.auto_renew, c.last_platform_invoice_for::text as last_platform_invoice_for from contracts c join workspaces w on w.id = c.workspace_id where c.status = 'active' and w.kind = 'org' and c.starts_on <= current_date`;
   for (const c of contracts) {
     // Platform fee: annual, in advance, on the start date and each anniversary while the contract renews.
     const fee = Number(c.platform_fee_cents);
@@ -210,7 +214,7 @@ export async function runBilling(env: Env, admin: Sql): Promise<BillingRun> {
     }
     // Usage: monthly in arrears for every full calendar month since the contract started (at most 14 back).
     const bps = Number(c.usage_bps);
-    if (bps > 0) {
+    if (bps > 0 || Number(c.decision_fee_cents ?? 0) > 0) {
       const thisMonth = monthStart(now);
       let m = monthStart(c.starts_on) < addMonths(thisMonth, -14) ? addMonths(thisMonth, -14) : monthStart(c.starts_on);
       for (; m < thisMonth; m = addMonths(m, 1)) {
@@ -220,10 +224,14 @@ export async function runBilling(env: Env, admin: Sql): Promise<BillingRun> {
         if (end < start) continue;
         const [exists] = await admin`select 1 as x from invoices where workspace_id = ${c.workspace_id} and kind = 'usage' and period_start = ${start}`;
         if (exists) continue;
-        const [u] = await admin`select coalesce(sum(settled_value_usd), 0)::float8 as value, coalesce(sum(settlements), 0)::int as n from usage_daily where workspace_id = ${c.workspace_id} and day between ${start}::date and ${end}::date`;
+        const [u] = await admin`select coalesce(sum(settled_value_usd), 0)::float8 as value, coalesce(sum(settlements), 0)::int as n, coalesce(sum(decisions_allowed), 0)::int as allowed from usage_daily where workspace_id = ${c.workspace_id} and day between ${start}::date and ${end}::date`;
+        const lines: InvoiceLine[] = [];
         const cents = Math.round((u.value * bps) / 10_000 * 100);
-        if (cents <= 0) continue;
-        const id = await createInvoice(env, admin, c, 'usage', start, end, [{ description: `Usage ${start} to ${end}: ${u.n} settlement${u.n === 1 ? '' : 's'}, ${usd(Math.round(u.value * 100))} settled at ${bps} bps (EUR at ${EUR_USD})`, amount_cents: cents }]);
+        if (cents > 0) lines.push({ description: `Usage ${start} to ${end}: ${u.n} settlement${u.n === 1 ? '' : 's'}, ${usd(Math.round(u.value * 100))} settled at ${bps} bps (EUR at ${EUR_USD})`, amount_cents: cents });
+        const decCents = Number(c.decision_fee_cents ?? 0) * Number(u.allowed);
+        if (decCents > 0) lines.push({ description: `Decisions ${start} to ${end}: ${u.allowed} allowed decision${u.allowed === 1 ? '' : 's'} at ${usd(Number(c.decision_fee_cents))} each`, amount_cents: decCents });
+        if (!lines.length) continue;
+        const id = await createInvoice(env, admin, c, 'usage', start, end, lines);
         if (id) out.invoices.push(id);
       }
     }

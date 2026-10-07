@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { MiddlewareHandler } from 'hono';
 import { adminSql } from '../db';
 import { ApiError, id, rand, sha256, validCidr, rateLimit, type Env } from '../util';
-import { type Vars, router, body, bg, need, audit, auditQ, SCOPES } from '../http';
+import { type Vars, router, body, bg, need, audit, auditQ, SCOPES, needStepUp } from '../http';
 import { deliver } from '../ctx';
 import { VERSIONS, LATEST_VERSION } from '../version';
 import { pageParams, pageOut } from '../pagination';
@@ -116,6 +116,7 @@ routes.get('/api-keys', async (c) => {
 });
 routes.post('/api-keys', async (c) => {
   const a = need(c, 'keys:admin');
+  needStepUp(c, 'create an API key');
   const sql = c.get('sql'); const ws = c.get('ws');
   const b = await body(c, apiKeyIn);
   const scopes = [...new Set(b.scopes ?? Object.keys(SCOPES))];

@@ -3,7 +3,7 @@
 // with effective dates and loaded into every evaluation once active. Packs stay engine code; these rules sit on top.
 import { z } from 'zod';
 import type { Sql } from '../db';
-import { router, need, can, audit, auditQ, body, bg, SYSTEM, type C, type Actor } from '../http';
+import { router, need, can, audit, auditQ, body, bg, SYSTEM, type C, type Actor, needStepUp } from '../http';
 import { ApiError, id, today } from '../util';
 import { notify, notifyRoles } from '../notifications';
 import { evaluate, ctxFromSnapshot, type Ctx, type Snapshot, type Order, type Check } from '../../../src/proto/engine';
@@ -339,6 +339,7 @@ const approveIn = z.object({ note: z.string().trim().max(1000).optional(), effec
 /** A second person approves with a note and an effective date. Active now, or scheduled when the date is in the future. */
 routes.post('/rules/:id/approve', async (c) => {
   const actor = need(c, 'rules:approve');
+  needStepUp(c, 'approve a rule');
   const sql = c.get('sql'); const ws = c.get('ws'); const ruleId = c.req.param('id');
   const b = await body(c, approveIn);
   const cur = await latest(sql, ws, ruleId);

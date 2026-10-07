@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { adminSql, tenantSql, type Sql } from './db';
 import { type Env, ApiError, rand, sha256, randomB64, b64url, rateLimit, rateLimitStatus, requestGeo, parseUa, ipAllowed, seal, unseal, type RateStatus } from './util';
-import { type C, type Actor, type Role, router, body, bg, need, audit, auditQ, ROLE_LABEL } from './http';
+import { type C, type Actor, type Role, router, body, bg, need, audit, auditQ, ROLE_LABEL, STEP_UP_WINDOW_MS, needStepUp } from './http';
 import { sendEmail, emailAdmins, templates, deliverable } from './email';
 import { rpFor, verifyRegistration, verifyAssertion, type RegistrationResponse, type AssertionResponse } from './webauthn';
 import { discover, pkce, verifyIdToken, exchangeCode, DEMO_IDP_CLIENT, DEMO_PEOPLE } from './oidc';
@@ -27,7 +27,7 @@ export const switchIn = z.object({ workspace_id: z.string().uuid() });
 export const passkeyVerifyIn = z.object({ challenge_id: z.string().uuid(), credential: z.any(), name: z.string().max(60).optional() });
 export const memberRoleIn = z.object({ role: roleZ });
 export const inviteIn = z.object({ email: emailZ, role: roleZ });
-export const organizationIn = z.object({ name: z.string().trim().min(2).max(80).optional(), brand_name: z.string().trim().min(2).max(80).optional(), brand_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() });
+export const organizationIn = z.object({ name: z.string().trim().min(2).max(80).optional(), brand_name: z.string().trim().min(2).max(80).optional(), brand_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), settlement_mode: z.enum(['full', 'decide_only']).optional() });
 export const ssoIn = z.object({ enabled: z.boolean(), issuer: z.string().url(), client_id: z.string().min(3).max(200), client_secret: z.string().min(8).max(500).optional(), email_domain: z.string().toLowerCase().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/), default_role: roleZ.default('auditor'), label: z.string().max(80).optional() });
 const allowedOrigins = (env: Env) => env.ALLOWED_ORIGINS.split(',').map((s) => s.trim());
 const ipHash = async (c: C) => sha256(c.req.header('cf-connecting-ip') ?? 'unknown');
@@ -83,7 +83,14 @@ const RECOVERY_PATHS = /^\/v1\/(me|passkeys(\/.*)?|auth\/logout|sessions(\/.*)?)
 /** Paths an account with an unconfirmed email may use: look at itself, ask for another link, and leave. */
 const UNVERIFIED_PATHS = /^\/v1\/(me|auth\/logout|auth\/verify-email\/resend|sessions(\/.*)?)$/;
 /** An organization whose billing is suspended may read, view and pay, export its data and leave. Writes elsewhere answer 402. */
-const SUSPENDED_OK = /^\/v1\/(billing(\/.*)?|organization\/export|auth\/logout|me|sessions(\/.*)?|account\/export)$/;
+const SUSPENDED_OK = /^\/v1\/(billing(\/.*)?|organization\/export|auth\/logout|me|sessions(\/.*)?|account\/export|auth\/step-up(\/.*)?)$/;
+/**
+ * Redemptions stay open during a billing suspension: an investor's exit is never held hostage to an unpaid invoice.
+ * These two routes pass the gate with `suspended` set, and their handlers refuse anything that is not a redemption.
+ */
+const SUSPENDED_REDEEM_ONLY = /^\/v1\/(decisions|settlements)$/;
+/** In decide-only mode the customer settles on its own rails: Laissez decides and keeps the evidence, and never settles. */
+const DECIDE_ONLY_CLOSED = /^\/v1\/(settlements(\/.*)?|batches\/[^/]+\/settle|chain\/.*)$/;
 /** Until staff verify the organization in production mode, these writes stay closed: they move or could move real value. */
 const NEEDS_VERIFIED_ORG = /^\/v1\/(settlements(\/.*)?|api-keys|chain\/.*)$/;
 
@@ -126,10 +133,10 @@ export async function authenticate(c: C, next: () => Promise<void>) {
   const h = c.req.header('authorization') ?? '';
   const tok = h.startsWith('Bearer ') ? h.slice(7).trim() : '';
   let actor: Actor; let ws: string; let kind: string; let rate: RateStatus;
-  let billing = 'none'; let orgVerification = 'verified'; let idleTouchMs = 300_000;
+  let billing = 'none'; let orgVerification = 'verified'; let idleTouchMs = 300_000; let settlementMode = 'full';
   const path = new URL(c.req.url).pathname;
   if (tok.startsWith('lz_sess_')) {
-    const rows = await admin`select s.id as sid, s.user_id, s.acting_as, s.workspace_id, s.last_seen_at, s.method, w.kind, w.security_policy, w.billing_status, w.verification_status, u.name, u.email_verified_at, m.role, au.name as act_name, am.role as act_role
+    const rows = await admin`select s.id as sid, s.user_id, s.acting_as, s.workspace_id, s.last_seen_at, s.method, w.kind, w.security_policy, w.billing_status, w.verification_status, w.settlement_mode, s.stepped_up_at, s.created_at as session_created_at, u.name, u.email_verified_at, m.role, au.name as act_name, am.role as act_role
       from sessions s join users u on u.id = s.user_id join workspaces w on w.id = s.workspace_id
       join memberships m on m.workspace_id = s.workspace_id and m.user_id = s.user_id
       left join users au on au.id = s.acting_as left join memberships am on am.workspace_id = s.workspace_id and am.user_id = s.acting_as
@@ -141,7 +148,9 @@ export async function authenticate(c: C, next: () => Promise<void>) {
     if (r.method === 'recovery' && !RECOVERY_PATHS.test(path)) throw new ApiError(403, 'recovery_session', 'You signed in with a recovery code. Add a passkey on the Security page, then sign in with it to continue.');
     const acting = r.acting_as && r.act_role;
     actor = { kind: 'user', id: acting ? r.acting_as : r.user_id, userId: acting ? r.acting_as : r.user_id, realUserId: r.user_id, name: acting ? r.act_name : r.name, role: (acting ? r.act_role : r.role) as Role, sessionId: r.sid };
-    ws = r.workspace_id; kind = r.kind; billing = r.billing_status; orgVerification = r.verification_status;
+    ws = r.workspace_id; kind = r.kind; billing = r.billing_status; orgVerification = r.verification_status; settlementMode = r.settlement_mode ?? 'full';
+    // A session is fresh when it was just created (passkey or SSO sign-in) or after a step-up assertion.
+    c.set('steppedUpAt', Math.max(r.stepped_up_at ? new Date(r.stepped_up_at).getTime() : 0, new Date(r.session_created_at).getTime())); c.set('sessionId', r.sid);
     if (kind === 'org') {
       // Organization policy: idle timeout and approved networks. Sandboxes carry no policy.
       const policy = effectivePolicy(r.security_policy);
@@ -155,7 +164,7 @@ export async function authenticate(c: C, next: () => Promise<void>) {
     if (!rate.allowed) throw new ApiError(429, 'rate_limited', 'More than 600 requests in a minute. Wait a moment and retry.', { retry_after: rate.retryAfter, rate });
     if (Date.now() - new Date(r.last_seen_at).getTime() > idleTouchMs) bg(c, admin`update sessions set last_seen_at = now() where id = ${r.sid}` as any);
   } else if (tok.startsWith('lz_test_')) {
-    const rows = await admin`select k.id, k.workspace_id, k.prefix, k.name, k.scopes, k.ip_allowlist, k.known_ip_hashes, k.last_used_ip_hash, w.kind, w.billing_status, w.verification_status from api_keys k join workspaces w on w.id = k.workspace_id
+    const rows = await admin`select k.id, k.workspace_id, k.prefix, k.name, k.scopes, k.ip_allowlist, k.known_ip_hashes, k.last_used_ip_hash, w.kind, w.billing_status, w.verification_status, w.settlement_mode from api_keys k join workspaces w on w.id = k.workspace_id
       where k.key_hash = ${await sha256(tok)} and (k.expires_at is null or k.expires_at > now()) and (w.expires_at is null or w.expires_at > now())`;
     if (!rows.length) throw new ApiError(401, 'unauthorized', 'This key is not valid, has expired, or its sandbox has expired.');
     const k = rows[0];
@@ -164,7 +173,7 @@ export async function authenticate(c: C, next: () => Promise<void>) {
     rate = await rateLimitStatus(admin, `key:${k.id}`, 300, 60);
     if (!rate.allowed) throw new ApiError(429, 'rate_limited', 'More than 300 requests in a minute. Wait a moment and retry.', { retry_after: rate.retryAfter, rate });
     actor = { kind: 'key', id: k.prefix, name: `API key ${k.name} (${k.prefix}…)`, scopes: k.scopes, keyId: k.id };
-    ws = k.workspace_id; kind = k.kind; billing = k.billing_status; orgVerification = k.verification_status;
+    ws = k.workspace_id; kind = k.kind; billing = k.billing_status; orgVerification = k.verification_status; settlementMode = k.settlement_mode ?? 'full';
     bg(c, trackKeyNetwork(c, admin, k));
   } else {
     throw new ApiError(401, 'unauthorized', 'Sign in, or send an API key as "Authorization: Bearer lz_test_...".');
@@ -172,12 +181,16 @@ export async function authenticate(c: C, next: () => Promise<void>) {
   // Billing and organization-verification gates apply to people and API keys alike. Sandboxes are exempt.
   if (kind === 'org') {
     const m = c.req.method.toUpperCase();
-    if (billing === 'suspended' && m !== 'GET' && m !== 'HEAD' && !SUSPENDED_OK.test(path)) throw new ApiError(402, 'billing_suspended', 'This organization is suspended for an unpaid invoice. Reads still work. Pay the open invoice under Settings, Billing, or contact billing to restore write access.');
+    if (billing === 'suspended' && m !== 'GET' && m !== 'HEAD' && !SUSPENDED_OK.test(path)) {
+      if (m === 'POST' && SUSPENDED_REDEEM_ONLY.test(path)) c.set('suspended', true);
+      else throw new ApiError(402, 'billing_suspended', 'This organization is suspended for an unpaid invoice. Reads and redemptions still work. Pay the open invoice under Settings, Billing, or contact billing to restore write access.');
+    }
+    if (settlementMode === 'decide_only' && m !== 'GET' && m !== 'HEAD' && DECIDE_ONLY_CLOSED.test(path)) throw new ApiError(403, 'decide_only_mode', 'This organization runs in decide-only mode: Laissez returns decisions and evidence, and settlement happens on your own rails. An administrator can change the mode under Settings, Organization.');
     if (isProduction(c.env) && orgVerification !== 'verified' && m !== 'GET' && m !== 'HEAD' && NEEDS_VERIFIED_ORG.test(path)) throw new ApiError(403, 'org_not_verified', 'Your organization is not verified yet, so settlements, API keys and chain actions are closed. Submit the verification form under Settings, Verification.', { verification_status: orgVerification });
   }
   const quota = await checkQuota(admin, ws);
   (c.set as any)('rate', { ...rate, quota });
-  c.set('actor', actor); c.set('ws', ws); c.set('wsKind', kind);
+  c.set('actor', actor); c.set('ws', ws); c.set('wsKind', kind); c.set('settlementMode', settlementMode);
   c.set('sql', tenantSql(c.env.DATABASE_URL_TENANT, ws));
   await next();
 }
@@ -444,7 +457,7 @@ export const acct = router();
 
 acct.get('/me', async (c) => {
   const admin = c.get('admin'); const a = c.get('actor'); const ws = c.get('ws');
-  const [w] = await admin`select id, name, kind, slug, brand_name, brand_color, created_at, expires_at, (sso->>'enabled')::boolean as sso_enabled, billing_status, verification_status from workspaces where id = ${ws}`;
+  const [w] = await admin`select id, name, kind, slug, brand_name, brand_color, created_at, expires_at, (sso->>'enabled')::boolean as sso_enabled, billing_status, verification_status, settlement_mode from workspaces where id = ${ws}`;
   if (a.kind !== 'user') return c.json({ actor: a, workspace: w });
   const [me0] = await admin`select id, email, name, title, fictional, email_verified_at, totp_enabled_at from users where id = ${a.realUserId}`;
   const { email_verified_at, totp_enabled_at, ...me } = me0;
@@ -530,6 +543,36 @@ acct.post('/auth/invites/:token/accept', async (c) => {
   return c.json({ session_token: await createSession(c, admin, a.realUserId!, inv.workspace_id, 'invite', 24 * 7), workspace_id: inv.workspace_id });
 });
 
+// ---------- Step-up: a fresh passkey assertion for sensitive actions ----------
+acct.post('/auth/step-up/options', async (c) => {
+  const a = c.get('actor');
+  if (a.kind !== 'user') throw new ApiError(403, 'human_required', 'Step-up confirmation is for signed-in people, not API keys.');
+  const admin = c.get('admin');
+  const challenge = randomB64(32);
+  const { rpId } = rpFor(c.req.header('origin'), allowedOrigins(c.env));
+  const keys = await admin`select id from passkeys where user_id = ${a.realUserId}`;
+  const [ch] = await admin`insert into auth_challenges (challenge, purpose, data) values (${challenge}, 'step-up', ${JSON.stringify({ user_id: a.realUserId })}) returning id`;
+  return c.json({ challenge_id: ch.id, options: { challenge, rpId, userVerification: 'preferred', timeout: 120000, allowCredentials: keys.map((k: any) => ({ id: k.id, type: 'public-key' })) } });
+});
+acct.post('/auth/step-up/verify', async (c) => {
+  const a = c.get('actor');
+  if (a.kind !== 'user' || !a.sessionId) throw new ApiError(403, 'human_required', 'Step-up confirmation is for signed-in people, not API keys.');
+  const admin = c.get('admin');
+  const b = await body(c, loginVerifyIn);
+  if (!(await rateLimit(admin, `stepup:${a.realUserId}`, 20, 600))) throw new ApiError(429, 'rate_limited', 'Too many confirmation attempts. Wait ten minutes.');
+  const rows = await admin`delete from auth_challenges where id = ${b.challenge_id} and purpose = 'step-up' and data->>'user_id' = ${a.realUserId ?? ''} and expires_at > now() returning challenge`;
+  if (!rows.length) throw new ApiError(400, 'challenge_expired', 'This confirmation request expired. Try again.');
+  const cred = b.credential as AssertionResponse;
+  const [pk] = await admin`select * from passkeys where id = ${cred?.id ?? ''} and user_id = ${a.realUserId}`;
+  if (!pk) throw new ApiError(401, 'unknown_passkey', 'That passkey does not belong to your account.');
+  const { rpId } = rpFor(c.req.header('origin'), allowedOrigins(c.env));
+  const res = await verifyAssertion(cred, { public_key: pk.public_key, alg: pk.alg, sign_count: Number(pk.sign_count) }, rows[0].challenge, allowedOrigins(c.env), rpId);
+  await admin`update passkeys set sign_count = ${res.counter}, last_used_at = now() where id = ${pk.id}`;
+  await admin`update sessions set stepped_up_at = now() where id = ${a.sessionId}`;
+  await audit(admin, c.get('ws'), a, 'auth.step_up', a.realUserId ?? null, { passkey: pk.id, user_verified: res.userVerified });
+  return c.json({ ok: true, valid_for_seconds: STEP_UP_WINDOW_MS / 1000 });
+});
+
 acct.get('/sessions', async (c) => {
   const a = c.get('actor');
   if (a.kind !== 'user') throw new ApiError(403, 'human_required', 'Sessions belong to people, not API keys.');
@@ -589,6 +632,7 @@ acct.get('/members', async (c) => {
 });
 acct.patch('/members/:id', async (c) => {
   need(c, 'members:admin');
+  needStepUp(c, 'change a member');
   const admin = c.get('admin'); const ws = c.get('ws');
   const { role } = await body(c, memberRoleIn);
   if (role !== 'admin') {
@@ -603,6 +647,7 @@ acct.patch('/members/:id', async (c) => {
 });
 acct.delete('/members/:id', async (c) => {
   need(c, 'members:admin');
+  needStepUp(c, 'remove a member');
   const admin = c.get('admin'); const ws = c.get('ws');
   const [{ n }] = await admin`select count(*)::int as n from memberships where workspace_id = ${ws} and role = 'admin' and user_id <> ${c.req.param('id')}`;
   if (n === 0) throw new ApiError(422, 'last_admin', 'An organization needs at least one administrator.');
@@ -643,7 +688,8 @@ acct.delete('/invites/:id', async (c) => {
 acct.patch('/organization', async (c) => {
   need(c, 'members:admin');
   const b = await body(c, organizationIn);
-  const [w] = await c.get('sql')`update workspaces set name = coalesce(${b.name ?? null}, name), brand_name = coalesce(${b.brand_name ?? null}, brand_name), brand_color = coalesce(${b.brand_color ?? null}, brand_color) where id = ${c.get('ws')} returning id, name, brand_name, brand_color`;
+  if (b.settlement_mode) needStepUp(c, 'change the settlement mode');
+  const [w] = await c.get('sql')`update workspaces set name = coalesce(${b.name ?? null}, name), brand_name = coalesce(${b.brand_name ?? null}, brand_name), brand_color = coalesce(${b.brand_color ?? null}, brand_color), settlement_mode = coalesce(${b.settlement_mode ?? null}, settlement_mode) where id = ${c.get('ws')} returning id, name, brand_name, brand_color, settlement_mode`;
   await audit(c.get('sql'), c.get('ws'), c.get('actor'), 'organization.updated', c.get('ws'), b);
   return c.json(w);
 });
@@ -655,6 +701,7 @@ acct.get('/sso', async (c) => {
 });
 acct.put('/sso', async (c) => {
   need(c, 'members:admin');
+  needStepUp(c, 'change single sign-on');
   if (c.get('wsKind') === 'sandbox') throw new ApiError(403, 'sandbox_only', 'Sandboxes use the demo identity provider. Create an organization to connect your own.');
   const b = await body(c, ssoIn);
   const admin = c.get('admin'); const ws = c.get('ws');

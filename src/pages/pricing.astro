@@ -14,10 +14,18 @@ import { url } from '../lib/url';
     <div class="wrap tiers">
       <div class="tier">
         <h3>Design partner</h3>
-        <p class="price">No platform fee</p>
-        <p class="muted">For the first distributors and issuers taking one fund through one corridor.</p>
-        <ul class="ticks"><li>Sandbox and testnet access</li><li>Two jurisdictions, one fund, your corridor</li><li>Direct input into launch rule packs</li><li>Founder-led integration</li></ul>
+        <p class="price">No platform fee<span>90-day pilot, test networks only</span></p>
+        <p class="muted">For the first distributors and issuers taking one fund through one corridor. One slot is reserved for a reference customer: no platform fee in the first production year in exchange for a named case study and reference calls.</p>
+        <ul class="ticks"><li>Sandbox and testnet access</li><li>Two jurisdictions, one fund, your corridor</li><li>Direct input into launch rule packs</li><li>Founder-led integration</li><li>Success measured on the public metrics: reuse, settlements, zero unchecked settlements, time to first settlement</li></ul>
         <a class="arrow-link" href={url('access/')}>Apply</a>
+      </div>
+      <div class="tier">
+        <span class="tag">Decide-only</span>
+        <h3>Decisions</h3>
+        <p class="price">Flat annual fee<span>plus a price per allowed decision</span></p>
+        <p class="muted">For banks that settle on their own rails and want Laissez for eligibility, evidence and monitoring. Settlement routes stay closed; what-if checks and refusals are free.</p>
+        <ul class="ticks"><li>Every rule pack, every jurisdiction</li><li>Signed decision receipts and the audit log</li><li>Credential network and holder monitoring</li><li>Audit export to your SIEM or a write-once bucket</li></ul>
+        <a class="arrow-link" href={`${url('app/')}#/settings/billing`}>Ask for a quote</a>
       </div>
       <div class="tier feat">
         <span class="tag">For distributors</span>
@@ -34,8 +42,59 @@ import { url } from '../lib/url';
         <ul class="ticks"><li>Private rule packs and policy templates</li><li>Dedicated environments</li><li>Volume pricing on settled value</li><li>Uptime and response commitments</li></ul>
         <a class="arrow-link" href={url('access/')}>Contact us</a>
       </div>
+      <div class="tier">
+        <span class="tag">Data only</span>
+        <h3>Rule packs</h3>
+        <p class="price">Subscription<span>no settlement, no credentials</span></p>
+        <p class="muted">The eligibility rules as a signed data feed for compliance teams: every jurisdiction's classes, the threshold test behind each with its citation and primary source, version history and a changelog. Included with every paid plan.</p>
+        <ul class="ticks"><li><code>GET /v1/rule-packs/feed</code>, Ed25519-signed</li><li>Versioned, dated, regression-tested</li><li>Change notices before a new version binds</li><li>Research only until counsel signs each pack</li></ul>
+        <a class="arrow-link" href={url('developers/reference/')}>See the feed in the reference</a>
+      </div>
     </div>
   </section>
+  <section class="band light" id="roi">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>What it is worth to a distributor.</h2>
+        <p class="lede">Three inputs from your own book. The outputs use the public figures cited on the home page: 143,617 registrations keep 14,769 funds sellable across borders, and distribution takes 48% of what EU fund investors pay.</p>
+      </div>
+      <div class="roi" id="roi-calc">
+        <div class="roi-in">
+          <label>Cross-border AUM you distribute, USD<input id="roi-aum" type="number" min="0" step="1000000" value="2000000000" inputmode="numeric" /></label>
+          <label>Booking centres<input id="roi-bc" type="number" min="1" max="50" value="3" inputmode="numeric" /></label>
+          <label>Funds on the shelf<input id="roi-funds" type="number" min="1" max="2000" value="40" inputmode="numeric" /></label>
+          <label>Cost of onboarding one client once, USD<input id="roi-kyc" type="number" min="0" step="100" value="2500" inputmode="numeric" /></label>
+          <label>Clients onboarded a year<input id="roi-clients" type="number" min="0" step="10" value="400" inputmode="numeric" /></label>
+        </div>
+        <dl class="roi-out">
+          <div><dt>Fund-by-centre registrations in play</dt><dd id="roi-regs">120</dd><p>funds times booking centres: the pairs that each need a legal position today</p></div>
+          <div><dt>Repeat onboardings avoided a year</dt><dd id="roi-dup">$600,000</dd><p>clients re-papered at a second booking centre or a second fund, at your cost per onboarding, assuming 60% would otherwise be done twice</p></div>
+          <div><dt>Laissez usage fee at 1.5 bps</dt><dd id="roi-fee">$300,000</dd><p>on the cross-border value settled in a year, plus the platform fee</p></div>
+          <div><dt>Payback on the usage fee</dt><dd id="roi-pay">2.0x</dd><p>onboardings avoided divided by the usage fee. New shelf revenue is not counted.</p></div>
+        </dl>
+      </div>
+      <p class="fine">Change any input; the outputs recompute. The 60% repeat rate is an assumption you should replace with your own; the citations are on the <a class="text-link" href={url('sources/')}>sources page</a>.</p>
+    </div>
+  </section>
+  <script is:inline>
+    (function () {
+      var $ = function (id) { return document.getElementById(id); };
+      var ids = ['roi-aum', 'roi-bc', 'roi-funds', 'roi-kyc', 'roi-clients'];
+      var money = function (n) { return '$' + Math.round(n).toLocaleString('en-US'); };
+      var calc = function () {
+        var aum = +$('roi-aum').value || 0, bc = +$('roi-bc').value || 1, funds = +$('roi-funds').value || 1, kyc = +$('roi-kyc').value || 0, clients = +$('roi-clients').value || 0;
+        var regs = bc * funds;
+        var dup = clients * 0.6 * kyc;
+        var fee = aum * 0.00015;
+        $('roi-regs').textContent = regs.toLocaleString('en-US');
+        $('roi-dup').textContent = money(dup);
+        $('roi-fee').textContent = money(fee);
+        $('roi-pay').textContent = fee > 0 ? (dup / fee).toFixed(1) + 'x' : 'n/a';
+      };
+      ids.forEach(function (id) { $(id).addEventListener('input', calc); });
+      calc();
+    })();
+  </script>
   <section class="band light">
     <div class="wrap cols-2">
       <div><h2>Price where the value lands.</h2></div>
@@ -45,7 +104,7 @@ import { url } from '../lib/url';
         <h4>What does a decision cost?</h4><p class="muted">Nothing on its own. Pre-trade checks are free and unlimited so desks use them on every order, including the ones that never trade.</p>
         <h4>Do you take card or bank details?</h4><p class="muted">No. Where Stripe is connected, payment happens on Stripe's hosted invoice page by card or ACH. Otherwise you pay by bank transfer against the PDF and quote the invoice number, and we mark it paid when it arrives. Card and bank numbers never reach Laissez.</p>
         <h4>Can we take our data with us?</h4><p class="muted">Yes, at any time. An administrator can export every record in the organization, and the export keeps working after a billing suspension. Each person can also export or delete their own account data.</p>
-        <h4>What if an invoice is late?</h4><p class="muted">One day after the due date the organization is marked past due and its administrators are emailed. At fourteen days they get a final warning. At thirty days the organization becomes read-only until the invoice is paid. Reads, exports and payment keep working, and it restores itself when the invoice is paid.</p>
+        <h4>What if an invoice is late?</h4><p class="muted">One day after the due date the organization is marked past due and its administrators are emailed. At fourteen days they get a final warning. At thirty days the organization becomes read-only until the invoice is paid. Reads, exports, payment and redemptions keep working, because an investor's exit never depends on your invoice. Access restores itself when the invoice is paid.</p>
       </div>
     </div>
   </section>
@@ -75,6 +134,18 @@ import { url } from '../lib/url';
 </Layout>
 <style>
   .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; align-items: stretch; }
+  .tiers .tier:nth-child(4), .tiers .tier:nth-child(5) { grid-column: span 1; }
+  .roi { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 2rem; align-items: start; }
+  .roi-in { display: grid; gap: 0.9rem; }
+  .roi-in label { display: grid; gap: 0.3rem; font-size: 0.9rem; color: var(--ink-2); }
+  .roi-in input { font: inherit; font-variant-numeric: tabular-nums; padding: 0.55rem 0.7rem; border: 1px solid var(--line-2); border-radius: 8px; background: var(--white); color: var(--ink); min-width: 0; }
+  .roi-out { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; margin: 0; }
+  .roi-out div { border-top: 2px solid var(--green); padding-top: 0.75rem; min-width: 0; }
+  .roi-out dt { font-size: 0.86rem; color: var(--ink-2); }
+  .roi-out dd { margin: 0.2rem 0 0.3rem; font-family: var(--f-display); font-size: 1.9rem; letter-spacing: -0.015em; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .roi-out p { margin: 0; font-size: 0.86rem; color: var(--ink-3); }
+  @media (max-width: 960px) { .roi { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) { .roi-out { grid-template-columns: 1fr; } }
   .tier { display: flex; flex-direction: column; gap: 0.9rem; background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 1.75rem; }
   .tier.feat { border-color: var(--green); box-shadow: var(--shadow); }
   .tag { align-self: flex-start; font-size: 0.78rem; font-weight: 600; color: var(--green); background: var(--green-wash); border-radius: 999px; padding: 0.2rem 0.65rem; }
@@ -95,5 +166,6 @@ import { url } from '../lib/url';
   .ex td { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); padding-left: 1.5rem; }
   .ex tbody tr:last-child th, .ex tbody tr:last-child td { border-bottom: 1px solid var(--line); }
   #billing .hero-cta { display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap; }
-  @media (max-width: 960px) { .tiers { grid-template-columns: 1fr; } }
+  @media (max-width: 1100px) { .tiers { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 700px) { .tiers { grid-template-columns: 1fr; } }
 </style>

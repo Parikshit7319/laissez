@@ -8,8 +8,9 @@
 // Commands
 //   verification list [pending|verified|rejected|unverified]
 //   verification decide <workspace-id> approve|reject ["note"]
-//   contract create <workspace-id> --plan platform|enterprise|pilot --fee <usd per year> --bps <usage basis points>
-//                   [--tax-bps 0] [--net-days 30] [--starts YYYY-MM-DD] [--ends YYYY-MM-DD] [--no-renew]
+//   contract create <workspace-id> --plan platform|enterprise|pilot|decisions --fee <usd per year> --bps <usage basis points>
+//                   [--decision-fee <usd per allowed decision>] [--tax-bps 0] [--net-days 30] [--starts YYYY-MM-DD] [--ends YYYY-MM-DD]
+//                   [--no-renew] [--pilot-metrics "text"]   (a pilot ends after 90 days unless --ends is given, and never renews)
 //   contract end <contract-id>
 //   billing run
 //   invoices [--status open|paid|void] [--ws <workspace-id>]
@@ -77,8 +78,9 @@ switch (single ? group : `${group} ${action ?? ''}`.trim()) {
   }
   case 'contract create': {
     const f = flags(rest); const ws = f._[0];
-    need(ws && f.plan && f.fee !== undefined && f.bps !== undefined, 'Usage: contract create <workspace-id> --plan platform --fee <usd per year> --bps <basis points> [--tax-bps n] [--net-days n] [--starts date] [--ends date] [--no-renew]');
-    const body = { workspace_id: ws, plan: f.plan, platform_fee_cents: Math.round(Number(f.fee) * 100), usage_bps: Number(f.bps), tax_bps: Number(f['tax-bps'] ?? 0), net_days: Number(f['net-days'] ?? 30), auto_renew: !f.noRenew };
+    need(ws && f.plan && f.fee !== undefined && f.bps !== undefined, 'Usage: contract create <workspace-id> --plan platform|enterprise|pilot|decisions --fee <usd per year> --bps <basis points> [--decision-fee <usd>] [--tax-bps n] [--net-days n] [--starts date] [--ends date] [--no-renew] [--pilot-metrics "text"]');
+    const body = { workspace_id: ws, plan: f.plan, platform_fee_cents: Math.round(Number(f.fee) * 100), usage_bps: Number(f.bps), decision_fee_cents: Math.round(Number(f['decision-fee'] ?? 0) * 100), tax_bps: Number(f['tax-bps'] ?? 0), net_days: Number(f['net-days'] ?? 30), auto_renew: !f.noRenew };
+    if (f['pilot-metrics']) body.pilot_metrics = f['pilot-metrics'];
     if (f.starts) body.starts_on = f.starts;
     if (f.ends) body.ends_on = f.ends;
     const r = await call('POST', '/contracts', body);
