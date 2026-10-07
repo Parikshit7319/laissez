@@ -41,12 +41,12 @@ export function MetricsStamp() {
       </div>
     );
   }
-  if (!data) return <div class="lv-stamp"><span class="lv-dot idle" aria-hidden="true" /><p>Loading live figures from <code>GET /v1/metrics/public</code>.</p></div>;
+  if (!data) return <div class="lv-stamp"><span class="lv-dot idle" aria-hidden="true" /><p>Loading live figures from the sandbox API.</p></div>;
   return (
     <div class="lv-stamp">
       <span class="lv-dot ok" aria-hidden="true" />
       <p>
-        Live from <code>GET /v1/metrics/public</code>. Computed {fmtAgo(data.generated_at, now)} ({fmtTime(data.generated_at)}), refreshed every {REFRESH_MS / 1000} seconds.
+        Live from the sandbox API. Computed {fmtAgo(data.generated_at, now)} ({fmtTime(data.generated_at)}), refreshed every {REFRESH_MS / 1000} seconds.
         {error && failedAt ? ` The latest refresh at ${fmtTime(failedAt)} failed, so these are the figures from ${updatedAt ? fmtTime(updatedAt) : 'earlier'}.` : ''}
       </p>
     </div>

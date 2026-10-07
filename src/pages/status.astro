@@ -46,7 +46,7 @@ const components = [
     <div class="wrap">
       <div class="sec-head">
         <h2>Chain deployment</h2>
-        <p class="lede">The contracts Laissez settles and anchors on, with their addresses on the public test network. Read from <code>GET /v1/chain/public</code>.</p>
+        <p class="lede">The contracts Laissez settles and anchors on, with their addresses on the public test network.</p>
       </div>
       <ChainDeployment client:load />
     </div>
@@ -62,7 +62,10 @@ const components = [
 <pre class="codeblock"><code><span class="c"># No authentication, cached for 30 seconds</span>
 curl https://laissez-api.laissez.workers.dev/v1/status
 
-<span class="c"># Fields</span>
+<span class="c"># Chain deployment, same terms</span>
+curl https://laissez-api.laissez.workers.dev/v1/chain/public
+
+<span class="c"># Fields of /v1/status</span>
 <span class="k">status</span>            operational | degraded | partial_data
 <span class="k">components[]</span>      id, status, latency_ms, uptime.24h / 7d / 90d
 <span class="k">daily</span>             90 UTC days per component: checks, ok_checks, uptime
