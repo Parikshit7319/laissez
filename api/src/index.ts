@@ -28,6 +28,9 @@ import { runScheduledReports } from './routes/reports2';
 import * as chainRoutes from './routes/chain';
 import * as rulefeed from './routes/rulefeed';
 import * as siem from './routes/siem';
+import * as reviews from './routes/reviews';
+import * as kyc from './routes/kyc';
+import * as portalAuth from './routes/portal-auth';
 import * as leads from './routes/leads';
 import * as account2 from './routes/account2';
 import * as workflow from './routes/workflow';
@@ -111,10 +114,12 @@ mount('/v1', opt(fundops, 'publicRoutes'));
 mount('/v1', opt(reports, 'publicRoutes'));
 mount('/v1', opt(chainRoutes, 'publicRoutes'));
 mount('/v1', opt(leads, 'publicRoutes'));
+mount('/v1/portal-auth', portalAuth.publicRoutes);
 mount('/v1/portal', opt(portal, 'publicRoutes'));
 mount('/v1', opt(account2, 'publicRoutes'));
 mount('/v1', opt(security, 'publicRoutes'));
 mount('/v1', opt(billing, 'publicRoutes'));
+mount('/v1', opt(kyc, 'publicRoutes'));
 // Staff routes: INTERNAL_TOKEN only, not documented in the public API reference.
 app.route('/v1/internal', staff as unknown as App);
 mount('/trp', opt(travel, 'publicRoutes'));
@@ -131,7 +136,7 @@ v1.route('/', core.routes);
 v1.route('/', platform.routes);
 v1.route('/', flags.routes);
 v1.route('/', integrations.routes);
-for (const m of [compliance, compliance2, fundops, network, reports, chainRoutes, travel, portal, account2, workflow, imports, rules, security, billing, rulefeed, siem]) {
+for (const m of [compliance, compliance2, fundops, network, reports, chainRoutes, travel, portal, account2, workflow, imports, rules, security, billing, rulefeed, siem, reviews, kyc]) {
   const r = opt(m, 'routes');
   if (r) v1.route('/', r);
 }
@@ -161,7 +166,7 @@ async function uptimeChecks(env: Env, ctx: ExecutionContext) {
       return `Latest block ${parseInt(j.result, 16)}.`;
     })] : []),
     timed('sanctions_data', async () => {
-      const rows = await admin`select source, status, last_fetched_at, (last_fetched_at is null or last_fetched_at < now() - interval '36 hours') as stale from sanctions_sources where source <> 'LAISSEZ-TEST'`;
+      const rows = await admin`select source, status, last_fetched_at, (last_fetched_at is null or last_fetched_at < now() - interval '36 hours') as stale from sanctions_sources where source not in ('LAISSEZ-TEST', 'OS-PEP')`;
       const bad = rows.filter((r: any) => r.stale || r.status === 'error');
       if (bad.length) throw new Error(`Not refreshed in the last 36 hours: ${bad.map((r: any) => r.source).join(', ')}.`);
       return `${rows.length} lists refreshed in the last 36 hours.`;

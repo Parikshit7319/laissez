@@ -18,14 +18,14 @@ export function SecurityPolicy() {
   useEffect(() => {
     if (!r.data) return;
     const p = r.data.policy;
-    setF({ require_sso: p.require_sso, require_user_verification: p.require_user_verification, session_hours: p.session_hours, idle_minutes: p.idle_minutes, domains: p.allowed_email_domains.join('\n'), networks: p.session_ip_allowlist.join('\n') });
+    setF({ require_sso: p.require_sso, require_user_verification: p.require_user_verification, portal_require_account: !!p.portal_require_account, session_hours: p.session_hours, idle_minutes: p.idle_minutes, domains: p.allowed_email_domains.join('\n'), networks: p.session_ip_allowlist.join('\n') });
   }, [r.data]);
   const set = (k: string, v: unknown) => { setF({ ...f, [k]: v }); setSaved(null); };
   const save = async (e: Event) => {
     e.preventDefault(); setBusy(true); setErr(null); setSaved(null);
     try {
       const x = await api('/v1/security-policy', { method: 'PUT', body: {
-        require_sso: !!f.require_sso, require_user_verification: !!f.require_user_verification,
+        require_sso: !!f.require_sso, require_user_verification: !!f.require_user_verification, portal_require_account: !!f.portal_require_account,
         session_hours: Number(f.session_hours), idle_minutes: Number(f.idle_minutes),
         allowed_email_domains: lines(f.domains), session_ip_allowlist: lines(f.networks),
       } });
@@ -51,6 +51,10 @@ export function SecurityPolicy() {
                 <label class="check gate-check">
                   <input type="checkbox" checked={f.require_user_verification} onChange={(e) => set('require_user_verification', (e.target as HTMLInputElement).checked)} />
                   <span>Require a passkey that confirms the person<span class="f-h">The passkey must be unlocked with a PIN, fingerprint or face, not only by holding the device.</span></span>
+                </label>
+                <label class="check gate-check">
+                  <input type="checkbox" checked={f.portal_require_account} onChange={(e) => set('portal_require_account', (e.target as HTMLInputElement).checked)} />
+                  <span>Require investor portal accounts<span class="f-h">Clients create a passkey account from the link you send; afterwards the portal opens only to a signed-in account, with an authenticator app if they add one. Links alone stop working.</span></span>
                 </label>
                 <Field label="Allowed email domains" hint="One per line, for example example.com. Invites, sign-ups and sign-in are limited to them. Leave empty to allow any."><textarea rows={3} value={f.domains} placeholder={'example.com'} onInput={(e) => set('domains', (e.target as HTMLTextAreaElement).value)} /></Field>
               </Card>

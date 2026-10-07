@@ -1,5 +1,5 @@
 // Daily sanctions list ingest: OFAC SDN, UN Security Council, EU and UK (FCDO) lists.
-// Run from api/:  npx tsx jobs/sanctions-ingest.ts [OFAC-SDN] [UN] [EU] [UK] [--dry-run] [--no-monitor]
+// Run from api/:  npx tsx jobs/sanctions-ingest.ts [OFAC-SDN] [UN] [EU] [UK] [OS-PEP] [--with-pep] [--dry-run] [--no-monitor]
 //
 // For each source: download, parse into one row per name, refuse a result under half of the last good load
 // (a broken or truncated download must never empty a list), stage the rows, then swap them into
@@ -9,7 +9,7 @@
 import type { Sql } from '../src/db';
 import { normName } from '../src/sanctions';
 import { db, fetchText, fmt, log } from './lib';
-import { parseEu, parseOfac, parseUk, parseUn, toRows, type EntryRow, type ParsedList } from './parsers';
+import { parseEu, parseOfac, parseUk, parseUn, parseOpenSanctionsSimple, toRows, type EntryRow, type ParsedList } from './parsers';
 import { printResults, runMonitorAll } from './run-monitor-all';
 
 type SourceDef = { name: string; url: string; load: () => Promise<ParsedList> };
@@ -60,7 +60,35 @@ export const SOURCES: Record<string, SourceDef> = {
       return { ...parsed, published: parsed.published ?? httpDate(res.lastModified) };
     },
   },
+  // Politically exposed persons. Not a sanctions list: screened separately (screenPeps), a match opens a review, never a
+  // block. Default dataset is the US CIA World Leaders list (about 5,000 names, public domain source). PEP_DATASETS
+  // can add OpenSanctions datasets such as peps (180 MB, every PEP) filtered by PEP_COUNTRIES (ISO alpha-2, comma
+  // separated). OpenSanctions bulk data is CC BY-NC 4.0: a commercial deployment needs their licence or a provider.
+  'OS-PEP': {
+    name: 'Politically exposed persons (OpenSanctions)',
+    url: 'https://data.opensanctions.org/datasets/latest/',
+    async load() {
+      const datasets = (process.env.PEP_DATASETS || 'us_cia_world_leaders').split(',').map((x) => x.trim()).filter(Boolean);
+      const countries = process.env.PEP_COUNTRIES ? new Set(process.env.PEP_COUNTRIES.split(',').map((x) => x.trim().toUpperCase()).filter(Boolean)) : undefined;
+      const all: ParsedList = { entries: [], published: null, warnings: [] };
+      for (const d of datasets) {
+        // PEP_FILE points at a downloaded targets.simple.csv for offline runs and tests.
+        const res = process.env.PEP_FILE
+          ? { text: (await import('node:fs')).readFileSync(process.env.PEP_FILE, 'utf8'), lastModified: null as string | null }
+          : await fetchText(`https://data.opensanctions.org/datasets/latest/${d}/targets.simple.csv`, { accept: 'text/csv,*/*' });
+        const parsed = parseOpenSanctionsSimple(res.text, { countries, datasetLabel: `PEP ${d}` });
+        all.entries.push(...parsed.entries);
+        all.warnings.push(...parsed.warnings.map((w) => `${d}: ${w}`));
+        const pub = parsed.published ?? httpDate(res.lastModified);
+        if (pub && (!all.published || pub > all.published)) all.published = pub;
+      }
+      return all;
+    },
+  },
 };
+
+/** Sources the status page treats as sanctions lists that must stay fresh. PEP data is screened differently and refreshed weekly. */
+export const SANCTIONS_SOURCES = ['OFAC-SDN', 'UN', 'EU', 'UK'];
 
 const BATCH = 500;
 const BATCHES_PER_REQUEST = 10;
@@ -141,7 +169,7 @@ async function renormalizeTestEntries(sql: Sql) {
 async function recordRulePack(sql: Sql) {
   const version = new Date().toISOString().slice(0, 10);
   const [latest] = await sql`select jurisdiction, summary from rule_packs where id = 'global/sanctions' order by effective_from desc nulls last, created_at desc limit 1`;
-  const counts = await sql`select source, entries, status from sanctions_sources where source <> 'LAISSEZ-TEST' and entries > 0 order by source`;
+  const counts = await sql`select source, entries, status from sanctions_sources where source not in ('LAISSEZ-TEST', 'OS-PEP') and entries > 0 order by source`;
   const base = String(latest?.summary ?? 'Comprehensive OFAC country programs: Cuba, Iran, North Korea, occupied regions of Ukraine.').split(' Name screening lists')[0].trim();
   const lists = counts.map((r: any) => `${r.source === 'OFAC-SDN' ? 'OFAC SDN' : r.source} ${fmt(Number(r.entries))}${r.status === 'error' ? ' (refresh failed, previous load kept)' : ''}`).join(', ');
   const summary = `${base} Name screening lists loaded ${version}: ${lists || 'none'} names.`;
@@ -164,8 +192,15 @@ async function main() {
     console.error(`Unknown source ${unknown.join(', ')}. Use any of: ${Object.keys(SOURCES).join(', ')}.`);
     process.exit(2);
   }
-  const sources = requested.length ? requested : Object.keys(SOURCES);
   const sql = dryRun ? null : db();
+  // The daily run loads the four sanctions lists. PEP data is weekly: it loads when asked for (OS-PEP or --with-pep), or
+  // when the last load is more than six days old, so no workflow change is needed to keep it fresh.
+  let pepDue = args.includes('--with-pep');
+  if (!pepDue && !requested.length && sql) {
+    const [row] = await sql`select last_fetched_at from sanctions_sources where source = 'OS-PEP'`;
+    pepDue = !row?.last_fetched_at || Date.now() - new Date(row.last_fetched_at).getTime() > 6 * 86_400_000;
+  }
+  const sources = requested.length ? requested : Object.keys(SOURCES).filter((s) => s !== 'OS-PEP' || pepDue);
   log(`Sanctions ingest${dryRun ? ' (dry run, nothing is written)' : ''}: ${sources.join(', ')}`);
 
   // Download everything in parallel, then load one source at a time.
@@ -187,7 +222,8 @@ async function main() {
   if (sql) {
     const n = await renormalizeTestEntries(sql);
     if (n) log(`LAISSEZ-TEST: re-normalized ${n} fictional entries.`);
-    if (loaded.length) {
+    // The sanctions pack version records sanctions list loads only; a PEP refresh is not a sanctions change.
+    if (loaded.some((o) => o.source !== 'OS-PEP')) {
       const pack = await recordRulePack(sql);
       log(`Rule pack global/sanctions@${pack.version}: ${pack.summary}`);
       if (!noMonitor) printResults(await runMonitorAll(sql, 'sanctions_update'));

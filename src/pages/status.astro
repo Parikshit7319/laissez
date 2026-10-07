@@ -1,6 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import StatusBoard from '../components/live/StatusBoard';
+import ChainDeployment from '../components/live/ChainDeployment';
 import { url } from '../lib/url';
 import '../components/live/live.css';
 
@@ -41,6 +42,16 @@ const components = [
     </div>
   </section>
 
+  <section class="band" id="chain">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>Chain deployment</h2>
+        <p class="lede">The contracts Laissez settles and anchors on, with their addresses on the public test network. Read from <code>GET /v1/chain/public</code>.</p>
+      </div>
+      <ChainDeployment client:load />
+    </div>
+  </section>
+
   <section class="band tight">
     <div class="wrap cols-2">
       <div>
@@ -65,7 +76,10 @@ curl https://laissez-api.laissez.workers.dev/v1/status
     </div>
   </section>
 </Layout>
+
 <style>
   .code-col { min-width: 0; }
   .checks { gap: clamp(1.5rem, 3vw, 2.5rem) clamp(2rem, 5vw, 5rem); }
+  .chain-dep .grid td.mono { font-family: var(--f-mono); font-size: 0.82rem; word-break: break-all; }
+  .chain-dep .table-wrap + .table-wrap { margin-top: 1rem; }
 </style>

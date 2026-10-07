@@ -28,3 +28,20 @@ LAISSEZ_MODE = "sandbox"
 #   CHAIN_CLAIM_KEY       Private key that signs identity claims
 #   CHAIN_CUSTODY_SEED    Seed for deriving custodial investor wallets
 #   ANTHROPIC_API_KEY     Optional. Enables the rule-drafting agent
+
+# ---------- Staging ----------
+# A second Worker with its own secrets, pointed at a Neon branch of the production database. CI uploads its preview
+# versions here, so the smoke test never writes to production. Deploy with: npx wrangler deploy --env staging
+# Set its secrets once with: npx wrangler secret put NAME --env staging   (DATABASE_URL and DATABASE_URL_TENANT from
+# the Neon branch; the other keys may be new values; see docs/runbook.md, Staging environment).
+[env.staging]
+name = "laissez-api-staging"
+[env.staging.triggers]
+crons = ["*/10 * * * *", "17 6 * * *"]
+[env.staging.vars]
+ALLOWED_ORIGINS = "https://parikshit7319.github.io,http://localhost:4321,http://127.0.0.1:4321"
+MAX_ACTIVE_SANDBOXES = "100"
+APP_URL = "https://parikshit7319.github.io/laissez/app/"
+API_URL = "https://laissez-api-staging.laissez.workers.dev"
+CHAIN_RPC_URL = "https://sepolia.base.org"
+LAISSEZ_MODE = "sandbox"

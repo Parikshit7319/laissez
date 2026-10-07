@@ -1,25 +1,15 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import { url } from '../lib/url';
+import { subprocessors as rows } from '../data/trust';
 
-type Status = 'Active' | 'When enabled' | 'Optional' | 'Not yet deployed';
-const rows: { name: string; purpose: string; data: string; where: string; status: Status; note?: string }[] = [
-  { name: 'Cloudflare', purpose: 'Runs the API (Workers), terminates TLS, and provides the bot check (Turnstile) on sign-up and account recovery when it is switched on.', data: 'Every API request in transit, including network addresses. Turnstile sees browser signals from the visitor completing the check.', where: 'Global edge network; the API holds no data at the edge', status: 'Active' },
-  { name: 'Neon', purpose: 'Managed Postgres. The system of record for every organization.', data: 'All customer data at rest: clients, credentials, decisions, settlements, members, billing records, audit log.', where: 'One United States region', status: 'Active' },
-  { name: 'GitHub', purpose: 'Hosts the static site and this app (GitHub Pages) and runs the scheduled jobs (sanctions list ingest, holder monitoring, fund operations) and CI.', data: 'No customer content is stored at GitHub. Scheduled jobs reach the database with a secret kept in GitHub Actions.', where: 'United States', status: 'Active' },
-  { name: 'Google (Fonts)', purpose: 'Typefaces for the site and the app.', data: 'The visitor’s network address, as for any web request. No account data.', where: 'Global', status: 'Active' },
-  { name: 'Resend', purpose: 'Sends transactional email: confirmation links, invites, recovery, security alerts, invoices, report schedules.', data: 'Recipient name and email address and the content of the message.', where: 'United States', status: 'When enabled', note: 'Until a production mail key is set, messages stay in the organization’s Outbox and nothing is sent.' },
-  { name: 'Stripe', purpose: 'Hosted invoice pages for card and ACH payment, and payment status.', data: 'Billing contact name and email, the organization’s legal name and address, invoice amounts. Card and bank details go from the payer to Stripe and never reach Laissez.', where: 'United States and Stripe’s global network', status: 'When enabled', note: 'Until Stripe keys are set, invoices are issued as PDFs and paid by bank transfer.' },
-  { name: 'Anthropic', purpose: 'Drafts rule-change proposals from public regulator text in the change agent.', data: 'Public regulatory text only. No client, investor or organization data is sent.', where: 'United States', status: 'Optional', note: 'Off unless an API key is set.' },
-  { name: 'Base Sepolia (public test network)', purpose: 'Optional on-chain settlement and anchoring on a test network.', data: 'Decision outcomes and hashes. Never a name, an address that identifies a person, or a document.', where: 'Public blockchain', status: 'Not yet deployed', note: 'Testnet only. Public chains cannot delete data.' },
-];
 ---
 <Layout title="Sub-processors" description="The companies that process data for Laissez, what each one sees, where, and whether it is switched on." path="subprocessors/">
   <section class="page-hero">
     <div class="wrap">
       <h1>Sub-processors</h1>
       <p class="lede">Every company that handles data on Laissez’s behalf, what it sees, where it runs, and whether it is switched on today. If a vendor is not on this page, it does not touch your data.</p>
-      <p class="updated">Last updated 2 October 2026.</p>
+      <p class="updated">Last updated 7 October 2026.</p>
     </div>
   </section>
   <section class="band">

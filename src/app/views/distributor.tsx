@@ -1,5 +1,7 @@
 /** @jsxImportSource preact */
 import { csvRow } from '../../proto/csv';
+import { KycCard } from './kyc';
+import { ReviewsCard } from './reviews';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, money, when, day, JUR, CLASS_LABEL, BOOKING, track, trackOnce } from '../api';
 import { useApi, Head, Btn, Chip, outcomeChip, statusChip, ErrorBox, Loading, Empty, Field, Card, Json, go, Hash, TxLink, ConfirmBtn, Copy } from '../ui';
@@ -149,16 +151,37 @@ export function ClientDetail({ id }: { id: string }) {
         <p class="muted small">Give the client a private link to read fund documents, acknowledge them, submit evidence and request subscriptions, redemptions and transfers under your brand.</p>
         <PortalInvite investorId={i.id} investorName={i.name} />
         <PortalAccessList investorId={i.id} />
+        <PortalAccounts investorId={i.id} />
       </Card>
       <div class="grid2">
         <SuitabilityCard investorId={i.id} />
         <TaxCard investorId={i.id} />
+      </div>
+      <div class="grid2">
+        <KycCard investorId={i.id} />
+        <ReviewsCard investorId={i.id} />
       </div>
       <RevisionHistory investorId={i.id} refresh={rev} />
       <Card title="Recent decisions">
         {i.recent_decisions.length ? <DecisionTable rows={i.recent_decisions} /> : <Empty title="No decisions yet" />}
       </Card>
     </>
+  );
+}
+
+/** Portal accounts the client created from their links. */
+function PortalAccounts({ investorId }: { investorId: string }) {
+  const r = useApi(`/v1/investors/${investorId}/portal-accounts`, [investorId]);
+  const [err, setErr] = useState<any>(null);
+  const rows = r.data?.data ?? [];
+  if (!rows.length) return null;
+  const toggle = async (a: any) => { setErr(null); try { await api(`/v1/investors/${investorId}/portal-accounts/${a.id}/${a.disabled_at ? 'enable' : 'disable'}`, { body: {} }); r.reload(); } catch (e) { setErr(e); } };
+  return (
+    <div style={{ marginTop: '0.75rem' }}>
+      <p class="small muted" style={{ margin: '0 0 0.35rem' }}>Portal account</p>
+      <ErrorBox error={err} />
+      <ul class="small" style={{ margin: 0, paddingLeft: '1.1rem' }}>{rows.map((a: any) => <li key={a.id}>{a.disabled_at ? <Chip tone="no">Disabled</Chip> : <Chip tone="ok">Active</Chip>} {a.passkeys} passkey{a.passkeys === 1 ? '' : 's'}{a.totp_enabled ? ', authenticator app on' : ''}, created {when(a.created_at)}{a.last_login_at ? `, last sign-in ${when(a.last_login_at)}` : ''}{a.active_sessions ? `, ${a.active_sessions} active session${a.active_sessions === 1 ? '' : 's'}` : ''} <PermBtn perm="clients:write" kind="ghost" onClick={() => toggle(a)}>{a.disabled_at ? 'Enable' : 'Disable'}</PermBtn></li>)}</ul>
+    </div>
   );
 }
 
@@ -435,10 +458,10 @@ export function DecisionDetail({ id }: { id: string }) {
   if (r.error) return <ErrorBox error={r.error} onRetry={r.reload} />;
   const d = r.data;
   const canSettle = d.outcome === 'ALLOW' && !(d.what_ifs ?? []).length && !d.settlement_id && !stl && Date.now() - new Date(d.created_at).getTime() < 15 * 60_000;
-  const settle = async () => {
+  const settle = async (force = false) => {
     setErr(null); setBusy(true);
     try {
-      const s = await api('/v1/settlements', { body: { decision_id: d.id } });
+      const s = await api('/v1/settlements', { body: { decision_id: d.id, ...(force ? { force: true } : {}) } });
       setStl(s);
       if (s.status === 'settled') track('settlement_completed', { settlement: s.id, action: d.action, fund: d.ticker });
     } catch (e) { setErr(e); } finally { setBusy(false); }
@@ -460,9 +483,10 @@ export function DecisionDetail({ id }: { id: string }) {
   return (
     <>
       <Head title={`Decision ${d.id}`} sub={<>{d.action[0].toUpperCase() + d.action.slice(1)} {money(d.amount, d.asset === 'EURC' || d.asset === 'AVB-EUR' ? 'EUR' : 'USD')} of {d.ticker} for {d.investor_name}{d.counterparty_name ? ` to ${d.counterparty_name}` : ''}{/\.$/.test(d.counterparty_name ?? d.investor_name ?? '') ? '' : '.'} {when(d.created_at)}.</>}
-        actions={canSettle ? <PermBtn perm="orders:write" kind="primary" busy={busy} onClick={settle}>{busy ? 'Settling' : 'Settle now'}</PermBtn> : d.settlement_id ? <Btn onClick={() => go(`/settlements/${d.settlement_id}`)}>View settlement</Btn> : null} />
+        actions={canSettle ? <PermBtn perm="orders:write" kind="primary" busy={busy} onClick={() => settle(false)}>{busy ? 'Settling' : 'Settle now'}</PermBtn> : d.settlement_id ? <Btn onClick={() => go(`/settlements/${d.settlement_id}`)}>View settlement</Btn> : null} />
       {canSettle ? <PermNote perm="orders:write" /> : null}
       <ErrorBox error={err} />
+      {err?.code === 'in_batch' ? <div class="form-actions" style={{ marginBottom: '0.75rem' }}><Btn onClick={() => go(`/batches/${err.detail?.batch_id}`)}>Open the batch</Btn><PermBtn perm="orders:write" kind="primary" busy={busy} onClick={() => settle(true)}>Settle this order alone</PermBtn></div> : null}
       {stl ? <SettlementCard initial={stl} animate /> : null}
       <DecisionPanel d={{ ...d, binding_rules: d.resolved }} />
       <div class="grid2">

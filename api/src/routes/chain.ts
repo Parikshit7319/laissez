@@ -3,10 +3,26 @@
 import { z } from 'zod';
 import { router, need, body } from '../http';
 import { ApiError } from '../util';
+import { adminSql } from '../db';
 import { loadDeployment, chainOverview, investorChainView, runRecon, resolveBreak, simulateBreak, retryChainJob, cancelChainJob, txUrl, addressUrl, verifyProof } from '../chain';
 import { pageParams, pageOut } from '../pagination';
 
 export const routes = router();
+/** Public, unauthenticated: the deployment record (addresses are public on the chain anyway), for the status page. */
+export const publicRoutes = router();
+
+publicRoutes.get('/chain/public', async (c) => {
+  const admin = adminSql(c.env.DATABASE_URL);
+  const o: any = await chainOverview(admin, c.env);
+  c.header('cache-control', 'public, max-age=60');
+  if (!o.enabled && !o.network) return c.json({ deployed: false, message: 'No contracts are deployed yet. Settlement runs on the simulated register; the testnet deployment is pending.' });
+  return c.json({
+    deployed: true, enabled: o.enabled, network: o.network, network_label: o.network_label, chain_id: o.chain_id, explorer: o.explorer, deployed_at: o.deployed_at, claim_topic: o.claim_topic,
+    operator: { address: o.operator.address, url: o.operator.url },
+    contracts: o.contracts.map((x: any) => ({ key: x.key, name: x.name, address: x.address, url: x.url, role: x.role })),
+    funds: o.funds.map((f: any) => ({ ticker: f.ticker, name: f.name, token: f.token, token_url: f.token_url, countries: f.countries })),
+  });
+});
 
 routes.get('/chain', async (c) => {
   need(c, 'read');

@@ -26,6 +26,7 @@ import { ImportPage } from './views/import';
 import { RuleWorkbench } from './views/rules';
 import { Billing } from './views/billing';
 import { AuditExport } from './views/auditexport';
+import { Reviews } from './views/reviews';
 import { SecurityPolicy, Verification } from './views/policy';
 
 export type RouteProps = { params: Record<string, string>; query: URLSearchParams };
@@ -90,6 +91,7 @@ export const ROUTES: RouteEntry[] = [
   { pattern: '/screening-hits', group: 'Compliance', label: 'Screening hits', component: ScreeningHits },
   { pattern: '/screening-hits/:id', group: 'Compliance', component: (r) => <ScreeningHitDetail id={r.params.id} /> },
   { pattern: '/screening', group: 'Compliance', label: 'Name screening', component: Screening },
+  { pattern: '/reviews', group: 'Compliance', label: 'PEP and media reviews', component: Reviews },
   { pattern: '/sanctions-lists', group: 'Compliance', label: 'Sanctions lists', component: SanctionsLists },
   { pattern: '/monitoring', group: 'Compliance', label: 'Monitoring', component: () => <Monitoring /> },
   { pattern: '/monitoring/:id', group: 'Compliance', component: (r) => <Monitoring runId={r.params.id} /> },

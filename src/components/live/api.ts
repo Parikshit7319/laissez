@@ -127,7 +127,14 @@ export const ENDPOINTS = {
   status: '/v1/status',
   metrics: '/v1/metrics/public',
   rulepacks: '/v1/rule-packs',
+  chain: '/v1/chain/public',
 } as const;
+export type ChainPublic = {
+  deployed: boolean; enabled?: boolean; network?: string; network_label?: string; chain_id?: number; explorer?: string | null; deployed_at?: string | null; claim_topic?: number; message?: string;
+  operator?: { address: string; url: string | null };
+  contracts?: { key: string; name: string; address: string; url: string | null; role: string }[];
+  funds?: { ticker: string; name: string; token: string; token_url: string | null; countries: number[] }[];
+};
 export type EndpointKey = keyof typeof ENDPOINTS;
 
 export class FetchError extends Error {

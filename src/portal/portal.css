@@ -182,3 +182,12 @@
   .pt-doc-row { flex-direction: column; align-items: stretch; }
   .pt-who { display: none; }
 }
+
+/* Accounts: sign-in, second factor, passkeys */
+.pt-input { font: inherit; font-size: 1.05rem; letter-spacing: 0.08em; padding: 0.7rem 0.85rem; border: 1px solid var(--line-2); border-radius: 10px; background: #fff; color: var(--ink); width: 100%; max-width: 16rem; min-width: 0; }
+.pt-input:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.pt-error { color: var(--no); margin: 0.6rem 0 0; font-size: 0.92rem; }
+.pt-ok { color: var(--ok, #0f5c4a); margin: 0 0 0.8rem; font-size: 0.92rem; }
+.pt-list { list-style: none; margin: 0 0 0.9rem; padding: 0; display: grid; gap: 0.35rem; }
+.pt-qr { width: 11rem; max-width: 100%; margin: 0.25rem 0 0.5rem; }
+.pt-qr svg { width: 100%; height: auto; display: block; }

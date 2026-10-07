@@ -59,7 +59,8 @@ publicRoutes.post('/access-requests', async (c) => {
     values (${lead.id}, ${lead.name}, ${lead.email}, ${lead.organization}, ${lead.role}, ${lead.distributes}, ${lead.message}, ${lead.source}, ${ipHash}, ${lead.user_agent})`;
 
   const env = c.env as Env & { LEADS_EMAIL?: string };
-  const to = env.LEADS_EMAIL || 'parikshit.ambhore@rice.edu';
+  // Routed to a shared inbox when one is configured (LEADS_EMAIL, else STAFF_EMAIL); the founder's address is the fallback.
+  const to = env.LEADS_EMAIL || env.STAFF_EMAIL || 'parikshit.ambhore@rice.edu';
   const kind = 'access_request' as unknown as EmailKind;
   const notify = plain(`Access request: ${lead.organization}`, [
     `${lead.name} <${lead.email}>`, `${lead.organization}, ${ROLE_LABEL[lead.role]}`,

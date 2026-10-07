@@ -294,7 +294,26 @@ await q(`delete from rate_limits`);
     ok('config says sign-up is closed', (await get('/v1/auth/config', { base: P1 })).json?.signup_open === false);
     ok('sandboxes do not exist in production', (await call('POST', '/v1/sandboxes', { base: P1, body: {} })).status === 404);
     s1.child.kill();
-    s2 = await startServer(8789, { LZ_OVERRIDE_RESEND_API_KEY: 're_localtest', LZ_OVERRIDE_EMAIL_FROM: 'Laissez <no-reply@laissez.test>' });
+    // A mock identity provider: checks Sumsub request signatures, creates applicants, hands out SDK tokens, reports status.
+    const sumsubSecret = 'sumsub_secret_' + stamp; const sumsubToken = 'sbx:token_' + stamp; const sumsubWebhook = 'whk_' + stamp;
+    const applicants = new Map(); const sumsubCalls = [];
+    const mock = http.createServer((req, res) => {
+      let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => {
+        const ts = req.headers['x-app-access-ts']; const sig = req.headers['x-app-access-sig'];
+        const expect = createHmac('sha256', sumsubSecret).update(`${ts}${req.method}${req.url}${b}`).digest('hex');
+        sumsubCalls.push({ url: req.url, sigOk: sig === expect && req.headers['x-app-token'] === sumsubToken });
+        if (sig !== expect) { res.writeHead(401, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ description: 'bad signature' })); }
+        const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
+        if (req.method === 'POST' && req.url.startsWith('/resources/applicants?')) { const body = JSON.parse(b); const id = 'app_' + applicants.size; applicants.set(id, { id, externalUserId: body.externalUserId, reviewStatus: 'init' }); return send(201, { id, externalUserId: body.externalUserId }); }
+        if (req.method === 'POST' && req.url.startsWith('/resources/accessTokens?')) return send(200, { token: 'sdk_' + stamp, userId: 'x' });
+        const m = /^\/resources\/applicants\/([^/]+)\/(status|one)$/.exec(req.url);
+        if (m && req.method === 'GET') { const a = applicants.get(m[1]); if (!a) return send(404, { description: 'no applicant' }); return send(200, m[2] === 'status' ? { reviewStatus: a.reviewStatus, reviewResult: a.reviewResult ?? {}, levelName: 'basic-kyc-level' } : { id: a.id, externalUserId: a.externalUserId, info: { firstName: 'Prod', lastName: 'Investor', dob: '1980-01-01' }, requiredIdDocs: { docSets: [{ types: ['PASSPORT'] }] } }); }
+        send(404, { description: 'unknown' });
+      });
+    });
+    await new Promise((r) => mock.listen(0, '127.0.0.1', r));
+    const mockBase = `http://127.0.0.1:${mock.address().port}`;
+    s2 = await startServer(8789, { LZ_OVERRIDE_RESEND_API_KEY: 're_localtest', LZ_OVERRIDE_EMAIL_FROM: 'Laissez <no-reply@laissez.test>', LZ_OVERRIDE_SUMSUB_APP_TOKEN: sumsubToken, LZ_OVERRIDE_SUMSUB_SECRET_KEY: sumsubSecret, LZ_OVERRIDE_SUMSUB_WEBHOOK_SECRET: sumsubWebhook, LZ_OVERRIDE_SUMSUB_API_BASE: mockBase });
     const P2 = 'http://127.0.0.1:8789';
     const emailP = `prod+${stamp}@laissez.test`;
     const PA = await signUp(emailP, 'Prod Person', `Prod Org ${stamp}`, {}, P2);
@@ -382,6 +401,84 @@ await q(`delete from rate_limits`);
       const bad = await post('/v1/audit-export/destinations', { kind: 's3_worm', name: 'Bad bucket', endpoint: 'http://example.com', region: 'us-east-1', bucket: 'b', access_key_id: 'AKIAXXXXXXXX', secret_access_key: 'x'.repeat(20) }, { token: PA.token, base: P2 });
       ok('a plain-http endpoint off the loopback is refused', bad.status === 400 || bad.status === 422, JSON.stringify(bad.json).slice(0, 160));
     } finally { rx.close(); }
+
+    // Identity verification through the provider: signed requests, sealed evidence, logged reads, verified webhook.
+    const bcs = await get('/v1/booking-centers', { base: P2 });
+    const invMade = await post('/v1/investors', { name: 'Prod Investor', kind: 'Individual', residence: 'SG', city: 'Singapore', booking_center: bcs.json?.data?.[0]?.id }, { token: PA.token, base: P2 });
+    ok('a production organization can create a client', invMade.status === 201, JSON.stringify(invMade.json).slice(0, 160));
+    const invId = invMade.json?.id;
+    const kycInfo = await get('/v1/kyc', { token: PA.token, base: P2 });
+    ok('identity verification reports itself configured', kycInfo.json?.configured === true && kycInfo.json?.provider === 'sumsub', JSON.stringify(kycInfo.json));
+    const started = await post(`/v1/investors/${invId}/kyc/checks`, {}, { token: PA.token, base: P2 });
+    ok('starting a check creates the applicant and returns an SDK token', started.status === 201 && started.json?.applicant_id === 'app_0' && started.json?.sdk_token === 'sdk_' + stamp, JSON.stringify(started.json));
+    ok('every provider request was signed with the secret key', sumsubCalls.length >= 2 && sumsubCalls.every((x) => x.sigOk), JSON.stringify(sumsubCalls));
+    const again = await post(`/v1/investors/${invId}/kyc/checks`, {}, { token: PA.token, base: P2 });
+    ok('starting again reuses the open check', again.json?.check_id === started.json?.check_id, JSON.stringify(again.json));
+    const noEvidence = await get(`/v1/investors/${invId}/kyc/checks/${started.json?.check_id}/evidence?purpose=periodic%20review`, { token: PA.token, base: P2 });
+    ok('no evidence before the provider answers', noEvidence.status === 404 && noEvidence.json?.error?.code === 'no_evidence', JSON.stringify(noEvidence.json));
+    // The provider reviews and calls the webhook.
+    applicants.get('app_0').reviewStatus = 'completed'; applicants.get('app_0').reviewResult = { reviewAnswer: 'GREEN' };
+    const payload = JSON.stringify({ applicantId: 'app_0', externalUserId: `${PA.ws}:${invId}`, type: 'applicantReviewed', reviewStatus: 'completed', reviewResult: { reviewAnswer: 'GREEN' }, levelName: 'basic-kyc-level' });
+    const badHook = await call('POST', '/v1/kyc/webhooks/sumsub', { base: P2, headers: { 'content-type': 'application/json', 'x-payload-digest': 'deadbeef', 'x-payload-digest-alg': 'HMAC_SHA256_HEX' }, body: JSON.parse(payload) });
+    ok('a webhook with a wrong digest is refused', badHook.status === 401, JSON.stringify(badHook.json));
+    const digest = createHmac('sha256', sumsubWebhook).update(payload).digest('hex');
+    const hookRes = await fetch(`${P2}/v1/kyc/webhooks/sumsub`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-payload-digest': digest, 'x-payload-digest-alg': 'HMAC_SHA256_HEX' }, body: payload });
+    const hookJson = await hookRes.json();
+    ok('a signed webhook marks the check approved', hookRes.status === 200 && hookJson.status === 'approved', JSON.stringify(hookJson));
+    await sleep(800);
+    const checks = await get(`/v1/investors/${invId}/kyc/checks`, { token: PA.token, base: P2 });
+    const chk = checks.json?.data?.[0];
+    ok('the check lists as approved with an evidence reference and no raw evidence', chk?.status === 'approved' && chk?.evidence_ref === `kyc:${chk.id}` && !JSON.stringify(checks.json).includes('evidence_enc') && !JSON.stringify(checks.json).includes('1980-01-01'), JSON.stringify(chk));
+    const sealed = await q(`select evidence_enc, evidence_sha256 from kyc_checks where id = $1`, [chk?.id]);
+    ok('evidence is stored sealed, not in the clear', sealed[0]?.evidence_enc && !sealed[0].evidence_enc.includes('1980-01-01') && sealed[0].evidence_sha256?.length === 64, JSON.stringify(sealed[0]).slice(0, 80));
+    const noPurpose = await get(`/v1/investors/${invId}/kyc/checks/${chk?.id}/evidence`, { token: PA.token, base: P2 });
+    ok('reading evidence needs a purpose', noPurpose.status === 422 && noPurpose.json?.error?.code === 'purpose_required', JSON.stringify(noPurpose.json));
+    const ev = await get(`/v1/investors/${invId}/kyc/checks/${chk?.id}/evidence?purpose=periodic%20review`, { token: PA.token, base: P2 });
+    ok('a compliance officer can read the decrypted evidence', ev.status === 200 && ev.json?.evidence?.applicant?.info?.dob === '1980-01-01', JSON.stringify(ev.json).slice(0, 160));
+    const log = await get('/v1/kyc/evidence-access-log', { token: PA.token, base: P2 });
+    ok('the read is in the evidence access log with its purpose', log.json?.data?.some((x) => x.object_id === chk?.id && x.purpose === 'periodic review'), JSON.stringify(log.json).slice(0, 200));
+    mock.close();
+
+    // Investor portal accounts: the link invites, a passkey creates the account, the policy can require it, TOTP adds a second factor.
+    const invite = await post(`/v1/investors/${invId}/portal-invite`, {}, { token: PA.token, base: P2 });
+    const linkTok = invite.json?.link?.split('#')[1] ?? invite.json?.token;
+    ok('a portal link is issued for the client', invite.status === 201 && typeof linkTok === 'string' && linkTok.startsWith('lz_inv_'), JSON.stringify(invite.json).slice(0, 160));
+    const meLink = await get('/v1/portal/me', { token: linkTok, base: P2 });
+    ok('the link opens the portal and reports no account yet', meLink.status === 200 && meLink.json?.account?.via === 'link' && meLink.json?.account?.exists === false && meLink.json?.account?.required === false, JSON.stringify(meLink.json?.account));
+    const polNow = await get('/v1/security-policy', { token: PA.token, base: P2 });
+    const polBody = { ...(polNow.json?.policy ?? polNow.json ?? {}), portal_require_account: true };
+    const polSet = await put('/v1/security-policy', polBody, { token: PA.token, base: P2 });
+    ok('the policy can require portal accounts', polSet.status === 200, JSON.stringify(polSet.json).slice(0, 200));
+    const fundsLink = await get('/v1/portal/funds', { token: linkTok, base: P2 });
+    ok('with the policy on, the link opens nothing but /me', fundsLink.status === 403 && fundsLink.json?.error?.code === 'portal_account_required', JSON.stringify(fundsLink.json));
+    const pa = soft();
+    const ro = await call('POST', '/v1/portal-auth/register/options', { token: linkTok, base: P2, body: {} });
+    const rv = await call('POST', '/v1/portal-auth/register/verify', { token: linkTok, base: P2, body: { challenge_id: ro.json?.challenge_id, credential: pa.register(ro.json?.options ?? {}) } });
+    ok('the client creates a portal account with a passkey', rv.status === 201 && rv.json?.session_token?.startsWith('lz_ps_'), JSON.stringify(rv.json));
+    const PS = rv.json?.session_token;
+    const fundsSess = await get('/v1/portal/funds', { token: PS, base: P2 });
+    ok('the portal session opens the portal', fundsSess.status === 200, JSON.stringify(fundsSess.json).slice(0, 120));
+    const linkAgain = await get('/v1/portal/funds', { token: linkTok, base: P2 });
+    ok('once an account exists the link no longer opens the portal', linkAgain.status === 403 && linkAgain.json?.error?.detail?.has_account === true, JSON.stringify(linkAgain.json));
+    const lo = await call('POST', '/v1/portal-auth/login/options', { base: P2, body: {} });
+    const lv = await call('POST', '/v1/portal-auth/login/verify', { base: P2, body: { challenge_id: lo.json?.challenge_id, credential: pa.assert(lo.json?.options ?? {}) } });
+    ok('the client signs in with the passkey without a link', lv.status === 200 && lv.json?.mfa_required === false, JSON.stringify(lv.json));
+    const tsu = await call('POST', '/v1/portal-auth/totp/setup', { token: lv.json?.session_token, base: P2, body: {} });
+    const ten = await call('POST', '/v1/portal-auth/totp/enable', { token: lv.json?.session_token, base: P2, body: { code: totp(tsu.json?.secret) } });
+    ok('the client turns on an authenticator app', tsu.status === 200 && ten.status === 200 && ten.json?.enabled === true, JSON.stringify(ten.json));
+    const lo2 = await call('POST', '/v1/portal-auth/login/options', { base: P2, body: {} });
+    const lv2 = await call('POST', '/v1/portal-auth/login/verify', { base: P2, body: { challenge_id: lo2.json?.challenge_id, credential: pa.assert(lo2.json?.options ?? {}) } });
+    const blocked = await get('/v1/portal/funds', { token: lv2.json?.session_token, base: P2 });
+    ok('after the passkey the portal waits for the code', lv2.json?.mfa_required === true && blocked.status === 403 && blocked.json?.error?.code === 'mfa_required', JSON.stringify(blocked.json));
+    const wrong = await call('POST', '/v1/portal-auth/mfa', { token: lv2.json?.session_token, base: P2, body: { code: '000000' } });
+    const right = await call('POST', '/v1/portal-auth/mfa', { token: lv2.json?.session_token, base: P2, body: { code: totp(tsu.json?.secret, Date.now() + 30_000) } });
+    const opened = await get('/v1/portal/funds', { token: lv2.json?.session_token, base: P2 });
+    ok('a wrong code is refused and the right one opens the portal', wrong.status === 401 && right.status === 200 && opened.status === 200, JSON.stringify([wrong.json, right.json]).slice(0, 160));
+    const accts = await get(`/v1/investors/${invId}/portal-accounts`, { token: PA.token, base: P2 });
+    ok('the distributor sees the account with its passkey and second factor', accts.json?.data?.length === 1 && accts.json.data[0].passkeys === 1 && accts.json.data[0].totp_enabled === true, JSON.stringify(accts.json));
+    const dis = await post(`/v1/investors/${invId}/portal-accounts/${accts.json?.data?.[0]?.id}/disable`, {}, { token: PA.token, base: P2 });
+    const afterDis = await get('/v1/portal/funds', { token: lv2.json?.session_token, base: P2 });
+    ok('disabling the account ends its sessions', dis.status === 200 && afterDis.status === 401, JSON.stringify(afterDis.json));
   } catch (e) { fail++; console.log('FAIL production mode block', e.message); }
   finally { s1?.child.kill(); s2?.child.kill(); }
 

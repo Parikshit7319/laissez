@@ -1,7 +1,8 @@
 // Shared helpers for the scheduled jobs. Jobs run in Node 22 (GitHub Actions) from the api/ directory
 // and connect with DATABASE_URL, the owner role, which bypasses row-level security.
 import fs from 'node:fs';
-import { adminSql, type Sql } from '../src/db';
+import { createRequire } from 'node:module';
+import { adminSql, setDriver, pgDriver, type Sql } from '../src/db';
 
 /** Read DATABASE_URL from the environment, or from api/.dev.vars for local runs. */
 export function db(): Sql {
@@ -15,6 +16,11 @@ export function db(): Sql {
   if (!url) {
     console.error('DATABASE_URL is not set. Export the owner connection string (or add it to api/.dev.vars) and run the job again.');
     process.exit(2);
+  }
+  // A local Postgres (embedded or Docker) speaks the wire protocol, not Neon's HTTP: switch the driver like server.mjs does.
+  if (/@(127\.0\.0\.1|localhost)[:/]/.test(url)) {
+    const pg = createRequire(import.meta.url)('pg');
+    setDriver(pgDriver(pg));
   }
   return adminSql(url);
 }

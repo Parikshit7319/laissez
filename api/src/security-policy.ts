@@ -19,6 +19,8 @@ export const policyIn = z.object({
   allowed_email_domains: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, 'Use a domain such as example.com')).max(20).default([]),
   /** People sign in only from these networks (CIDR or single addresses). Empty allows any. */
   session_ip_allowlist: z.array(z.string().trim().refine(validCidr, 'Use an address or CIDR such as 203.0.113.0/24')).max(50).default([]),
+  /** Investors must create a portal account (passkey) from their link before the portal opens; links alone no longer work. */
+  portal_require_account: z.boolean().default(false),
 });
 export type SecurityPolicy = z.infer<typeof policyIn>;
 

@@ -94,6 +94,11 @@ const MOUNTS: Record<string, Record<string, string>> = {
   'routes/rules.ts': { routes: '/v1' },
   'routes/security.ts': { routes: '/v1', publicRoutes: '/v1' },
   'routes/billing.ts': { routes: '/v1', publicRoutes: '/v1' },
+  'routes/portal-auth.ts': { publicRoutes: '/v1/portal-auth' },
+  'routes/kyc.ts': { routes: '/v1', publicRoutes: '/v1' },
+  'routes/siem.ts': { routes: '/v1' },
+  'routes/reviews.ts': { routes: '/v1' },
+  'routes/rulefeed.ts': { routes: '/v1' },
   // Mounted through routes/fundops.ts and routes/reports.ts, so they share the /v1 prefix.
   'routes/fundops2.ts': { routes: '/v1' },
   'routes/reports2.ts': { routes: '/v1' },

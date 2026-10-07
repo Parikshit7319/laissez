@@ -9,3 +9,6 @@ _to_delete/
 PLAN.md
 api/.dev.local.vars
 api/.local/
+
+# Generated before every build by scripts/gen-procurement-pack.ts
+public/laissez-procurement-pack.pdf

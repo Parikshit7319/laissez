@@ -460,3 +460,35 @@ export function matchTopics(...parts: (string | null | undefined)[]): string[] {
   const hay = parts.filter(Boolean).join(' \n ');
   return TOPICS.filter((t) => t.re.test(hay)).map((t) => t.topic);
 }
+
+// ---------------------------------------------------------------------------
+// OpenSanctions "simple" CSV (targets.simple.csv): one row per entity with ';'-separated multi-values.
+// Used for politically exposed persons (datasets such as us_cia_world_leaders and peps). Not a sanctions list:
+// a match means enhanced due diligence, never a block, so these rows are screened by screenPeps(), not screenNames().
+// ---------------------------------------------------------------------------
+export function parseOpenSanctionsSimple(csv: string, opts: { countries?: Set<string>; datasetLabel?: string } = {}): ParsedList {
+  const rows = parseCsv(csv, ',');
+  if (!rows.length) throw new Error('OpenSanctions CSV: empty file. The previous list was kept.');
+  const col = headerIndex(rows[0]);
+  const ix = { id: col('id'), schema: col('schema'), name: col('name'), aliases: col('aliases'), countries: col('countries'), dataset: col('dataset'), first: col('first_seen'), change: col('last_change') };
+  if (ix.id < 0 || ix.name < 0 || ix.schema < 0) throw new Error('OpenSanctions CSV: expected id, schema and name columns. The format may have changed; the previous list was kept.');
+  const get = (r: string[], i: number) => (i >= 0 ? (r[i] ?? '').trim() : '');
+  const entries: SanctionEntry[] = [];
+  let published: string | null = null;
+  let skipped = 0;
+  for (const r of rows.slice(1)) {
+    if (!r.length || !get(r, ix.id)) continue;
+    const schema = get(r, ix.schema);
+    const type: EntryType = schema === 'Person' ? 'individual' : schema === 'Vessel' ? 'vessel' : schema === 'Airplane' ? 'aircraft' : 'entity';
+    const countries = get(r, ix.countries).split(';').map((x) => x.trim().toUpperCase()).filter(Boolean);
+    if (opts.countries && countries.length && !countries.some((x) => opts.countries!.has(x))) { skipped++; continue; }
+    const primary = get(r, ix.name);
+    if (!primary) continue;
+    const aliases = get(r, ix.aliases).split(';').map((x) => x.trim()).filter((x) => x && x !== primary);
+    const change = get(r, ix.change);
+    if (change && (!published || change > published)) published = change;
+    entries.push({ uid: get(r, ix.id), primary, aliases, type, programs: opts.datasetLabel ?? get(r, ix.dataset) ?? 'OpenSanctions', country: countries[0] ?? null, listedOn: get(r, ix.first).slice(0, 10) || null });
+  }
+  const warnings = skipped ? [`${skipped} entries outside the configured countries were skipped.`] : [];
+  return { entries, published: published ? new Date(published).toISOString() : null, warnings };
+}

@@ -7,6 +7,7 @@ import {
 } from '../../../src/proto/engine';
 import type { Investor, Fund } from '../../../src/proto/data';
 import { findTest } from '../../../src/proto/thresholds';
+import { openPepReviews } from '../pep';
 import { adminSql, type Sql } from '../db';
 import { ApiError, id, rand, digits, today, addDays, lzid, sha256, signReceipt, publicKey, verifyReceipt } from '../util';
 import { type C, type Actor, router, body, bg, need, audit, auditQ, actorRef, needStepUp } from '../http';
@@ -252,6 +253,8 @@ export async function issueCredential(c: C, input: CredentialInput, a: Actor = c
     emit(sql, ws, 'credential.issued', { credential: credId, lzid: passport, investor: inv.id }),
     // A renewal re-issues the on-chain claim with the new expiry for an onboarded investor.
     onCredentialIssued(c, inv.id),
+    // Politically exposed persons: a match opens a review and a work item, never a refusal.
+    openPepReviews(sql, ws, [{ id: inv.id, name: inv.name }], actorRef(a)).catch((e) => console.error('pep screening', e)),
   ]));
   return { credential_id: credId, lzid: passport, issuer_name: issuer, issued_on: start, expires_on: end, checks: results, investor: (await loadInvestors(sql, ws, [inv.id]))[inv.id] };
 }

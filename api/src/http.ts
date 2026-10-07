@@ -23,6 +23,8 @@ export type Vars = {
   suspended?: boolean;
   /** Session id and the time of the last fresh passkey assertion, for step-up checks. Absent for API keys. */
   sessionId?: string; steppedUpAt?: number;
+  /** Portal link context: whether the distributor requires accounts and whether this investor has one. */
+  portalLink?: { requireAccount: boolean; hasAccount: boolean };
 };
 export type C = Context<{ Bindings: Env; Variables: Vars }>;
 export const router = () => new Hono<{ Bindings: Env; Variables: Vars }>();

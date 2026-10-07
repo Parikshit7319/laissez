@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "astro dev",
+    "prebuild": "npm run docs:pack",
     "build": "astro build",
     "preview": "astro preview",
     "test": "esbuild scripts/test-engine.ts --bundle --platform=node --format=esm --outfile=.astro/test-engine.mjs --log-level=warning && node .astro/test-engine.mjs",
@@ -13,6 +14,7 @@
     "test:import": "esbuild scripts/test-import.ts --bundle --platform=node --format=esm --outfile=.astro/test-import.mjs --log-level=warning && node .astro/test-import.mjs",
     "test:custom": "esbuild scripts/test-custom-rules.ts --bundle --platform=node --format=esm --outfile=.astro/test-custom.mjs --log-level=warning && node .astro/test-custom.mjs",
     "test:openapi": "esbuild scripts/test-openapi.ts --bundle --platform=node --format=esm --outfile=.astro/test-openapi.mjs --log-level=warning --external:@seriousme/openapi-schema-validator --external:pg --external:pg-native --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" && node .astro/test-openapi.mjs",
+    "docs:pack": "esbuild scripts/gen-procurement-pack.ts --bundle --platform=node --format=esm --outfile=.astro/gen-pack.mjs --log-level=warning && node .astro/gen-pack.mjs",
     "test:sigv4": "esbuild scripts/test-sigv4.ts --bundle --platform=node --format=esm --outfile=.astro/test-sigv4.mjs --log-level=warning --external:zod && node .astro/test-sigv4.mjs",
     "test:csv": "esbuild scripts/test-csv.ts --bundle --platform=node --format=esm --outfile=.astro/test-csv.mjs --log-level=warning && node .astro/test-csv.mjs",
     "test:security-billing": "node api/test/security-billing.mjs",

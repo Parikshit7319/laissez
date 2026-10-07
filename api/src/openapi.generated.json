@@ -80,7 +80,7 @@
   },
   {
    "name": "Screening",
-   "description": "Sanctions lists, name screening and hit dispositions."
+   "description": "Sanctions lists, name screening and hit dispositions, politically exposed persons and adverse media reviews."
   },
   {
    "name": "Monitoring",
@@ -101,6 +101,10 @@
   {
    "name": "Rule workbench",
    "description": "Rules your compliance team authors as data on top of the shipped packs: tested against the regression suite and your own decisions, signed off by a second person, scheduled with effective dates."
+  },
+  {
+   "name": "Identity verification",
+   "description": "Document and liveness checks through a provider (Sumsub), with sealed evidence and a logged access trail."
   },
   {
    "name": "Audit",
@@ -16330,6 +16334,150 @@
     ]
    }
   },
+  "/v1/chain/public": {
+   "get": {
+    "tags": [
+     "On-chain"
+    ],
+    "operationId": "getChainPublic",
+    "summary": "The chain deployment, public",
+    "description": "Network, explorer, contract addresses with links, fund tokens and the operator address, for the status page. deployed is false until the test network deployment has run. Cached for a minute.",
+    "security": [],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "deployed": {
+           "type": "boolean"
+          },
+          "enabled": {
+           "type": "boolean"
+          },
+          "network": {
+           "type": "string"
+          },
+          "network_label": {
+           "type": "string"
+          },
+          "chain_id": {
+           "type": "integer"
+          },
+          "explorer": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "deployed_at": {
+           "type": [
+            "string",
+            "null"
+           ],
+           "format": "date-time"
+          },
+          "claim_topic": {
+           "type": "integer"
+          },
+          "operator": {
+           "type": "object",
+           "properties": {
+            "address": {
+             "type": "string"
+            },
+            "url": {
+             "type": [
+              "string",
+              "null"
+             ]
+            }
+           }
+          },
+          "contracts": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "key": {
+              "type": "string"
+             },
+             "name": {
+              "type": "string"
+             },
+             "address": {
+              "type": "string"
+             },
+             "url": {
+              "type": [
+               "string",
+               "null"
+              ]
+             },
+             "role": {
+              "type": "string"
+             }
+            }
+           }
+          },
+          "funds": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "ticker": {
+              "type": "string"
+             },
+             "name": {
+              "type": "string"
+             },
+             "token": {
+              "type": "string"
+             },
+             "token_url": {
+              "type": [
+               "string",
+               "null"
+              ]
+             },
+             "countries": {
+              "type": "array",
+              "items": {
+               "type": "integer"
+              }
+             }
+            }
+           }
+          },
+          "message": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     }
+    },
+    "x-laissez-permission": "public",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": []
+   }
+  },
   "/v1/audit-export/destinations": {
    "get": {
     "tags": [
@@ -16965,6 +17113,1184 @@
      "compliance",
      "auditor"
     ]
+   }
+  },
+  "/v1/screening-reviews": {
+   "get": {
+    "tags": [
+     "Screening"
+    ],
+    "operationId": "listScreeningReviews",
+    "summary": "List PEP and adverse media reviews",
+    "description": "Pending reviews first. A PEP match (OpenSanctions list, source OS-PEP) opens a pending review and a work item; it never freezes or refuses an order, because being politically exposed calls for enhanced due diligence, not a block. Adverse media reviews are recorded by a person, or by a provider when one is connected.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "result",
+      "in": "query",
+      "required": false,
+      "description": "Filter by result.",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "clear",
+        "hit",
+        "pending"
+       ]
+      }
+     },
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "description": "Filter by kind.",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "pep",
+        "adverse_media"
+       ]
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/ScreeningReview"
+           }
+          },
+          "pep_list_entries": {
+           "type": "integer"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ]
+   }
+  },
+  "/v1/investors/{id}/screening-reviews": {
+   "get": {
+    "tags": [
+     "Screening"
+    ],
+    "operationId": "listInvestorScreeningReviews",
+    "summary": "Reviews for one investor",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Investor id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/ScreeningReview"
+           }
+          }
+         },
+         "required": [
+          "data"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ]
+   },
+   "post": {
+    "tags": [
+     "Screening"
+    ],
+    "operationId": "recordScreeningReview",
+    "summary": "Record a PEP or adverse media review",
+    "description": "A person records what was checked, where, and the outcome, with references (title, url, date). Deciding clear or hit closes the open work item. Audited as screening.review_recorded.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Investor id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "kind": {
+          "type": "string",
+          "enum": [
+           "pep",
+           "adverse_media"
+          ]
+         },
+         "result": {
+          "type": "string",
+          "enum": [
+           "clear",
+           "hit",
+           "pending"
+          ]
+         },
+         "source": {
+          "type": "string"
+         },
+         "summary": {
+          "type": "string",
+          "nullable": true
+         },
+         "references": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "properties": {
+            "title": {
+             "type": "string"
+            },
+            "url": {
+             "type": "string"
+            },
+            "date": {
+             "type": "string"
+            },
+            "note": {
+             "type": "string"
+            }
+           }
+          }
+         },
+         "next_review_on": {
+          "type": "string",
+          "format": "date",
+          "nullable": true
+         }
+        },
+        "required": [
+         "kind",
+         "result",
+         "source"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ScreeningReview"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "compliance:write",
+    "x-laissez-api-key-scopes": [
+     "compliance"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance",
+     "legal"
+    ]
+   }
+  },
+  "/v1/screening-reviews/{id}/decide": {
+   "post": {
+    "tags": [
+     "Screening"
+    ],
+    "operationId": "decideScreeningReview",
+    "summary": "Decide a pending review",
+    "description": "Marks a review clear or hit (or back to pending) with a summary and references. A clear decision excludes that list entry from future PEP matches for the investor. Audited as screening.review_decided.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Review id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "result": {
+          "type": "string",
+          "enum": [
+           "clear",
+           "hit",
+           "pending"
+          ]
+         },
+         "summary": {
+          "type": "string",
+          "nullable": true
+         },
+         "references": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "properties": {
+            "title": {
+             "type": "string"
+            },
+            "url": {
+             "type": "string"
+            },
+            "date": {
+             "type": "string"
+            },
+            "note": {
+             "type": "string"
+            }
+           }
+          }
+         },
+         "next_review_on": {
+          "type": "string",
+          "format": "date",
+          "nullable": true
+         }
+        },
+        "required": [
+         "result"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ScreeningReview"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "compliance:write",
+    "x-laissez-api-key-scopes": [
+     "compliance"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance",
+     "legal"
+    ]
+   }
+  },
+  "/v1/screening-reviews/pep-sweep": {
+   "post": {
+    "tags": [
+     "Screening"
+    ],
+    "operationId": "pepSweep",
+    "summary": "Screen every investor against the PEP list now",
+    "description": "The nightly monitoring sweep does the same. Returns how many reviews it opened.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "investors": {
+           "type": "integer"
+          },
+          "opened": {
+           "type": "integer"
+          },
+          "review_ids": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "compliance:write",
+    "x-laissez-api-key-scopes": [
+     "compliance"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance",
+     "legal"
+    ]
+   }
+  },
+  "/v1/kyc": {
+   "get": {
+    "tags": [
+     "Identity verification"
+    ],
+    "operationId": "getKyc",
+    "summary": "Identity verification status",
+    "description": "Whether a provider is configured (Sumsub), the level in use, and how many checks this organization has run. Without SUMSUB_APP_TOKEN and SUMSUB_SECRET_KEY on the API, the check routes answer 501 not_configured and credentials stay self-attested.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "provider": {
+           "type": "string"
+          },
+          "configured": {
+           "type": "boolean"
+          },
+          "level": {
+           "type": "string"
+          },
+          "checks": {
+           "type": "integer"
+          },
+          "approved": {
+           "type": "integer"
+          },
+          "sdk": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ]
+   }
+  },
+  "/v1/investors/{id}/kyc/checks": {
+   "get": {
+    "tags": [
+     "Identity verification"
+    ],
+    "operationId": "listKycChecks",
+    "summary": "Checks for an investor",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Investor id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/KycCheck"
+           }
+          }
+         },
+         "required": [
+          "data"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ]
+   },
+   "post": {
+    "tags": [
+     "Identity verification"
+    ],
+    "operationId": "startKycCheck",
+    "summary": "Start an identity check",
+    "description": "Creates the applicant at the provider (or reuses the open check) and returns a short-lived token for the provider's web SDK, which runs in the person's browser: documents and selfies go to the provider, never to Laissez. The result arrives by webhook; refresh pulls it on demand. Audited as kyc.check_started.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Investor id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "check_id": {
+           "type": "string"
+          },
+          "applicant_id": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "level": {
+           "type": "string"
+          },
+          "sdk_token": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "external_user_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "501": {
+      "$ref": "#/components/responses/NotConfigured"
+     },
+     "502": {
+      "$ref": "#/components/responses/BadGateway"
+     }
+    },
+    "x-laissez-permission": "clients:write",
+    "x-laissez-api-key-scopes": [
+     "clients"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance"
+    ]
+   }
+  },
+  "/v1/investors/{id}/kyc/checks/{checkId}/refresh": {
+   "post": {
+    "tags": [
+     "Identity verification"
+    ],
+    "operationId": "refreshKycCheck",
+    "summary": "Pull the result from the provider",
+    "description": "Stores the outcome (status, answer, reject labels) in the clear and the full provider record sealed with the evidence key. A rejected or retry outcome opens a work item. Audited as kyc.check_refreshed.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Investor id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "checkId",
+      "in": "path",
+      "required": true,
+      "description": "Path parameter.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/KycCheck"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "501": {
+      "$ref": "#/components/responses/NotConfigured"
+     },
+     "502": {
+      "$ref": "#/components/responses/BadGateway"
+     }
+    },
+    "x-laissez-permission": "clients:write",
+    "x-laissez-api-key-scopes": [
+     "clients"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance"
+    ]
+   }
+  },
+  "/v1/investors/{id}/kyc/checks/{checkId}/evidence": {
+   "get": {
+    "tags": [
+     "Identity verification"
+    ],
+    "operationId": "readKycEvidence",
+    "summary": "Read the sealed evidence",
+    "description": "Decrypts and returns the provider record. Requires ?purpose=<why>; the read is written to the evidence access log and audited as kyc.evidence_read.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Investor id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "checkId",
+      "in": "path",
+      "required": true,
+      "description": "Path parameter.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "purpose",
+      "in": "query",
+      "required": false,
+      "description": "Why the evidence is being opened. Recorded.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "check_id": {
+           "type": "string"
+          },
+          "investor_id": {
+           "type": "string"
+          },
+          "sha256": {
+           "type": "string"
+          },
+          "evidence": {
+           "description": "The provider status and applicant record."
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "compliance:write",
+    "x-laissez-api-key-scopes": [
+     "compliance"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance",
+     "legal"
+    ]
+   }
+  },
+  "/v1/kyc/evidence-access-log": {
+   "get": {
+    "tags": [
+     "Identity verification"
+    ],
+    "operationId": "listEvidenceAccess",
+    "summary": "Who opened evidence, when and why",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "integer"
+             },
+             "object_kind": {
+              "type": "string"
+             },
+             "object_id": {
+              "type": "string"
+             },
+             "accessed_by": {
+              "type": "string"
+             },
+             "purpose": {
+              "type": "string"
+             },
+             "accessed_at": {
+              "type": "string",
+              "format": "date-time"
+             }
+            }
+           }
+          }
+         },
+         "required": [
+          "data"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "audit:export",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "compliance",
+     "auditor"
+    ]
+   }
+  },
+  "/v1/kyc/webhooks/sumsub": {
+   "post": {
+    "tags": [
+     "Identity verification"
+    ],
+    "operationId": "sumsubWebhook",
+    "summary": "Provider webhook",
+    "description": "Signed with the webhook secret (x-payload-digest over the raw body, algorithm in x-payload-digest-alg). The applicant is matched by external user id (organization:investor). Audited as kyc.webhook.",
+    "security": [],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "description": "Sumsub webhook payload."
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "received": {
+           "type": "boolean"
+          },
+          "status": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     }
+    },
+    "x-laissez-permission": "public",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": []
    }
   },
   "/v1/portal/me": {
@@ -17897,6 +19223,1278 @@
      "admin",
      "ops",
      "compliance"
+    ]
+   }
+  },
+  "/v1/investors/{id}/portal-accounts": {
+   "get": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "listPortalAccounts",
+    "summary": "Portal accounts of a client",
+    "description": "Accounts the client created from their links (passkeys, authenticator app, last sign-in, active sessions).",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Investor id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "string",
+              "format": "uuid"
+             },
+             "email": {
+              "type": "string"
+             },
+             "created_at": {
+              "type": "string",
+              "format": "date-time"
+             },
+             "last_login_at": {
+              "type": [
+               "string",
+               "null"
+              ],
+              "format": "date-time"
+             },
+             "totp_enabled": {
+              "type": "boolean"
+             },
+             "disabled_at": {
+              "type": [
+               "string",
+               "null"
+              ],
+              "format": "date-time"
+             },
+             "passkeys": {
+              "type": "integer"
+             },
+             "active_sessions": {
+              "type": "integer"
+             }
+            }
+           }
+          }
+         },
+         "required": [
+          "data"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "read",
+    "x-laissez-api-key-scopes": [
+     "read"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance",
+     "legal",
+     "issuer",
+     "developer",
+     "auditor"
+    ]
+   }
+  },
+  "/v1/investors/{id}/portal-accounts/{accountId}/disable": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "disablePortalAccount",
+    "summary": "Disable a portal account",
+    "description": "Signs the account out everywhere and refuses its passkeys until enabled again. Audited.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Investor id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "accountId",
+      "in": "path",
+      "required": true,
+      "description": "Path parameter.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string",
+           "format": "uuid"
+          },
+          "disabled": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "clients:write",
+    "x-laissez-api-key-scopes": [
+     "clients"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance"
+    ]
+   }
+  },
+  "/v1/investors/{id}/portal-accounts/{accountId}/enable": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "enablePortalAccount",
+    "summary": "Enable a portal account",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "description": "Investor id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "accountId",
+      "in": "path",
+      "required": true,
+      "description": "Path parameter.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string",
+           "format": "uuid"
+          },
+          "disabled": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "clients:write",
+    "x-laissez-api-key-scopes": [
+     "clients"
+    ],
+    "x-laissez-roles": [
+     "admin",
+     "ops",
+     "compliance"
+    ]
+   }
+  },
+  "/v1/portal-auth/register/options": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalRegisterOptions",
+    "summary": "Create a portal account: options",
+    "description": "With the link token. WebAuthn creation options for the investor's passkey. One account per client.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "challenge_id": {
+           "type": "string",
+           "format": "uuid"
+          },
+          "options": {
+           "description": "PublicKeyCredentialCreationOptions."
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "portal",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ]
+   }
+  },
+  "/v1/portal-auth/register/verify": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalRegisterVerify",
+    "summary": "Create a portal account: verify",
+    "description": "With the link token. Creates the account, stores the passkey and returns a portal session (lz_ps_). Audited as portal.account_created.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+         },
+         "credential": {
+          "description": "PublicKeyCredential, JSON-encoded."
+         }
+        },
+        "required": [
+         "challenge_id",
+         "credential"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "session_token": {
+           "type": "string"
+          },
+          "account_id": {
+           "type": "string",
+           "format": "uuid"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "portal",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ]
+   }
+  },
+  "/v1/portal-auth/login/options": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalLoginOptions",
+    "summary": "Portal sign-in: options",
+    "security": [],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "challenge_id": {
+           "type": "string",
+           "format": "uuid"
+          },
+          "options": {
+           "description": "PublicKeyCredentialRequestOptions."
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     }
+    },
+    "x-laissez-permission": "public",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": []
+   }
+  },
+  "/v1/portal-auth/login/verify": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalLoginVerify",
+    "summary": "Portal sign-in: verify",
+    "description": "Returns a portal session. When the account has an authenticator app, mfa_required is true and the session opens the portal only after POST /v1/portal-auth/mfa.",
+    "security": [],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+         },
+         "credential": {
+          "description": "PublicKeyCredential, JSON-encoded."
+         }
+        },
+        "required": [
+         "challenge_id",
+         "credential"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "session_token": {
+           "type": "string"
+          },
+          "mfa_required": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "public",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": []
+   }
+  },
+  "/v1/portal-auth/mfa": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalMfa",
+    "summary": "Portal sign-in: second factor",
+    "description": "With the portal session token. A six-digit code from the authenticator app; a code cannot be reused.",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "code": {
+          "type": "string",
+          "pattern": "^[0-9]{6}$"
+         }
+        },
+        "required": [
+         "code"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "ok": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "portal",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ]
+   }
+  },
+  "/v1/portal-auth/session": {
+   "get": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalSession",
+    "summary": "The signed-in investor",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "investor_id": {
+           "type": "string"
+          },
+          "name": {
+           "type": "string"
+          },
+          "mfa_pending": {
+           "type": "boolean"
+          },
+          "totp_enabled": {
+           "type": "boolean"
+          },
+          "passkeys": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "string"
+             },
+             "label": {
+              "type": "string"
+             },
+             "created_at": {
+              "type": "string",
+              "format": "date-time"
+             },
+             "last_used_at": {
+              "type": [
+               "string",
+               "null"
+              ],
+              "format": "date-time"
+             }
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "portal",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ]
+   }
+  },
+  "/v1/portal-auth/logout": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalLogout",
+    "summary": "Sign out of the portal",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "signed_out": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "portal",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ]
+   }
+  },
+  "/v1/portal-auth/totp/setup": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalTotpSetup",
+    "summary": "Authenticator app: start",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "secret": {
+           "type": "string"
+          },
+          "uri": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "portal",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ]
+   }
+  },
+  "/v1/portal-auth/totp/enable": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalTotpEnable",
+    "summary": "Authenticator app: turn on",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "code": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "code"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "enabled": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "portal",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ]
+   }
+  },
+  "/v1/portal-auth/totp/disable": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalTotpDisable",
+    "summary": "Authenticator app: turn off",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "code": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "code"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "enabled": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "portal",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ]
+   }
+  },
+  "/v1/portal-auth/passkeys/options": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalAddPasskeyOptions",
+    "summary": "Add a passkey: options",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "challenge_id": {
+           "type": "string",
+           "format": "uuid"
+          },
+          "options": {
+           "description": "PublicKeyCredentialCreationOptions."
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "portal",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
+    ]
+   }
+  },
+  "/v1/portal-auth/passkeys/verify": {
+   "post": {
+    "tags": [
+     "Portal"
+    ],
+    "operationId": "portalAddPasskeyVerify",
+    "summary": "Add a passkey: verify",
+    "security": [
+     {
+      "sessionToken": []
+     },
+     {
+      "apiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/LaissezVersion"
+     },
+     {
+      "$ref": "#/components/parameters/IdempotencyKey"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+         },
+         "credential": {
+          "description": "PublicKeyCredential, JSON-encoded."
+         },
+         "label": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "challenge_id",
+         "credential"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK.",
+      "headers": {
+       "Laissez-Version": {
+        "$ref": "#/components/headers/LaissezVersion"
+       },
+       "Idempotent-Replayed": {
+        "$ref": "#/components/headers/IdempotentReplayed"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     }
+    },
+    "x-laissez-permission": "portal",
+    "x-laissez-api-key-scopes": [],
+    "x-laissez-roles": [
+     "admin"
     ]
    }
   },
@@ -32599,6 +35197,10 @@
           "items": {
            "type": "string"
           }
+         },
+         "portal_require_account": {
+          "default": false,
+          "type": "boolean"
          }
         }
        }
@@ -36052,6 +38654,136 @@
     "required": [
      "error"
     ]
+   },
+   "KycCheck": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "investor_id": {
+      "type": "string"
+     },
+     "provider": {
+      "type": "string"
+     },
+     "applicant_id": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "level": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "started",
+       "pending",
+       "approved",
+       "rejected",
+       "retry",
+       "expired"
+      ]
+     },
+     "outcome": {
+      "description": "review_status, answer, reject_type, reject_labels, moderation_comment, document_types, checked_via, at."
+     },
+     "evidence_sha256": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "evidence_ref": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "created_by": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "reviewed_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "last_webhook_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     }
+    }
+   },
+   "ScreeningReview": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "investor_id": {
+      "type": "string"
+     },
+     "investor": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "pep",
+       "adverse_media"
+      ]
+     },
+     "result": {
+      "type": "string",
+      "enum": [
+       "clear",
+       "hit",
+       "pending"
+      ]
+     },
+     "source": {
+      "type": "string"
+     },
+     "summary": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "references": {
+      "type": "array",
+      "items": {
+       "description": "title, url, date, note; for a PEP match: list, entry, matched, program, score."
+      }
+     },
+     "reviewed_by": {
+      "type": "string"
+     },
+     "reviewed_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "next_review_on": {
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    }
    },
    "AuditExportDestination": {
     "type": "object",
@@ -40468,6 +43200,10 @@
       "items": {
        "type": "string"
       }
+     },
+     "portal_require_account": {
+      "type": "boolean",
+      "description": "Investors must create a passkey account from their link; links alone no longer open the portal."
      }
     }
    },

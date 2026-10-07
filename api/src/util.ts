@@ -35,6 +35,15 @@ export type Env = {
   SELLER_TAX_ID?: string;
   /** Optional. Where staff notifications (organization verification, quote requests) are sent. */
   STAFF_EMAIL?: string;
+  /** Optional. Sumsub identity verification: app token, secret key, webhook secret, level name, API base (tests), and the evidence key. */
+  SUMSUB_APP_TOKEN?: string;
+  SUMSUB_SECRET_KEY?: string;
+  SUMSUB_WEBHOOK_SECRET?: string;
+  SUMSUB_LEVEL?: string;
+  SUMSUB_API_BASE?: string;
+  EVIDENCE_ENC_KEY?: string;
+  /** Optional. Shared inbox for access requests (falls back to STAFF_EMAIL, then the founder). */
+  LEADS_EMAIL?: string;
 };
 
 const ALPHA = 'abcdefghijkmnopqrstuvwxyz23456789';

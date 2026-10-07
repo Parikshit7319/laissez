@@ -187,6 +187,29 @@ Inside the Worker, `wrangler.toml` schedules two crons: every 10 minutes `uptime
 
 If the status page shows "Sanctions lists" degraded, the daily job failed or did not run: open the latest `Laissez jobs` run, read the parser or download error, rerun with `job: sanctions`. If "Holder monitoring" is degraded, rerun with `job: sweep`.
 
+## Switching on identity verification (Sumsub)
+
+Set `SUMSUB_APP_TOKEN` and `SUMSUB_SECRET_KEY` (from the Sumsub dashboard, App tokens) and `SUMSUB_WEBHOOK_SECRET` (the webhook's secret key) as Worker secrets; optionally `SUMSUB_LEVEL` (default `basic-kyc-level`) and `EVIDENCE_ENC_KEY` (32 random bytes, base64url; falls back to `SSO_ENC_KEY`). In Sumsub, point the webhook at `https://laissez-api.laissez.workers.dev/v1/kyc/webhooks/sumsub` with digest algorithm HMAC_SHA256_HEX. Until the first two are set every check route answers 501 and the client page says so. Documents never reach Laissez; the provider's record is sealed at rest and every read writes `evidence_access_log` (`GET /v1/kyc/evidence-access-log`).
+
+## PEP data
+
+The weekly PEP load (`OS-PEP`) downloads OpenSanctions datasets: by default `us_cia_world_leaders` (about 5,000 names). `PEP_DATASETS` (comma separated slugs, for example `peps`) and `PEP_COUNTRIES` (ISO alpha-2) widen or narrow it; `PEP_FILE` points at a downloaded `targets.simple.csv` for offline runs. OpenSanctions bulk data is CC BY-NC 4.0: before a commercial deployment buy their licence or switch the source to a commercial provider. A PEP match opens a review (`/reviews` in the app) and a work item; it never freezes or refuses an order.
+
+## Audit export
+
+Customers add destinations under Organization, Audit export: Splunk HEC, a signed HTTPS endpoint, or an S3 bucket with Object Lock (COMPLIANCE retention, path-style addressing, SigV4). The Worker cron pushes new events every ten minutes; `POST .../run` with `from_seq` backfills. Secrets inside a destination are sealed with `SSO_ENC_KEY`. Nothing to configure on the Laissez side.
+
+## Staging environment
+
+Production was the only environment, and the CI smoke test wrote to it. Staging is a second Worker (`laissez-api-staging`, `[env.staging]` in `api/wrangler.toml`) pointed at a Neon branch of the production database.
+
+1. In the Neon console (project `laissez`) create a branch named `staging` from `main`. Copy its two connection strings (owner and `laissez_rt`).
+2. From `api/`: `npx wrangler secret put DATABASE_URL --env staging` and `DATABASE_URL_TENANT --env staging` with those strings. Set `SIGNING_KEY_JWK`, `SSO_ENC_KEY`, `DEMO_IDP_JWK`, `INTERNAL_TOKEN` for staging too (new values are fine; generate them as in Local setup). Leave the chain keys unset on staging unless you want it to sign on the test network.
+3. `npx wrangler deploy --env staging` once, so the Worker exists. Its URL is `https://laissez-api-staging.laissez.workers.dev`.
+4. CI (`ci.yml`) uploads preview versions with `--env staging` and runs the smoke test against the staging preview URL. The smoke test's organizations, settlements and metrics land in the staging branch, and the live metrics page stops counting them.
+5. To use the app against staging in a browser: in the console, `localStorage.setItem('laissez-api-base', 'https://laissez-api-staging.laissez.workers.dev')` and reload. To build the site against it: `PUBLIC_API_BASE=https://laissez-api-staging.laissez.workers.dev npm run build`.
+6. Reset staging data by resetting the Neon branch from `main` (console, Reset from parent); the schema travels with it. Apply new migrations to staging first (`DATABASE_URL=<staging owner> node db/migrate.mjs db/migrate-NNN.sql`), run the smoke test, then apply to production.
+
 ## Switching the test network on
 
 The contracts are built and tested locally (`node api/chain/local-test.mjs`, 22 steps) but not yet deployed to Base Sepolia. `docs/chain.md` has the steps: fund the operator, run `api/chain/deploy.mjs`, set the three chain keys as Actions secrets, confirm the status page and the first nightly anchor. Laissez signs only on test networks (`TESTNET_CHAIN_IDS` in `api/src/chain.ts`); a different chain is a code change after counsel clears the cash leg.

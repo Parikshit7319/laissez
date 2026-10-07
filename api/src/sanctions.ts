@@ -21,7 +21,7 @@ export async function screenNames(sql: Sql, ws: string, names: string[]): Promis
   const rows = await sql`
     select q.name as screened, e.source, e.source_uid, e.name, e.primary_name, coalesce(e.programs, '') as programs, similarity(e.name_norm, q.norm)::float8 as score
     from unnest(${uniq}::text[], ${norms}::text[]) as q(name, norm)
-    cross join lateral (select * from sanctions_entries e where e.name_norm % q.norm order by similarity(e.name_norm, q.norm) desc limit 3) e
+    cross join lateral (select * from sanctions_entries e where e.name_norm % q.norm and e.source <> 'OS-PEP' order by similarity(e.name_norm, q.norm) desc limit 3) e
     where similarity(e.name_norm, q.norm) >= ${MATCH_THRESHOLD}
       and not exists (select 1 from screening_hits h where h.workspace_id = ${ws} and h.screened_name = q.name and h.source = e.source and h.source_uid = e.source_uid and h.status = 'false_positive')
     order by score desc`;
@@ -39,4 +39,27 @@ export async function recordHits(sql: Sql, ws: string, hits: { investorId: strin
       values (${ws}, ${id('hit', 10)}, ${h.investorId}, ${h.name}, ${h.m.source}, ${h.m.uid}, ${h.m.entry}, ${h.m.primary}, ${h.m.program}, ${h.m.score}, ${context})
       on conflict (workspace_id, screened_name, source, source_uid) do nothing`;
   }
+}
+
+/**
+ * Politically exposed persons. Same matcher, PEP rows only. A match is not a sanction: the caller records a review
+ * (screening_reviews, kind pep, result pending) and opens enhanced due diligence; nothing is frozen or refused.
+ */
+export async function screenPeps(sql: Sql, ws: string, names: string[]): Promise<Record<string, Match | null>> {
+  const uniq = [...new Set(names.filter(Boolean))];
+  const out: Record<string, Match | null> = Object.fromEntries(uniq.map((n) => [n, null]));
+  if (!uniq.length) return out;
+  const norms = uniq.map(normName);
+  const rows = await sql`
+    select q.name as screened, e.source, e.source_uid, e.name, e.primary_name, coalesce(e.programs, '') as programs, e.country, similarity(e.name_norm, q.norm)::float8 as score
+    from unnest(${uniq}::text[], ${norms}::text[]) as q(name, norm)
+    cross join lateral (select * from sanctions_entries e where e.name_norm % q.norm and e.source = 'OS-PEP' order by similarity(e.name_norm, q.norm) desc limit 3) e
+    where similarity(e.name_norm, q.norm) >= ${MATCH_THRESHOLD}
+      and not exists (select 1 from screening_reviews r where r.workspace_id = ${ws} and r.kind = 'pep' and r.source = e.source || ':' || e.source_uid and r.result = 'clear')
+    order by score desc`;
+  for (const r of rows) {
+    if (out[r.screened]) continue;
+    out[r.screened] = { entry: r.name, primary: r.primary_name, program: `${r.programs}${r.country ? ` (${r.country})` : ''}`, source: `${r.source}:${r.source_uid}`, uid: r.source_uid, score: Math.round(r.score * 100) / 100 };
+  }
+  return out;
 }

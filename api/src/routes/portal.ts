@@ -12,6 +12,7 @@ import { createDecision, liveCtx } from './core';
 import { loadShareRow, decideShare, shareDetail } from './network';
 import { evaluate, type Check } from '../../../src/proto/engine';
 import { findTest } from '../../../src/proto/thresholds';
+import { portalSession } from './portal-auth';
 
 export const routes = router();
 /** Mounted at /v1/portal: /v1/portal/me, /v1/portal/funds and so on, authenticated by "Authorization: Bearer lz_inv_...". */
@@ -27,19 +28,37 @@ publicRoutes.use('*', async (c, next) => {
   const admin = adminSql(c.env.DATABASE_URL);
   const h = c.req.header('authorization') ?? '';
   const tok = h.startsWith('Bearer ') ? h.slice(7).trim() : '';
-  if (!tok.startsWith('lz_inv_')) throw new ApiError(401, 'portal_unauthorized', 'Open the portal from the link your distributor sent you.');
+  // Two ways in: a portal account session (passkey, optional authenticator app) or the link the distributor sent.
+  if (tok.startsWith('lz_ps_')) {
+    const s = await portalSession(c.env, tok);
+    if (!s) throw new ApiError(401, 'portal_unauthorized', 'Your portal session ended. Sign in again with your passkey.');
+    if (s.mfa_pending) throw new ApiError(403, 'mfa_required', 'Enter the code from your authenticator app to finish signing in.');
+    if (!(await rateLimit(admin, `portal:${s.id}`, 120, 60))) throw new ApiError(429, 'rate_limited', 'Too many requests in a minute. Wait a moment and try again.');
+    const actor: Actor = { kind: 'investor', id: s.investor_id, name: `${s.inv_name} (investor portal)` };
+    c.set('admin', admin); c.set('ws', s.workspace_id); c.set('wsKind', s.kind); c.set('actor', actor);
+    c.set('sql', tenantSql(c.env.DATABASE_URL_TENANT, s.workspace_id));
+    return next();
+  }
+  if (!tok.startsWith('lz_inv_')) throw new ApiError(401, 'portal_unauthorized', 'Open the portal from the link your distributor sent you, or sign in with your passkey.');
   const hash = await sha256(tok);
-  const [r] = await admin`select pa.workspace_id, pa.investor_id, pa.last_used_at, w.kind, i.name as inv_name
+  const [r] = await admin`select pa.workspace_id, pa.investor_id, pa.last_used_at, w.kind, w.security_policy, i.name as inv_name,
+      exists (select 1 from portal_accounts a where a.workspace_id = pa.workspace_id and a.investor_id = pa.investor_id and a.disabled_at is null) as has_account
     from portal_access pa join workspaces w on w.id = pa.workspace_id join investors i on i.workspace_id = pa.workspace_id and i.id = pa.investor_id
     where pa.token_hash = ${hash} and pa.revoked_at is null and pa.expires_at > now() and (w.expires_at is null or w.expires_at > now())`;
   if (!r) throw new ApiError(401, 'portal_link_expired', 'This portal link has expired or was withdrawn. Ask your distributor for a new link.');
   if (!(await rateLimit(admin, `portal:${hash.slice(0, 24)}`, 120, 60))) throw new ApiError(429, 'rate_limited', 'Too many requests in a minute. Wait a moment and try again.');
+  // When the distributor requires accounts, a link only shows who you are and lets you create or sign in to one.
+  const requireAccount = !!r.security_policy?.portal_require_account;
+  if ((requireAccount || r.has_account) && !/\/v1\/portal\/me$/.test(new URL(c.req.url).pathname)) {
+    throw new ApiError(403, 'portal_account_required', r.has_account ? 'Sign in to the portal with your passkey. Links no longer open it once an account exists.' : 'Your distributor asks you to create a portal account from this link before you continue.', { has_account: r.has_account });
+  }
   if (!r.last_used_at || Date.now() - new Date(r.last_used_at).getTime() > 600_000) {
     try { bg(c, admin`update portal_access set last_used_at = now() where token_hash = ${hash}` as any); } catch { /* no execution context */ }
   }
   const actor: Actor = { kind: 'investor', id: r.investor_id, name: `${r.inv_name} (investor portal)` };
   c.set('admin', admin); c.set('ws', r.workspace_id); c.set('wsKind', r.kind); c.set('actor', actor);
   c.set('sql', tenantSql(c.env.DATABASE_URL_TENANT, r.workspace_id));
+  c.set('portalLink', { requireAccount, hasAccount: r.has_account });
   await next();
 });
 
@@ -81,7 +100,9 @@ publicRoutes.get('/me', async (c) => {
   if (!inv) throw new ApiError(404, 'not_found', 'Your account was removed by your distributor. Contact them for help.');
   const w = wrows[0];
   const t = today();
+  const link = c.get('portalLink');
   return c.json({
+    account: { via: link ? 'link' : 'session', required: !!link?.requireAccount, exists: link ? !!link.hasAccount : true },
     distributor: { name: w.brand_name || w.name, brand_color: w.brand_color || '#1f3a33', sandbox: w.kind === 'sandbox' || w.kind === 'network' },
     investor: {
       ...inv,
@@ -362,6 +383,25 @@ publicRoutes.post('/consent/withdraw/:share_id', async (c) => {
 });
 
 // ---------- Distributor routes ----------
+/** Portal accounts a client created from their links: who, when, second factor, last sign-in. */
+routes.get('/investors/:id/portal-accounts', async (c) => {
+  need(c, 'read');
+  const rows = await c.get('admin')`select a.id, a.email, a.created_at, a.last_login_at, a.totp_enabled_at is not null as totp_enabled, a.disabled_at,
+      (select count(*)::int from portal_passkeys p where p.account_id = a.id) as passkeys, (select count(*)::int from portal_sessions s where s.account_id = a.id and s.revoked_at is null and s.expires_at > now()) as active_sessions
+    from portal_accounts a where a.workspace_id = ${c.get('ws')} and a.investor_id = ${c.req.param('id')} order by a.created_at`;
+  return c.json({ data: rows });
+});
+/** Disabling an account signs it out everywhere and refuses its passkeys; enabling lets it sign in again. */
+routes.post('/investors/:id/portal-accounts/:accountId/:action{disable|enable}', async (c) => {
+  const a = need(c, 'clients:write');
+  const ws = c.get('ws'); const disable = c.req.param('action') === 'disable';
+  const [row] = await c.get('admin')`update portal_accounts set disabled_at = ${disable ? new Date() : null} where workspace_id = ${ws} and investor_id = ${c.req.param('id')} and id = ${c.req.param('accountId')} returning id`;
+  if (!row) throw new ApiError(404, 'not_found', 'No portal account with that id for this client.');
+  if (disable) await c.get('admin')`update portal_sessions set revoked_at = now() where account_id = ${row.id} and revoked_at is null`;
+  await audit(c.get('sql'), ws, a, disable ? 'portal.account_disabled' : 'portal.account_enabled', c.req.param('id'), { account_id: row.id });
+  return c.json({ id: row.id, disabled: disable });
+});
+
 routes.post('/investors/:id/portal-invite', async (c) => {
   const actor = need(c, 'clients:write');
   const sql = c.get('sql'); const ws = c.get('ws');

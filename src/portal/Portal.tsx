@@ -5,6 +5,7 @@ import { Credential } from '../proto/Credential';
 import { classInfo, jurName, bookingCenters, type Investor } from '../proto/data';
 import { TESTS, subjectOf } from '../proto/thresholds';
 import { call, captureToken, forgetToken, PortalError, fmtMoney, fmtDate, fmtWhen, onColor } from './client';
+import { CreateAccount, SignIn, AccountPage, getSession, setSession } from './Account';
 import '../styles/proto.css';
 import './portal.css';
 
@@ -22,13 +23,14 @@ function applyBrandToDocument(b: Brand) {
   } catch { /* no document */ }
 }
 type Api = <T = any>(path: string, opts?: { method?: string; body?: unknown }) => Promise<T>;
-type Route = { name: 'overview' | 'fund' | 'requests' | 'evidence'; arg?: string };
+type Route = { name: 'overview' | 'fund' | 'requests' | 'evidence' | 'account'; arg?: string };
 
 const parse = (): Route => {
   const p = (location.hash || '#/').slice(1).split('?')[0].split('/').filter(Boolean);
   if (p[0] === 'fund' && p[1]) return { name: 'fund', arg: decodeURIComponent(p[1]) };
   if (p[0] === 'requests') return { name: 'requests' };
   if (p[0] === 'evidence') return { name: 'evidence' };
+  if (p[0] === 'account') return { name: 'account' };
   return { name: 'overview' };
 };
 
@@ -92,7 +94,10 @@ function Footer({ sandbox, brand }: { sandbox: boolean; brand?: Brand | null }) 
 
 // ---------- App ----------
 export default function Portal() {
-  const [token] = useState(() => captureToken('lz_inv_', KEY));
+  const [linkToken] = useState(() => captureToken('lz_inv_', KEY));
+  const [session, setSessionState] = useState<string | null>(getSession);
+  // A signed-in session wins over a link; a link alone works until the distributor requires accounts.
+  const token = session ?? linkToken;
   const [route, setRoute] = useState<Route>(parse);
   useEffect(() => {
     const on = () => { setRoute(parse()); try { window.scrollTo(0, 0); } catch { /* no window */ } };
@@ -109,10 +114,19 @@ export default function Portal() {
   }, [token]);
   const refresh = () => { me.reload(); funds.reload(); };
 
+  const signedIn = (tok: string) => { setSessionState(tok); location.hash = '#/'; };
   if (!token) {
     return (
-      <Gate title="Open the portal from your link">
-        <p class="pt-muted">Your distributor sends you a private link to this portal. Open that link on this device to sign in. Links work for 30 days.</p>
+      <Gate title="Sign in to your portal">
+        <SignIn onDone={signedIn} note="If you have created an account before, sign in with your passkey. Otherwise open the private link your distributor sent you; links work for 30 days." />
+      </Gate>
+    );
+  }
+  if (me.error && session && me.error.status === 401) {
+    setSession(null);
+    return (
+      <Gate title="Your session ended">
+        <SignIn onDone={signedIn} note="Sign in again with your passkey." />
       </Gate>
     );
   }
@@ -122,6 +136,20 @@ export default function Portal() {
         <p class="pt-muted">{me.error.message}</p>
         <p class="pt-small pt-muted">For your security, portal links expire after 30 days and can be withdrawn by your distributor at any time.</p>
         <button type="button" class="pt-btn" onClick={() => { forgetToken(KEY); location.reload(); }}>Forget this link on this device</button>
+        <p class="pt-small pt-muted" style={{ marginTop: '1rem' }}>Created an account before?</p>
+        <SignIn onDone={signedIn} />
+      </Gate>
+    );
+  }
+  // The link opened, but the account rules say the portal only opens to a signed-in account.
+  if (me.data?.account?.via === 'link' && (me.data.account.required || me.data.account.exists)) {
+    return me.data.account.exists ? (
+      <Gate title="Sign in with your passkey">
+        <SignIn onDone={signedIn} note={`You already have a portal account with ${me.data.distributor?.name ?? 'your distributor'}. Links no longer open the portal once an account exists.`} />
+      </Gate>
+    ) : (
+      <Gate title="Create your portal account">
+        <CreateAccount linkToken={linkToken!} distributor={me.data.distributor?.name} onDone={signedIn} />
       </Gate>
     );
   }
@@ -130,7 +158,7 @@ export default function Portal() {
   const brand = brandInfo?.brand_color ?? d?.brand_color ?? '#1f3a33';
   const brandName = brandInfo?.name ?? d?.name;
   const logo = brandInfo?.logo_data_url ?? null;
-  const nav: [Route['name'], string, string][] = [['overview', '#/', 'Overview'], ['requests', '#/requests', 'Requests'], ['evidence', '#/evidence', 'Evidence']];
+  const nav: [Route['name'], string, string][] = [['overview', '#/', 'Overview'], ['requests', '#/requests', 'Requests'], ['evidence', '#/evidence', 'Evidence'], ['account', '#/account', session ? 'Account' : 'Secure my access']];
   const current = route.name === 'fund' ? 'overview' : route.name;
   const fund = route.name === 'fund' ? (funds.data?.data as any[] | undefined)?.find((f) => f.ticker === route.arg) : null;
 
@@ -149,7 +177,10 @@ export default function Portal() {
       <main class="pt-main" id="main">
         <div class="pt-wrap">
           {me.error ? <Alert error={me.error} /> : !me.data ? <Spinner /> : (
-            route.name === 'requests' ? <Requests api={api} />
+            route.name === 'account' ? (session
+              ? <AccountPage token={session} onSignedOut={() => { setSessionState(null); location.hash = '#/'; location.reload(); }} />
+              : <section class="pt-section"><h2>Secure my access</h2><div class="pt-card"><CreateAccount linkToken={linkToken!} distributor={d?.name} onDone={signedIn} /></div></section>)
+              : route.name === 'requests' ? <Requests api={api} />
               : route.name === 'evidence' ? <Evidence me={me.data} api={api} onChange={refresh} />
                 : route.name === 'fund' ? (funds.error ? <Alert error={funds.error} /> : !funds.data ? <Spinner /> : fund ? <FundDetail f={fund} me={me.data} api={api} onChange={refresh} /> : (
                   <div class="pt-empty"><strong>This fund is not offered to you.</strong><a href="#/">Back to your funds</a></div>

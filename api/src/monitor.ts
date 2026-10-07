@@ -5,6 +5,7 @@
 import type { Sql } from './db';
 import { loadGlobals, loadInvestors, loadFunds, packsAsOf, emit } from './ctx';
 import { screenNames, recordHits } from './sanctions';
+import { openPepReviews } from './pep';
 import { holderStatus, type Ctx } from '../../src/proto/engine';
 import type { Investor, Fund } from '../../src/proto/data';
 import { actorRef, SYSTEM } from './http';
@@ -131,6 +132,8 @@ export async function runMonitor(sql: Sql, ws: string, trigger: string, opts: Mo
     .filter((i) => { const m = matches[i.name]; return m && !known.has(hitKey(i.name, m.source, m.uid)); })
     .map((i) => ({ investorId: i.id, name: i.name, m: matches[i.name]! }));
   if (fresh.length) await recordHits(sql, ws, fresh, 'monitoring');
+  // PEP list: reviews and work items, outside the standing computation (a PEP is not frozen).
+  try { await openPepReviews(sql, ws, invList.map((i) => ({ id: i.id, name: i.name })), 'system:monitor'); } catch (e) { console.error('pep sweep', e); }
 
   // 3. Recompute the standing of every holding.
   const screen = (name: string) => {
