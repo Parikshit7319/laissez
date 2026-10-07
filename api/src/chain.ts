@@ -99,6 +99,15 @@ export async function loadDeployment(admin: Sql, fresh = false): Promise<Deploym
 const invalidateDeployment = () => { depCache = null; };
 
 export const networkLabel = (d: Deployment) => NETWORK_LABEL[d.network] ?? d.network;
+/**
+ * Chains Laissez signs on. Everything here carries test assets only. Adding a chain where tokens have value is a code
+ * change that follows counsel's view on custody and money transmission, not a configuration switch (docs/chain.md).
+ */
+export const TESTNET_CHAIN_IDS: ReadonlySet<number> = new Set([84532, 31337]);
+export const isTestnet = (chainId: number) => TESTNET_CHAIN_IDS.has(Number(chainId));
+export function assertTestnet(chainId: number) {
+  if (!isTestnet(chainId)) throw new Final(`Chain ${chainId} is not a test network. Laissez signs only on test networks until the cash leg is cleared for real value.`);
+}
 export const txUrl = (d: Deployment | null, hash: string | null | undefined) => (d?.explorer && hash ? `${d.explorer}/tx/${hash}` : null);
 export const addressUrl = (d: Deployment | null, addr: string | null | undefined) => (d?.explorer && addr ? `${d.explorer}/address/${addr}` : null);
 
@@ -268,6 +277,7 @@ type Sent = { hash: Hex; label: string; to: Address; data: Hex; at: string; nonc
  * Returns what was broadcast; `error` is set when a later transaction could not be sent.
  */
 async function sendAll(ch: Chain, admin: Sql, env: Env, txs: TxReq[]): Promise<{ sent: Sent[]; error?: unknown }> {
+  assertTestnet(ch.dep.chainId);
   const account = operatorAccount(env);
   const fee = await fees(ch);
   for (let attempt = 0; ; attempt++) {

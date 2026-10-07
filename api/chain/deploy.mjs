@@ -15,6 +15,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { HERE, FUNDS, CASH, CLAIM_TOPIC, DECIMALS, BASE_SEPOLIA, artifacts, countriesFor, treasuryWallet, identityInitCodeHash } from './lib.mjs';
 
 const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
+// The only chains this script deploys to. Both carry test assets. A chain where tokens have value is added here by a
+// code change after counsel has cleared the cash leg (docs/chain.md), never by pointing CHAIN_RPC_URL somewhere else.
 const NETWORKS = { 84532: { network: 'base-sepolia', explorer: BASE_SEPOLIA.explorer }, 31337: { network: 'hardhat-local', explorer: null } };
 
 export async function deploy({ rpcUrl, operatorKey, claimKey, custodySeed, outFile = path.join(HERE, 'deployment.json'), log = console.log, autoFundTestCash = true }) {
@@ -27,7 +29,8 @@ export async function deploy({ rpcUrl, operatorKey, claimKey, custodySeed, outFi
   const chainId = await pub.getChainId();
   const chain = { id: chainId, name: `chain-${chainId}`, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [rpcUrl] } } };
   const wallet = createWalletClient({ account: operator, chain, transport });
-  const net = NETWORKS[chainId] ?? { network: `chain-${chainId}`, explorer: null };
+  const net = NETWORKS[chainId];
+  if (!net) throw new Error(`Chain ${chainId} is not a test network Laissez deploys to (${Object.keys(NETWORKS).join(', ')}). Real-value chains need the cash leg work in docs/chain.md first.`);
 
   let state = fs.existsSync(outFile) ? JSON.parse(fs.readFileSync(outFile, 'utf8')) : null;
   if (state && (state.chainId !== chainId || getAddress(state.operator) !== operator.address)) {

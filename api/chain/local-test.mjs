@@ -6,10 +6,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createPublicClient, createWalletClient, http, keccak256, toBytes, encodeFunctionData, parseEventLogs, BaseError, ContractFunctionRevertedError } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { compile } from './compile.mjs';
 import { deploy } from './deploy.mjs';
 import { startNode, DEV_KEYS } from './localnode.mjs';
+import { verifyAnchorRow } from './verify-anchor.mjs';
 import { artifacts, investorWallet, identitySalt, predictIdentity, claimData, credentialHash, signClaim, claimId, anchorLeaf, merkle, verifyProof, units6, fromUnits6, ISO_NUMERIC } from './lib.mjs';
 
 const results = [];
@@ -78,6 +79,7 @@ try {
     qamar: { lzid: 'LZ-QMR1-AE01-BBBB', country: ISO_NUMERIC['AE-DIFC'], opening: 0 },
     reyes: { lzid: 'LZ-RYS1-US01-CCCC', country: ISO_NUMERIC.US, opening: 0 },
     harlow: { lzid: 'LZ-HRL1-SG02-EEEE', country: ISO_NUMERIC.SG, opening: 0 },
+    nova: { lzid: 'LZ-NVA1-SG03-FFFF', country: ISO_NUMERIC.SG, opening: 0 },
   };
   const expires = Math.floor(Date.parse('2027-03-14T00:00:00Z') / 1000);
   const onboard = async (id, opts = {}) => {
@@ -253,6 +255,7 @@ try {
     assert((await bal(inv.qamar.wallet)) === 350_000, 'opening minted again');
   });
 
+  let anchored;
   await step('Anchor an audit Merkle root and verify a proof on-chain', async () => {
     const heads = [
       ['6f1c2a9e-3b7d-4c11-9a2e-5d4b3c2a1f00', 41, 'a3'.repeat(32)],
@@ -268,7 +271,57 @@ try {
     assert(ev?.args.root === root, 'Anchored event missing');
     for (let i = 0; i < leaves.length; i++) assert(await pub.readContract({ address: C.auditAnchor, abi: A.AuditAnchor.abi, functionName: 'verify', args: [20261002n, leaves[i], proofs[i]] }), `leaf ${i} did not verify on-chain`);
     assert(!(await pub.readContract({ address: C.auditAnchor, abi: A.AuditAnchor.abi, functionName: 'verify', args: [20261002n, keccak256('0x01'), proofs[0]] })), 'forged leaf verified');
+    anchored = { heads, leaves, proofs, root, tx: r.transactionHash, block: Number(r.blockNumber) };
     return `root ${root.slice(0, 14)}...`;
+  });
+
+  await step('RPC-only verifier: accepts every anchored head and rejects a tampered head, a wrong organization and an unanchored day', async () => {
+    assert(anchored, 'no anchor to verify');
+    const row = (i, over = {}) => ({ anchor_date: '2026-10-02', merkle_root: anchored.root, seq: anchored.heads[i][1], head_hash: anchored.heads[i][2], leaf: anchored.leaves[i], proof: anchored.proofs[i], tx_hash: anchored.tx, block: anchored.block, ...over });
+    for (let i = 0; i < anchored.heads.length; i++) {
+      const r = await verifyAnchorRow({ client: pub, contract: C.auditAnchor, workspaceId: anchored.heads[i][0], row: row(i) });
+      assert(r.ok, `row ${i} failed: ${r.checks.filter((c) => !c.ok).map((c) => c.name).join('; ')}`);
+    }
+    const tampered = await verifyAnchorRow({ client: pub, contract: C.auditAnchor, workspaceId: anchored.heads[0][0], row: row(0, { head_hash: 'b4'.repeat(32) }) });
+    assert(!tampered.ok && tampered.checks.some((c) => !c.ok && /leaf recomputed/.test(c.name)), 'a tampered head hash was accepted');
+    const wrongOrg = await verifyAnchorRow({ client: pub, contract: C.auditAnchor, workspaceId: anchored.heads[1][0], row: row(0) });
+    assert(!wrongOrg.ok, 'another organization id was accepted');
+    const wrongDay = await verifyAnchorRow({ client: pub, contract: C.auditAnchor, workspaceId: anchored.heads[0][0], row: row(0, { anchor_date: '2026-10-03' }) });
+    assert(!wrongDay.ok && wrongDay.checks.some((c) => !c.ok && /same root/.test(c.name)), 'an unanchored day was accepted');
+    return `${anchored.heads.length} accepted, 3 rejected`;
+  });
+
+  // An issuer that Laissez never deployed anything for: its own owner key, its own ERC-3643 registry, no Laissez API call.
+  await step('Independent issuer registry: trusts the Laissez claim issuer itself and verifies an investor Laissez onboarded', async () => {
+    const issuerB = privateKeyToAccount(generatePrivateKey());
+    const fund = await wallet.sendTransaction({ to: issuerB.address, value: 10n ** 18n });
+    await pub.waitForTransactionReceipt({ hash: fund, pollingInterval: 50 });
+    const bw = createWalletClient({ account: issuerB, chain, transport: http(node.url) });
+    const bDeploy = async (name) => { const h = await bw.deployContract({ abi: A[name].abi, bytecode: A[name].bytecode, args: [] }); return (await pub.waitForTransactionReceipt({ hash: h, pollingInterval: 50 })).contractAddress; };
+    const bSend = async (address, name, functionName, args = []) => { const h = await bw.writeContract({ address, abi: A[name].abi, functionName, args }); const r = await pub.waitForTransactionReceipt({ hash: h, pollingInterval: 50 }); assert(r.status === 'success', `${name}.${functionName} reverted`); };
+    const ctr = await bDeploy('ClaimTopicsRegistry'); const tir = await bDeploy('TrustedIssuersRegistry'); const irs = await bDeploy('IdentityRegistryStorage'); const ir = await bDeploy('IdentityRegistry');
+    for (const [a, n] of [[ctr, 'ClaimTopicsRegistry'], [tir, 'TrustedIssuersRegistry'], [irs, 'IdentityRegistryStorage']]) await bSend(a, n, 'init');
+    await bSend(ir, 'IdentityRegistry', 'init', [tir, ctr, irs]);
+    await bSend(irs, 'IdentityRegistryStorage', 'bindIdentityRegistry', [ir]);
+    await bSend(ir, 'IdentityRegistry', 'addAgent', [issuerB.address]);
+    await bSend(ctr, 'ClaimTopicsRegistry', 'addClaimTopic', [10101n]);
+    const isV = (w) => pub.readContract({ address: ir, abi: A.IdentityRegistry.abi, functionName: 'isVerified', args: [w] });
+    const r = await onboard('nova'); assert(r.status === 'success', 'nova onboarding reverted');
+    const n = inv.nova;
+    assert(!(await isV(n.wallet)), 'verified before the issuer registered the identity or trusted Laissez');
+    await bSend(ir, 'IdentityRegistry', 'registerIdentity', [n.wallet, n.identity, ISO_NUMERIC.SG]);
+    assert(!(await isV(n.wallet)), 'verified although the issuer does not trust the Laissez claim issuer yet');
+    await bSend(tir, 'TrustedIssuersRegistry', 'addTrustedIssuer', [C.claimIssuer, [10101n]]);
+    assert(await isV(n.wallet), 'the independent registry did not accept the Laissez claim');
+    assert(!(await isV(inv.reyes.wallet)), 'an investor that was never registered is verified');
+    await bSend(tir, 'TrustedIssuersRegistry', 'removeTrustedIssuer', [C.claimIssuer]);
+    assert(!(await isV(n.wallet)), 'still verified after the issuer stopped trusting Laissez');
+    await bSend(tir, 'TrustedIssuersRegistry', 'addTrustedIssuer', [C.claimIssuer, [10101n]]);
+    assert(await isV(n.wallet), 'not verified again after trust was restored');
+    const rv = await send(C.claimIssuer, A.ClaimIssuer.abi, 'revokeClaim', [claimId(C.claimIssuer), n.identity], 200_000n);
+    assert(rv.status === 'success', 'revocation reverted');
+    assert(!(await isV(n.wallet)), 'a Laissez revocation did not reach the independent registry');
+    return `registry ${ir}`;
   });
 
   await step('Operator-only: another account cannot settle', async () => {

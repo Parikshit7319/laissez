@@ -187,6 +187,12 @@ Inside the Worker, `wrangler.toml` schedules two crons: every 10 minutes `uptime
 
 If the status page shows "Sanctions lists" degraded, the daily job failed or did not run: open the latest `Laissez jobs` run, read the parser or download error, rerun with `job: sanctions`. If "Holder monitoring" is degraded, rerun with `job: sweep`.
 
+## Switching the test network on
+
+The contracts are built and tested locally (`node api/chain/local-test.mjs`, 22 steps) but not yet deployed to Base Sepolia. `docs/chain.md` has the steps: fund the operator, run `api/chain/deploy.mjs`, set the three chain keys as Actions secrets, confirm the status page and the first nightly anchor. Laissez signs only on test networks (`TESTNET_CHAIN_IDS` in `api/src/chain.ts`); a different chain is a code change after counsel clears the cash leg.
+
+Anyone can check an anchor against the chain with `node api/chain/verify-anchor.mjs <anchors.json> --workspace <id> --contract <AuditAnchor address>`; the input is the response of `GET /v1/audit-anchors`.
+
 ## Monitoring and logs
 
 - Status page: `https://parikshit7319.github.io/laissez/status/`, backed by `GET /v1/status` (cached 30 s). Components, 90-day uptime, incidents, the 30-day error budget against 99.9 percent and sampled request latency (p50, p95, p99 over 24 hours, by route).
