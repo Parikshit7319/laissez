@@ -55,6 +55,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: |
+            package-lock.json
             api/package-lock.json
             api/jobs/package-lock.json
 
@@ -69,6 +70,11 @@ jobs:
             exit 1
           fi
           echo "Running: $JOB"
+
+      # The rules engine the jobs share with the Worker lives in src/proto and resolves its packages from the root.
+      - name: Install shared dependencies
+        working-directory: .
+        run: npm ci --omit=dev --no-audit --no-fund
 
       - name: Install API dependencies
         run: npm ci --omit=dev --no-audit --no-fund
