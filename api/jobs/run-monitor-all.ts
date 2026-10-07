@@ -4,6 +4,7 @@
 import { pathToFileURL } from 'node:url';
 import type { Sql } from '../src/db';
 import { runMonitor, type MonitorSummary } from '../src/monitor';
+import { openPepReviews } from '../src/pep';
 import { db, log, pool } from './lib';
 
 export type WorkspaceResult = { id: string; name: string; ok: boolean; summary?: MonitorSummary; error?: string; ms: number };
@@ -15,6 +16,12 @@ export async function runMonitorAll(sql: Sql, trigger: string, concurrency = 4):
     const start = Date.now();
     try {
       const summary = await runMonitor(sql, w.id, trigger, { admin: sql });
+      // PEP list: reviews and work items, after the standing computation and outside its query budget (a PEP is not frozen).
+      try {
+        const investors = await sql`select id, name from investors where workspace_id = ${w.id}`;
+        const opened = await openPepReviews(sql, w.id, investors, 'system:monitor');
+        if (opened.length) log(`  ${w.name.slice(0, 40)}: ${opened.length} PEP review${opened.length === 1 ? '' : 's'} opened`);
+      } catch (e: any) { log(`  ${w.name.slice(0, 40)}: PEP sweep failed: ${e?.message ?? e}`); }
       return { id: w.id, name: w.name, ok: true, summary, ms: Date.now() - start };
     } catch (e: any) {
       return { id: w.id, name: w.name, ok: false, error: e?.message ?? String(e), ms: Date.now() - start };
